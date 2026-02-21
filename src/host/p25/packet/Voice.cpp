@@ -1624,6 +1624,8 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
         // don't process network frames if the destination ID's don't match and the network TG hang timer is running
         if (m_p25->m_netLastDstId != 0U && dstId != 0U && (duid == DUID::LDU1 || duid == DUID::LDU2)) {
             if (m_p25->m_netLastDstId != dstId && (m_p25->m_netTGHang.isRunning() && !m_p25->m_netTGHang.hasExpired())) {
+                LogWarning(LOG_NET, "CALL HANG BLOCK: netLastDstId=%u dstId=%u duid=%u netState=%d netTGHangRunning=%u",
+                    m_p25->m_netLastDstId, dstId, (uint32_t)duid, (int)m_p25->m_netState, (uint32_t)m_p25->m_netTGHang.isRunning());
                 if (m_debug) {
                     LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "dropping frames, because dstId does not match and network TG hang timer is running, netLastDstId = %u, dstId = %u",
                         m_p25->m_netLastDstId, dstId);
