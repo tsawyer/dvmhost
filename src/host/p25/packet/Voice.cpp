@@ -1731,6 +1731,9 @@ void Voice::writeNet_TDU()
     resetWithNullAudio(m_netLDU1, false);
     resetWithNullAudio(m_netLDU2, false);
 
+    LogWarning(LOG_NET, "SLEEPTRACE NET_TRANSITION_AUDIO_TO_IDLE: srcId=%u dstId=%u netFrames=%u netLost=%u",
+        m_netLC.getSrcId(), m_netLC.getDstId(), m_netFrames, m_netLost);
+
     m_p25->m_netTimeout.stop();
     m_p25->m_networkWatchdog.stop();
     resetNet();
@@ -1956,6 +1959,8 @@ void Voice::writeNet_LDU1()
         }
 
         m_hadVoice = true;
+        LogWarning(LOG_NET, "SLEEPTRACE NET_TRANSITION_IDLE_TO_AUDIO: srcId=%u dstId=%u frameType=%u",
+            srcId, dstId, (uint32_t)m_netLastFrameType);
         m_p25->m_netState = RS_NET_AUDIO;
         m_p25->m_netLastDstId = dstId;
         m_p25->m_netLastSrcId = srcId;
