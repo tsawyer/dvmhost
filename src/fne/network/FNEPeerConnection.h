@@ -40,6 +40,17 @@ namespace network
         auto operator=(FNEPeerConnection&&) -> FNEPeerConnection& = delete;
         FNEPeerConnection(FNEPeerConnection&) = delete;
 
+        ~FNEPeerConnection()
+        {
+            std::lock_guard<std::mutex> lock(m_jitterMutex);
+            for (auto& pair : m_jitterBuffers) {
+                if (pair.second != nullptr) {
+                    delete pair.second;
+                }
+            }
+            m_jitterBuffers.clear();
+        }
+
         /**
          * @brief Initializes a new instance of the FNEPeerConnection class.
          */

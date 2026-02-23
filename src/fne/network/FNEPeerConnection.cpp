@@ -46,25 +46,7 @@ void FNEPeerConnection::cleanupJitterBuffer(uint64_t streamId)
 
 void FNEPeerConnection::checkJitterTimeouts()
 {
-    if (!m_jitterBufferEnabled) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(m_jitterMutex);
-    
-    // check timeouts for all active jitter buffers
-    for (auto& pair : m_jitterBuffers) {
-        AdaptiveJitterBuffer* buffer = pair.second;
-        if (buffer != nullptr) {
-            std::vector<BufferedFrame*> timedOutFrames;
-            buffer->checkTimeouts(timedOutFrames);
-            
-            // note: timed-out frames are handled by the calling context
-            // this method just ensures the buffers are checked periodically
-            // the frames themselves are cleaned up by the caller
-            for (BufferedFrame* frame : timedOutFrames) {
-                delete frame;
-            }
-        }
-    }
+    // timeout frame delivery must happen in protocol context where frames can be dispatched.
+    // this stub intentionally does nothing to avoid dropping timed-out frames.
+    return;
 }

@@ -532,16 +532,6 @@ void TrafficNetwork::clock(uint32_t ms)
 
     uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // check jitter buffer timeouts for all peers
-    m_peers.shared_lock();
-    for (auto& peer : m_peers) {
-        FNEPeerConnection* connection = peer.second;
-        if (connection != nullptr && connection->jitterBufferEnabled()) {
-            connection->checkJitterTimeouts();
-        }
-    }
-    m_peers.unlock();
-
     if (m_forceListUpdate) {
         for (auto& peer : m_peers) {
             peerMetadataUpdate(peer.first);
@@ -984,6 +974,13 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
                                                     AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
+                                                    std::vector<BufferedFrame*> timedOutFrames;
+                                                    buffer->checkTimeouts(timedOutFrames);
+                                                    for (BufferedFrame* frame : timedOutFrames) {
+                                                        network->m_tagDMR->processFrame(frame->data, frame->length, peerId, ssrc, frame->seq, streamId);
+                                                        delete frame;
+                                                    }
+
                                                     std::vector<BufferedFrame*> readyFrames;
 
                                                     buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
@@ -1025,6 +1022,13 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
                                                     AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
+                                                    std::vector<BufferedFrame*> timedOutFrames;
+                                                    buffer->checkTimeouts(timedOutFrames);
+                                                    for (BufferedFrame* frame : timedOutFrames) {
+                                                        network->m_tagP25->processFrame(frame->data, frame->length, peerId, ssrc, frame->seq, streamId);
+                                                        delete frame;
+                                                    }
+
                                                     std::vector<BufferedFrame*> readyFrames;
 
                                                     buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
@@ -1066,6 +1070,13 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
                                                     AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
+                                                    std::vector<BufferedFrame*> timedOutFrames;
+                                                    buffer->checkTimeouts(timedOutFrames);
+                                                    for (BufferedFrame* frame : timedOutFrames) {
+                                                        network->m_tagNXDN->processFrame(frame->data, frame->length, peerId, ssrc, frame->seq, streamId);
+                                                        delete frame;
+                                                    }
+
                                                     std::vector<BufferedFrame*> readyFrames;
 
                                                     buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
@@ -1107,6 +1118,13 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
                                                     AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
+                                                    std::vector<BufferedFrame*> timedOutFrames;
+                                                    buffer->checkTimeouts(timedOutFrames);
+                                                    for (BufferedFrame* frame : timedOutFrames) {
+                                                        network->m_tagAnalog->processFrame(frame->data, frame->length, peerId, ssrc, frame->seq, streamId);
+                                                        delete frame;
+                                                    }
+
                                                     std::vector<BufferedFrame*> readyFrames;
 
                                                     buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
@@ -2147,6 +2165,7 @@ void TrafficNetwork::eraseStreamPktSeq(uint32_t peerId, uint32_t streamId)
         FNEPeerConnection* connection = m_peers[peerId];
         if (connection != nullptr) {
             connection->erasePktSeq(streamId);
+            connection->cleanupJitterBuffer(streamId);
         }
     }
 }

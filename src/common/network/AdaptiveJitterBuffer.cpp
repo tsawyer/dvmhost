@@ -97,8 +97,13 @@ bool AdaptiveJitterBuffer::processFrame(uint16_t seq, const uint8_t* data, uint3
     if (diff < 0) {
         // check if it's severely out of order (> 1000 packets behind)
         if (diff < -1000) {
-            // ;ikely a sequence wraparound with new stream - reset
+            // likely a sequence wraparound with new stream - reset
             m_nextExpectedSeq = seq;
+            for (auto& pair : m_buffer) {
+                if (pair.second != nullptr) {
+                    delete pair.second;
+                }
+            }
             m_buffer.clear();
             
             BufferedFrame* frame = new BufferedFrame(seq, data, length);
@@ -125,6 +130,14 @@ bool AdaptiveJitterBuffer::processFrame(uint16_t seq, const uint8_t* data, uint3
     }
 
     // add frame to buffer
+    auto existing = m_buffer.find(seq);
+    if (existing != m_buffer.end()) {
+        if (existing->second != nullptr) {
+            delete existing->second;
+        }
+        m_droppedFrames++;
+    }
+
     BufferedFrame* frame = new BufferedFrame(seq, data, length);
     m_buffer[seq] = frame;
 
