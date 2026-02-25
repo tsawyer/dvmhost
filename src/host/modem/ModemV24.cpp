@@ -2437,6 +2437,8 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
+    static constexpr uint64_t TX_VOICE_KEYUP_LEAD_MS = 180U;
+
     m_txCallInProgress = true;
 
     MotStartOfStream start = MotStartOfStream();
@@ -2511,6 +2513,10 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
     queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
+
+    // Add a one-time lead-in after stream/header setup so early spoken audio
+    // is buffered and emitted after RF/vocoder key-up settles.
+    m_lastP25Tx += TX_VOICE_KEYUP_LEAD_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2553,6 +2559,8 @@ uint16_t ModemV24::generateNID(DUID::E duid)
 
 void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
+    static constexpr uint64_t TX_VOICE_KEYUP_LEAD_MS = 180U;
+
     m_txCallInProgress = true;
     m_superFrameCnt = 1U;
 
@@ -2671,6 +2679,9 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
     queueP25Frame(buffer, length, STT_START_STOP);
+
+    // Mirror V.24 lead-in behavior for TIA-102 framing path.
+    m_lastP25Tx += TX_VOICE_KEYUP_LEAD_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
