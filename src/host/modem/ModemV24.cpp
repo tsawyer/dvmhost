@@ -55,7 +55,6 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_rxCallInProgress(false),
     m_txLastFrameTime(0U),
     m_rxLastFrameTime(0U),
-    m_txVoiceProtectUntil(0U),
     m_callTimeout(200U),
     m_jitter(jitter),
     m_lastP25Tx(0U),
@@ -399,14 +398,9 @@ void ModemV24::clock(uint32_t ms)
     // During an active voice call, prioritize the regular TX queue first so
     // queued voice frames do not get delayed behind bursts of immediate
     // signalling/control traffic at call start.
-    uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    bool startupProtectActive = m_txCallInProgress && (m_txVoiceProtectUntil != 0U) && (nowMs < m_txVoiceProtectUntil);
-
     if (m_txCallInProgress) {
         len = writeSerial(&m_txP25Queue);
-        // While the call is opening, avoid injecting immediate/control frames
-        // between start-of-stream headers and early voice frames.
-        if (!startupProtectActive && len == 0 && !m_txImmP25Queue.isEmpty())
+        if (len == 0 && !m_txImmP25Queue.isEmpty())
             len = writeSerial(&m_txImmP25Queue);
     } else {
         if (!m_txImmP25Queue.isEmpty())
@@ -2365,21 +2359,13 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
                 // data must go out at 20ms intervals
                 msgTime = m_lastP25Tx + 20U;
             } else if (msgType == STT_DATA_FAST) {
-                // During voice TX, avoid fast control pacing that can preempt
-                // early voice onset and cause clipped/stuttered first audio.
-                msgTime = m_lastP25Tx + (m_txCallInProgress ? 20U : 10U);
+                // fast data must go out at 10ms intervals
+                msgTime = m_lastP25Tx + 10U;
             } else {
                 // Otherwise we don't care, we use 5ms since that's the theoretical minimum time a 9600 baud message can take
                 msgTime = m_lastP25Tx + 5U;
             }
         }
-    }
-
-    // During call start, hold paced data/voice until the receiver has had a
-    // brief key-up window to avoid clipping first syllables/stutter.
-    if ((msgType == STT_DATA || msgType == STT_DATA_FAST) &&
-        m_txCallInProgress && m_txVoiceProtectUntil != 0U && msgTime < m_txVoiceProtectUntil) {
-        msgTime = m_txVoiceProtectUntil;
     }
 
     len += 4U;
@@ -2451,10 +2437,7 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 240U;
-
     m_txCallInProgress = true;
-    m_txVoiceProtectUntil = 0U;
 
     MotStartOfStream start = MotStartOfStream();
     start.setOpcode(m_rtrt ? MotStartStreamOpcode::TRANSMIT : MotStartStreamOpcode::RECEIVE);
@@ -2528,10 +2511,6 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
     queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
-
-    // Enforce additional lead-in time after the stream/header sequence has
-    // been scheduled, so first voice data doesn't race key-up.
-    m_txVoiceProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2554,7 +2533,6 @@ void ModemV24::endOfStreamV24()
     queueP25Frame(endBuf, DFSI_MOT_START_LEN, STT_START_STOP);
 
     m_txCallInProgress = false;
-    m_txVoiceProtectUntil = 0U;
 }
 
 /* Helper to generate the NID value. */
@@ -2575,10 +2553,7 @@ uint16_t ModemV24::generateNID(DUID::E duid)
 
 void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 240U;
-
     m_txCallInProgress = true;
-    m_txVoiceProtectUntil = 0U;
     m_superFrameCnt = 1U;
 
     p25::lc::LC lc = p25::lc::LC(control);
@@ -2696,9 +2671,6 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
     queueP25Frame(buffer, length, STT_START_STOP);
-
-    // Keep the first voice data block behind the scheduled header burst.
-    m_txVoiceProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
@@ -2729,7 +2701,6 @@ void ModemV24::endOfStreamTIA()
     queueP25Frame(buffer, length, STT_START_STOP);
 
     m_txCallInProgress = false;
-    m_txVoiceProtectUntil = 0U;
 }
 
 /* Send a start of stream ACK. */
@@ -3211,10 +3182,7 @@ void ModemV24::convertFromAirV24(uint8_t* data, uint32_t length, bool imm)
             if (m_trace)
                 Utils::dump(1U, "ModemV24::convertFromAirV24(), MotTSBKFrame", tsbkBuf, DFSI_MOT_TSBK_LEN);
 
-            // Keep control bursts from using fast pacing while a voice call is
-            // active/opening; resume fast pacing when voice is idle.
-            SERIAL_TX_TYPE txType = m_txCallInProgress ? STT_DATA : STT_DATA_FAST;
-            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, txType, imm);
+            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, STT_DATA_FAST, imm);
         }
         break;
 
