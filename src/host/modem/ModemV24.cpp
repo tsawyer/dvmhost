@@ -55,6 +55,7 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_rxCallInProgress(false),
     m_txLastFrameTime(0U),
     m_rxLastFrameTime(0U),
+    m_txVoiceProtectUntil(0U),
     m_callTimeout(200U),
     m_jitter(jitter),
     m_lastP25Tx(0U),
@@ -398,9 +399,14 @@ void ModemV24::clock(uint32_t ms)
     // During an active voice call, prioritize the regular TX queue first so
     // queued voice frames do not get delayed behind bursts of immediate
     // signalling/control traffic at call start.
+    uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    bool startupProtectActive = m_txCallInProgress && (m_txVoiceProtectUntil != 0U) && (nowMs < m_txVoiceProtectUntil);
+
     if (m_txCallInProgress) {
         len = writeSerial(&m_txP25Queue);
-        if (len == 0 && !m_txImmP25Queue.isEmpty())
+        // While the call is opening, avoid injecting immediate/control frames
+        // between start-of-stream headers and early voice frames.
+        if (!startupProtectActive && len == 0 && !m_txImmP25Queue.isEmpty())
             len = writeSerial(&m_txImmP25Queue);
     } else {
         if (!m_txImmP25Queue.isEmpty())
@@ -2368,6 +2374,12 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
         }
     }
 
+    // During call start, hold paced data/voice until the receiver has had a
+    // brief key-up window to avoid clipping first syllables/stutter.
+    if (msgType == STT_DATA && m_txCallInProgress && m_txVoiceProtectUntil != 0U && msgTime < m_txVoiceProtectUntil) {
+        msgTime = m_txVoiceProtectUntil;
+    }
+
     len += 4U;
 
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
@@ -2437,7 +2449,11 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
+    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
+
     m_txCallInProgress = true;
+    m_txVoiceProtectUntil = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + TX_VOICE_START_PROTECT_MS;
 
     MotStartOfStream start = MotStartOfStream();
     start.setOpcode(m_rtrt ? MotStartStreamOpcode::TRANSMIT : MotStartStreamOpcode::RECEIVE);
@@ -2533,6 +2549,7 @@ void ModemV24::endOfStreamV24()
     queueP25Frame(endBuf, DFSI_MOT_START_LEN, STT_START_STOP);
 
     m_txCallInProgress = false;
+    m_txVoiceProtectUntil = 0U;
 }
 
 /* Helper to generate the NID value. */
@@ -2553,7 +2570,11 @@ uint16_t ModemV24::generateNID(DUID::E duid)
 
 void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
+    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
+
     m_txCallInProgress = true;
+    m_txVoiceProtectUntil = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + TX_VOICE_START_PROTECT_MS;
     m_superFrameCnt = 1U;
 
     p25::lc::LC lc = p25::lc::LC(control);
@@ -2701,6 +2722,7 @@ void ModemV24::endOfStreamTIA()
     queueP25Frame(buffer, length, STT_START_STOP);
 
     m_txCallInProgress = false;
+    m_txVoiceProtectUntil = 0U;
 }
 
 /* Send a start of stream ACK. */

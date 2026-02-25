@@ -601,6 +601,7 @@ namespace modem
         bool m_rxCallInProgress;
         uint64_t m_txLastFrameTime;
         uint64_t m_rxLastFrameTime;
+        uint64_t m_txVoiceProtectUntil;
         
         uint16_t m_callTimeout;
 
