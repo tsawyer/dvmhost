@@ -2442,7 +2442,7 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), StartOfStream", startBuf, DFSI_MOT_START_LEN);
 
-    queueP25Frame(startBuf, DFSI_MOT_START_LEN, STT_START_STOP);
+    queueP25Frame(startBuf, DFSI_MOT_START_LEN, STT_START_STOP_NO_JITTER);
 
     uint8_t mi[MI_LENGTH_BYTES];
     ::memset(mi, 0x00U, MI_LENGTH_BYTES);
@@ -2483,7 +2483,7 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader1", vhdr1Buf, DFSI_MOT_VHDR_1_LEN);
 
-    queueP25Frame(vhdr1Buf, DFSI_MOT_VHDR_1_LEN, STT_START_STOP);
+    queueP25Frame(vhdr1Buf, DFSI_MOT_VHDR_1_LEN, STT_START_STOP_NO_JITTER);
 
     // prepare VHDR2
     uint8_t vhdr2Buf[DFSI_MOT_VHDR_2_LEN];
@@ -2500,7 +2500,7 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
-    queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
+    queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP_NO_JITTER);
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2573,7 +2573,7 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), StartOfStream", buffer, length);
 
-    queueP25Frame(buffer, length, STT_START_STOP);
+    queueP25Frame(buffer, length, STT_START_STOP_NO_JITTER);
 
     uint8_t mi[MI_LENGTH_BYTES];
     ::memset(mi, 0x00U, MI_LENGTH_BYTES);
@@ -2631,7 +2631,7 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader1", buffer, length);
 
-    queueP25Frame(buffer, length, STT_START_STOP);
+    queueP25Frame(buffer, length, STT_START_STOP_NO_JITTER);
 
     ::memset(buffer, 0x00U, P25_HDU_LENGTH_BYTES);
     length = 0U;
@@ -2660,7 +2660,7 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
     if (m_trace)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
-    queueP25Frame(buffer, length, STT_START_STOP);
+    queueP25Frame(buffer, length, STT_START_STOP_NO_JITTER);
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
