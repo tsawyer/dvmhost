@@ -117,7 +117,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_networkWatchdog(1000U, 0U, 1500U),
     m_adjSiteUpdate(1000U, 75U),
     m_activeTGUpdate(1000U, 5U),
-    m_ccPacketInterval(1000U, 0U, 15U),
+    m_ccPacketInterval(1000U, 0U, 20U),
     m_rfVoiceCallTermTimeout(1000U, VOICE_CALL_TERM_TIMEOUT),
     m_interval(),
     m_hangCount(3U * 8U),

@@ -2365,8 +2365,9 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
                 // data must go out at 20ms intervals
                 msgTime = m_lastP25Tx + 20U;
             } else if (msgType == STT_DATA_FAST) {
-                // fast data must go out at 10ms intervals
-                msgTime = m_lastP25Tx + 10U;
+                // During voice TX, avoid fast control pacing that can preempt
+                // early voice onset and cause clipped/stuttered first audio.
+                msgTime = m_lastP25Tx + (m_txCallInProgress ? 20U : 10U);
             } else {
                 // Otherwise we don't care, we use 5ms since that's the theoretical minimum time a 9600 baud message can take
                 msgTime = m_lastP25Tx + 5U;
@@ -2376,7 +2377,8 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
     // During call start, hold paced data/voice until the receiver has had a
     // brief key-up window to avoid clipping first syllables/stutter.
-    if (msgType == STT_DATA && m_txCallInProgress && m_txVoiceProtectUntil != 0U && msgTime < m_txVoiceProtectUntil) {
+    if ((msgType == STT_DATA || msgType == STT_DATA_FAST) &&
+        m_txCallInProgress && m_txVoiceProtectUntil != 0U && msgTime < m_txVoiceProtectUntil) {
         msgTime = m_txVoiceProtectUntil;
     }
 
@@ -3209,7 +3211,10 @@ void ModemV24::convertFromAirV24(uint8_t* data, uint32_t length, bool imm)
             if (m_trace)
                 Utils::dump(1U, "ModemV24::convertFromAirV24(), MotTSBKFrame", tsbkBuf, DFSI_MOT_TSBK_LEN);
 
-            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, STT_DATA_FAST, imm);
+            // Keep control bursts from using fast pacing while a voice call is
+            // active/opening; resume fast pacing when voice is idle.
+            SERIAL_TX_TYPE txType = m_txCallInProgress ? STT_DATA : STT_DATA_FAST;
+            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, txType, imm);
         }
         break;
 
