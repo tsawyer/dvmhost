@@ -2449,7 +2449,7 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
+    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 240U;
 
     m_txCallInProgress = true;
     m_txVoiceProtectUntil = 0U;
@@ -2573,7 +2573,7 @@ uint16_t ModemV24::generateNID(DUID::E duid)
 
 void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
+    static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 240U;
 
     m_txCallInProgress = true;
     m_txVoiceProtectUntil = 0U;
