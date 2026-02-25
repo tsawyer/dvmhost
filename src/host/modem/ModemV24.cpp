@@ -395,19 +395,11 @@ void ModemV24::clock(uint32_t ms)
 
     // write anything waiting to the serial port
     //
-    // During an active voice call, prioritize the regular TX queue first so
-    // queued voice frames do not get delayed behind bursts of immediate
-    // signalling/control traffic at call start.
-    if (m_txCallInProgress) {
-        len = writeSerial(&m_txP25Queue);
-        if (len == 0 && !m_txImmP25Queue.isEmpty())
-            len = writeSerial(&m_txImmP25Queue);
-    } else {
-        if (!m_txImmP25Queue.isEmpty())
-            len = writeSerial(&m_txImmP25Queue);
-        else
-            len = writeSerial(&m_txP25Queue);
-    }
+    // Keep scheduling close to the legacy single-queue path used in older
+    // working builds for Net->RF voice startup behavior.
+    len = writeSerial(&m_txP25Queue);
+    if (len == 0 && !m_txImmP25Queue.isEmpty())
+        len = writeSerial(&m_txImmP25Queue);
     if (m_debug && len > 0) {
         LogDebug(LOG_MODEM, "Wrote %u-byte message to the serial V24 device", len);
     } else if (len < 0) {
@@ -2356,11 +2348,8 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
         // otherwise, we time out messages as required by the message type
         else {
             if (msgType == STT_DATA) {
-                // data must go out at 20ms intervals
+                // voice/data frames must go out at 20ms intervals
                 msgTime = m_lastP25Tx + 20U;
-            } else if (msgType == STT_DATA_FAST) {
-                // fast data must go out at 10ms intervals
-                msgTime = m_lastP25Tx + 10U;
             } else {
                 // Otherwise we don't care, we use 5ms since that's the theoretical minimum time a 9600 baud message can take
                 msgTime = m_lastP25Tx + 5U;
@@ -2372,14 +2361,10 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
 
-    // check available ringbuffer space
-    if (imm) {
-        if (m_txImmP25Queue.freeSpace() < (len + 11U))
-            return false;
-    } else {
-        if (m_txP25Queue.freeSpace() < (len + 11U))
-            return false;
-    }
+    // NOTE: keep using one TX queue for P25 scheduling to mirror legacy timing.
+    (void)imm;
+    if (m_txP25Queue.freeSpace() < (len + 11U))
+        return false;
 
     // convert 16-bit length to 2 bytes
     uint8_t length[2U];
@@ -2389,26 +2374,17 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
         length[0U] = 0x00U;
     length[1U] = len & 0xFFU;
 
-    if (imm)
-        m_txImmP25Queue.addData(length, 2U);
-    else
-        m_txP25Queue.addData(length, 2U);
+    m_txP25Queue.addData(length, 2U);
 
     // add the data tag
     uint8_t tag = TAG_DATA;
-    if (imm)
-        m_txImmP25Queue.addData(&tag, 1U);
-    else
-        m_txP25Queue.addData(&tag, 1U);
+    m_txP25Queue.addData(&tag, 1U);
 
     // convert 64-bit timestamp to 8 bytes and add
     uint8_t tsBytes[8U];
     assert(sizeof msgTime == 8U);
     ::memcpy(tsBytes, &msgTime, 8U);
-    if (imm)
-        m_txImmP25Queue.addData(tsBytes, 8U);
-    else
-        m_txP25Queue.addData(tsBytes, 8U);
+    m_txP25Queue.addData(tsBytes, 8U);
 
     // add the DVM start byte, length byte, CMD byte, and padding 0
     uint8_t header[4U];
@@ -2416,16 +2392,10 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
     header[1U] = len & 0xFFU;
     header[2U] = CMD_P25_DATA;
     header[3U] = 0x00U;
-    if (imm)
-        m_txImmP25Queue.addData(header, 4U);
-    else
-        m_txP25Queue.addData(header, 4U);
+    m_txP25Queue.addData(header, 4U);
 
     // add the data
-    if (imm)
-        m_txImmP25Queue.addData(data, len - 4U);
-    else
-        m_txP25Queue.addData(data, len - 4U);
+    m_txP25Queue.addData(data, len - 4U);
 
     // update the last message time
     m_lastP25Tx = msgTime;
@@ -3182,7 +3152,7 @@ void ModemV24::convertFromAirV24(uint8_t* data, uint32_t length, bool imm)
             if (m_trace)
                 Utils::dump(1U, "ModemV24::convertFromAirV24(), MotTSBKFrame", tsbkBuf, DFSI_MOT_TSBK_LEN);
 
-            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, STT_DATA_FAST, imm);
+            queueP25Frame(tsbkBuf, DFSI_MOT_TSBK_LEN, STT_DATA, imm);
         }
         break;
 
