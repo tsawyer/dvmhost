@@ -2437,8 +2437,6 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_KEYUP_LEAD_MS = 80U;
-
     m_txCallInProgress = true;
 
     MotStartOfStream start = MotStartOfStream();
@@ -2513,14 +2511,6 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
     queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
-
-    // Enforce a minimum lead-in after stream/header setup without stacking
-    // additive delay across repeated start transitions.
-    uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    uint64_t minVoiceStart = nowMs + TX_VOICE_KEYUP_LEAD_MS;
-    if (m_lastP25Tx < minVoiceStart)
-        m_lastP25Tx = minVoiceStart;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2563,8 +2553,6 @@ uint16_t ModemV24::generateNID(DUID::E duid)
 
 void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
-    static constexpr uint64_t TX_VOICE_KEYUP_LEAD_MS = 80U;
-
     m_txCallInProgress = true;
     m_superFrameCnt = 1U;
 
@@ -2683,13 +2671,6 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
     queueP25Frame(buffer, length, STT_START_STOP);
-
-    // Mirror V.24 lead-in behavior without accumulating delay.
-    uint64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    uint64_t minVoiceStart = nowMs + TX_VOICE_KEYUP_LEAD_MS;
-    if (m_lastP25Tx < minVoiceStart)
-        m_lastP25Tx = minVoiceStart;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
@@ -2745,7 +2726,7 @@ void ModemV24::ackStartOfStreamTIA()
     if (m_trace)
         Utils::dump(1U, "ModemV24::ackStartOfStreamTIA(), Ack StartOfStream", buffer, length);
 
-    queueP25Frame(buffer, length, STT_START_STOP);
+    queueP25Frame(buffer, length, STT_START_STOP_NO_JITTER);
 }
 
 /* Internal helper to convert from TIA-102 air interface to V.24/DFSI. */
