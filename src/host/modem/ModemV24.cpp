@@ -2452,8 +2452,7 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
     static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
 
     m_txCallInProgress = true;
-    m_txVoiceProtectUntil = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count() + TX_VOICE_START_PROTECT_MS;
+    m_txVoiceProtectUntil = 0U;
 
     MotStartOfStream start = MotStartOfStream();
     start.setOpcode(m_rtrt ? MotStartStreamOpcode::TRANSMIT : MotStartStreamOpcode::RECEIVE);
@@ -2527,6 +2526,10 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
     queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
+
+    // Enforce additional lead-in time after the stream/header sequence has
+    // been scheduled, so first voice data doesn't race key-up.
+    m_txVoiceProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2573,8 +2576,7 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
     static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 160U;
 
     m_txCallInProgress = true;
-    m_txVoiceProtectUntil = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count() + TX_VOICE_START_PROTECT_MS;
+    m_txVoiceProtectUntil = 0U;
     m_superFrameCnt = 1U;
 
     p25::lc::LC lc = p25::lc::LC(control);
@@ -2692,6 +2694,9 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
     queueP25Frame(buffer, length, STT_START_STOP);
+
+    // Keep the first voice data block behind the scheduled header burst.
+    m_txVoiceProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
