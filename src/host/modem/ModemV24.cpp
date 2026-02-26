@@ -394,10 +394,11 @@ void ModemV24::clock(uint32_t ms)
     int len = 0;
 
     // write anything waiting to the serial port
-    if (!m_txImmP25Queue.isEmpty())
+    //
+    // Keep normal queue first for startup consistency with older behavior.
+    len = writeSerial(&m_txP25Queue);
+    if (len == 0 && !m_txImmP25Queue.isEmpty())
         len = writeSerial(&m_txImmP25Queue);
-    else
-        len = writeSerial(&m_txP25Queue);
     if (m_debug && len > 0) {
         LogDebug(LOG_MODEM, "Wrote %u-byte message to the serial V24 device", len);
     } else if (len < 0) {
