@@ -272,7 +272,7 @@ void* Host::threadP25Writer(void* arg)
 
                                     // if the state is P25; write P25 frame data
                                     if (host->m_state == STATE_P25) {
-                                        host->m_modem->writeP25Frame(data, len);
+                                        host->m_modem->writeP25Frame(data, len, imm);
 
                                         afterWriteCallback();
 
