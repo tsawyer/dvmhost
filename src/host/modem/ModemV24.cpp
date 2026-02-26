@@ -496,10 +496,6 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
         return 0U;
     }
 
-    // check available modem space
-    if (m_p25Space < len)
-        return 0U;
-
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
 
     // get current timestamp
