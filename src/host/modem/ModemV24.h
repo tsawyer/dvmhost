@@ -606,6 +606,7 @@ namespace modem
 
         uint16_t m_jitter;
         uint64_t m_lastP25Tx;
+        uint64_t m_txVoiceStartProtectUntil;
 
         edac::RS634717 m_rs;
 

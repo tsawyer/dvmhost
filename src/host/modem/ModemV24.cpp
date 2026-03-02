@@ -33,6 +33,8 @@ using namespace p25::dfsi::frames;
 
 #include <cassert>
 
+static constexpr uint64_t TX_VOICE_START_PROTECT_MS = 40U;
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -58,6 +60,7 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_callTimeout(200U),
     m_jitter(jitter),
     m_lastP25Tx(0U),
+    m_txVoiceStartProtectUntil(0U),
     m_rs(),
     m_useTIAFormat(false),
     m_txP25QueueLock()
@@ -2355,6 +2358,13 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
         }
     }
 
+    // Hold the first paced data frame very briefly after stream headers to reduce
+    // Net->RF key-up clipping on V.24/DFSI paths.
+    if (msgType == STT_DATA && m_txVoiceStartProtectUntil != 0U && msgTime < m_txVoiceStartProtectUntil) {
+        msgTime = m_txVoiceStartProtectUntil;
+        m_txVoiceStartProtectUntil = 0U;
+    }
+
     len += 4U;
 
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
@@ -2425,6 +2435,7 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 void ModemV24::startOfStreamV24(const p25::lc::LC& control)
 {
     m_txCallInProgress = true;
+    m_txVoiceStartProtectUntil = 0U;
 
     MotStartOfStream start = MotStartOfStream();
     start.setOpcode(m_rtrt ? MotStartStreamOpcode::TRANSMIT : MotStartStreamOpcode::RECEIVE);
@@ -2498,6 +2509,9 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamV24(), VoiceHeader2", vhdr2Buf, DFSI_MOT_VHDR_2_LEN);
 
     queueP25Frame(vhdr2Buf, DFSI_MOT_VHDR_2_LEN, STT_START_STOP);
+
+    // Add a short startup lead-in so the first voice payload doesn't race RF key-up.
+    m_txVoiceStartProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected serial V.24 device */
@@ -2520,6 +2534,7 @@ void ModemV24::endOfStreamV24()
     queueP25Frame(endBuf, DFSI_MOT_START_LEN, STT_START_STOP);
 
     m_txCallInProgress = false;
+    m_txVoiceStartProtectUntil = 0U;
 }
 
 /* Helper to generate the NID value. */
@@ -2542,6 +2557,7 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
 {
     m_txCallInProgress = true;
     m_superFrameCnt = 1U;
+    m_txVoiceStartProtectUntil = 0U;
 
     p25::lc::LC lc = p25::lc::LC(control);
     
@@ -2658,6 +2674,9 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
         Utils::dump(1U, "ModemV24::startOfStreamTIA(), VoiceHeader2", buffer, length);
 
     queueP25Frame(buffer, length, STT_START_STOP);
+
+    // Add a short startup lead-in so the first voice payload doesn't race RF key-up.
+    m_txVoiceStartProtectUntil = m_lastP25Tx + TX_VOICE_START_PROTECT_MS;
 }
 
 /* Send an end of stream sequence (TDU, etc) to the connected UDP TIA-102 device. */
@@ -2688,6 +2707,7 @@ void ModemV24::endOfStreamTIA()
     queueP25Frame(buffer, length, STT_START_STOP);
 
     m_txCallInProgress = false;
+    m_txVoiceStartProtectUntil = 0U;
 }
 
 /* Send a start of stream ACK. */
