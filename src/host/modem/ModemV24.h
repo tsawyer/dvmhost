@@ -610,6 +610,15 @@ namespace modem
         uint64_t m_txStartupTraceT0;
         uint8_t m_txStartupTraceWritesLeft;
         uint8_t m_txStartupTraceQueueLogsLeft;
+        bool m_txTailTraceActive;
+        uint64_t m_txTailTraceT0;
+        uint8_t m_txLastQueuedVoiceFrameType;
+        uint8_t m_txLastWrittenVoiceFrameType;
+        uint64_t m_txLastQueuedVoiceMsgTime;
+        uint64_t m_txLastQueuedVoiceWallTime;
+        uint64_t m_txLastWrittenVoiceWallTime;
+        uint32_t m_txVoiceFramesQueued;
+        uint32_t m_txVoiceFramesWritten;
 
         edac::RS634717 m_rs;
 

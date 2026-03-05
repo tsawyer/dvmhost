@@ -62,6 +62,15 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_txStartupTraceT0(0U),
     m_txStartupTraceWritesLeft(0U),
     m_txStartupTraceQueueLogsLeft(0U),
+    m_txTailTraceActive(false),
+    m_txTailTraceT0(0U),
+    m_txLastQueuedVoiceFrameType(0xFFU),
+    m_txLastWrittenVoiceFrameType(0xFFU),
+    m_txLastQueuedVoiceMsgTime(0U),
+    m_txLastQueuedVoiceWallTime(0U),
+    m_txLastWrittenVoiceWallTime(0U),
+    m_txVoiceFramesQueued(0U),
+    m_txVoiceFramesWritten(0U),
     m_rs(),
     m_useTIAFormat(false),
     m_txP25QueueLock()
@@ -543,6 +552,11 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
             return 0U;
         }
 
+        uint8_t frameType = (len > 4U) ? buffer[4U] : 0xFFU;
+        bool isVoiceFrame = frameType >= DFSIFrameType::LDU1_VOICE1 && frameType <= DFSIFrameType::LDU2_VOICE18;
+        bool isStopFrame = frameType == DFSIFrameType::MOT_START_STOP && len > 7U && buffer[7U] == DFSI_MOT_ICW_PARM_STOP;
+        bool isTDULCFrame = frameType == DFSIFrameType::MOT_TDULC;
+
         // we already checked the timestamp above, so we just write it
         int ret = m_port->write(buffer, len);
         if (ret > 0) {
@@ -551,12 +565,42 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
             queue->get(discard, len + 11U);
         }
 
-        if (ret > 0 && m_debug && m_txStartupTraceActive && m_txStartupTraceWritesLeft > 0U) {
-            uint8_t frameType = (len > 4U) ? buffer[4U] : 0xFFU;
-            const char* queueName = (queue == &m_txImmP25Queue) ? "imm" : "norm";
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-            int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+        if (ret > 0 && m_txTailTraceActive && isVoiceFrame) {
+            m_txVoiceFramesWritten++;
+            m_txLastWrittenVoiceFrameType = frameType;
+            m_txLastWrittenVoiceWallTime = nowMs;
+        }
+
+        if (m_debug && m_txTailTraceActive && (isStopFrame || isTDULCFrame)) {
+            const char* queueName = (queue == &m_txImmP25Queue) ? "imm" : "norm";
+            int64_t dtTail = (int64_t)(nowMs - m_txTailTraceT0);
+            int64_t schedSkew = (int64_t)(nowMs - ts);
+            int64_t qAge = m_txLastQueuedVoiceWallTime > 0U ? (int64_t)(nowMs - m_txLastQueuedVoiceWallTime) : -1LL;
+            int64_t wAge = m_txLastWrittenVoiceWallTime > 0U ? (int64_t)(nowMs - m_txLastWrittenVoiceWallTime) : -1LL;
+
+            if (ret > 0) {
+                LogDebugEx(LOG_MODEM, "ModemV24::writeSerial()",
+                    "TX tail write: q=%s, frameType=$%02X, isStop=%u, isTDULC=%u, dtTail=%lld ms, schedSkew=%lld ms, lastVoiceQ=$%02X qAge=%lld ms, lastVoiceW=$%02X wAge=%lld ms, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u, p25Space=%u",
+                    queueName, frameType, isStopFrame, isTDULCFrame, dtTail, schedSkew, m_txLastQueuedVoiceFrameType, qAge, m_txLastWrittenVoiceFrameType,
+                    wAge, m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize(), m_p25Space);
+            } else {
+                LogDebugEx(LOG_MODEM, "ModemV24::writeSerial()",
+                    "TX tail write blocked/fail: q=%s, frameType=$%02X, isStop=%u, isTDULC=%u, dtTail=%lld ms, ret=%d, schedSkew=%lld ms, lastVoiceQ=$%02X, lastVoiceW=$%02X, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u, p25Space=%u",
+                    queueName, frameType, isStopFrame, isTDULCFrame, dtTail, ret, schedSkew, m_txLastQueuedVoiceFrameType, m_txLastWrittenVoiceFrameType,
+                    m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize(), m_p25Space);
+            }
+        }
+
+        // End tail tracing when STOP ICW has been physically written.
+        if (ret > 0 && isStopFrame) {
+            m_txTailTraceActive = false;
+        }
+
+        if (ret > 0 && m_debug && m_txStartupTraceActive && m_txStartupTraceWritesLeft > 0U) {
+            const char* queueName = (queue == &m_txImmP25Queue) ? "imm" : "norm";
             int64_t dtStart = (int64_t)(nowMs - (int64_t)m_txStartupTraceT0);
             int64_t schedSkew = (int64_t)(nowMs - ts);
 
@@ -569,10 +613,7 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
                 m_txStartupTraceActive = false;
             }
         } else if (ret <= 0 && m_debug && m_txStartupTraceActive) {
-            uint8_t frameType = (len > 4U) ? buffer[4U] : 0xFFU;
             const char* queueName = (queue == &m_txImmP25Queue) ? "imm" : "norm";
-            int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
             int64_t dtStart = (int64_t)(nowMs - (int64_t)m_txStartupTraceT0);
             LogDebugEx(LOG_MODEM, "ModemV24::writeSerial()",
                 "TX startup write blocked/fail: q=%s, frameType=$%02X, dtStart=%lld ms, ret=%d, txQ=%u, immQ=%u, p25Space=%u",
@@ -2367,6 +2408,10 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
 
     // timestamp for this message (in ms)
     uint64_t msgTime = 0U;
+    uint8_t frameType = data[0U];
+    bool isVoiceFrame = frameType >= DFSIFrameType::LDU1_VOICE1 && frameType <= DFSIFrameType::LDU2_VOICE18;
+    bool isStopFrame = frameType == DFSIFrameType::MOT_START_STOP && len > 3U && data[3U] == DFSI_MOT_ICW_PARM_STOP;
+    bool isTDULCFrame = frameType == DFSIFrameType::MOT_TDULC;
 
     // if this is our first message, timestamp is just now + the jitter buffer offset in ms
     if (m_lastP25Tx == 0U) {
@@ -2406,6 +2451,22 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
         m_txStartupTraceQueueLogsLeft--;
     }
 
+    if (m_txTailTraceActive && isVoiceFrame) {
+        m_txVoiceFramesQueued++;
+        m_txLastQueuedVoiceFrameType = frameType;
+        m_txLastQueuedVoiceMsgTime = msgTime;
+        m_txLastQueuedVoiceWallTime = now;
+    } else if (m_debug && m_txTailTraceActive && (isStopFrame || isTDULCFrame)) {
+        int64_t dtTail = (int64_t)(now - m_txTailTraceT0);
+        int64_t qAge = m_txLastQueuedVoiceWallTime > 0U ? (int64_t)(now - m_txLastQueuedVoiceWallTime) : -1LL;
+        int64_t wAge = m_txLastWrittenVoiceWallTime > 0U ? (int64_t)(now - m_txLastWrittenVoiceWallTime) : -1LL;
+
+        LogDebugEx(LOG_MODEM, "ModemV24::queueP25Frame()",
+            "TX tail queue: frameType=$%02X, msgType=$%02X, isStop=%u, isTDULC=%u, dtTail=%lld ms, schedAt=%llu, lastVoiceQ=$%02X qAge=%lld ms, lastVoiceW=$%02X wAge=%lld ms, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+            frameType, msgType, isStopFrame, isTDULCFrame, dtTail, msgTime, m_txLastQueuedVoiceFrameType, qAge,
+            m_txLastWrittenVoiceFrameType, wAge, m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+    }
+
     len += 4U;
 
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
@@ -2422,6 +2483,10 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
                 LogDebugEx(LOG_MODEM, "ModemV24::queueP25Frame()",
                     "TX startup drop: q=imm, frameType=$%02X, msgType=$%02X, need=%u, free=%u, txQ=%u, immQ=%u",
                     data[0U], msgType, needed, free, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+            } else if (m_debug && m_txTailTraceActive && (isVoiceFrame || isStopFrame || isTDULCFrame)) {
+                LogDebugEx(LOG_MODEM, "ModemV24::queueP25Frame()",
+                    "TX tail drop: q=imm, frameType=$%02X, msgType=$%02X, need=%u, free=%u, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+                    frameType, msgType, needed, free, m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
             }
             return false;
         }
@@ -2432,6 +2497,10 @@ bool ModemV24::queueP25Frame(uint8_t* data, uint16_t len, SERIAL_TX_TYPE msgType
                 LogDebugEx(LOG_MODEM, "ModemV24::queueP25Frame()",
                     "TX startup drop: q=norm, frameType=$%02X, msgType=$%02X, need=%u, free=%u, txQ=%u, immQ=%u",
                     data[0U], msgType, needed, free, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+            } else if (m_debug && m_txTailTraceActive && (isVoiceFrame || isStopFrame || isTDULCFrame)) {
+                LogDebugEx(LOG_MODEM, "ModemV24::queueP25Frame()",
+                    "TX tail drop: q=norm, frameType=$%02X, msgType=$%02X, need=%u, free=%u, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+                    frameType, msgType, needed, free, m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
             }
             return false;
         }
@@ -2497,6 +2566,16 @@ void ModemV24::startOfStreamV24(const p25::lc::LC& control)
     // Start each Net->RF stream with a fresh scheduler epoch so a new call
     // doesn't inherit a future-biased timestamp from the previous call.
     m_lastP25Tx = 0U;
+    m_txTailTraceActive = true;
+    m_txTailTraceT0 = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    m_txLastQueuedVoiceFrameType = 0xFFU;
+    m_txLastWrittenVoiceFrameType = 0xFFU;
+    m_txLastQueuedVoiceMsgTime = 0U;
+    m_txLastQueuedVoiceWallTime = 0U;
+    m_txLastWrittenVoiceWallTime = 0U;
+    m_txVoiceFramesQueued = 0U;
+    m_txVoiceFramesWritten = 0U;
     if (m_debug) {
         m_txStartupTraceActive = true;
         m_txStartupTraceT0 = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2599,6 +2678,18 @@ void ModemV24::endOfStreamV24()
     if (m_trace)
         Utils::dump(1U, "ModemV24::endOfStreamV24(), StartOfStream", endBuf, DFSI_MOT_START_LEN);
 
+    if (m_debug && m_txTailTraceActive) {
+        uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        int64_t dtTail = (int64_t)(now - m_txTailTraceT0);
+        int64_t qAge = m_txLastQueuedVoiceWallTime > 0U ? (int64_t)(now - m_txLastQueuedVoiceWallTime) : -1LL;
+        int64_t wAge = m_txLastWrittenVoiceWallTime > 0U ? (int64_t)(now - m_txLastWrittenVoiceWallTime) : -1LL;
+        LogDebugEx(LOG_MODEM, "ModemV24::endOfStreamV24()",
+            "TX tail EOS requested: dtTail=%lld ms, lastVoiceQ=$%02X qAge=%lld ms schedQ=%llu, lastVoiceW=$%02X wAge=%lld ms, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+            dtTail, m_txLastQueuedVoiceFrameType, qAge, m_txLastQueuedVoiceMsgTime, m_txLastWrittenVoiceFrameType, wAge,
+            m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+    }
+
     queueP25Frame(endBuf, DFSI_MOT_START_LEN, STT_START_STOP);
 
     m_txCallInProgress = false;
@@ -2630,6 +2721,16 @@ void ModemV24::startOfStreamTIA(const p25::lc::LC& control)
     // Start each Net->RF stream with a fresh scheduler epoch so a new call
     // doesn't inherit a future-biased timestamp from the previous call.
     m_lastP25Tx = 0U;
+    m_txTailTraceActive = true;
+    m_txTailTraceT0 = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    m_txLastQueuedVoiceFrameType = 0xFFU;
+    m_txLastWrittenVoiceFrameType = 0xFFU;
+    m_txLastQueuedVoiceMsgTime = 0U;
+    m_txLastQueuedVoiceWallTime = 0U;
+    m_txLastWrittenVoiceWallTime = 0U;
+    m_txVoiceFramesQueued = 0U;
+    m_txVoiceFramesWritten = 0U;
     if (m_debug) {
         m_txStartupTraceActive = true;
         m_txStartupTraceT0 = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2786,6 +2887,7 @@ void ModemV24::endOfStreamTIA()
     queueP25Frame(buffer, length, STT_START_STOP);
 
     m_txCallInProgress = false;
+    m_txTailTraceActive = false;
     m_txStartupTraceActive = false;
     m_txStartupTraceWritesLeft = 0U;
     m_txStartupTraceQueueLogsLeft = 0U;
@@ -2904,17 +3006,39 @@ void ModemV24::convertFromAirV24(uint8_t* data, uint32_t length, bool imm)
         break;
 
         case DUID::TDU:
-            if (m_txCallInProgress)
+            if (m_txCallInProgress) {
+                if (m_debug && m_txTailTraceActive) {
+                    uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    int64_t dtTail = (int64_t)(now - m_txTailTraceT0);
+                    int64_t qAge = m_txLastQueuedVoiceWallTime > 0U ? (int64_t)(now - m_txLastQueuedVoiceWallTime) : -1LL;
+                    int64_t wAge = m_txLastWrittenVoiceWallTime > 0U ? (int64_t)(now - m_txLastWrittenVoiceWallTime) : -1LL;
+                    ::LogDebugEx(LOG_MODEM, "ModemV24::convertFromAirV24()",
+                        "TX tail trigger: DUID=TDU, dtTail=%lld ms, lastVoiceQ=$%02X qAge=%lld ms schedQ=%llu, lastVoiceW=$%02X wAge=%lld ms, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+                        dtTail, m_txLastQueuedVoiceFrameType, qAge, m_txLastQueuedVoiceMsgTime, m_txLastWrittenVoiceFrameType, wAge,
+                        m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+                }
                 endOfStreamV24();
-            else if (m_debug)
+            } else if (m_debug)
                 ::LogDebugEx(LOG_MODEM, "ModemV24::convertFromAirV24()", "P25 TDU received with no active V.24 TX call; suppressing STOP ICW");
             break;
 
         case DUID::TDULC:
         {
-            if (m_txCallInProgress)
+            if (m_txCallInProgress) {
+                if (m_debug && m_txTailTraceActive) {
+                    uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    int64_t dtTail = (int64_t)(now - m_txTailTraceT0);
+                    int64_t qAge = m_txLastQueuedVoiceWallTime > 0U ? (int64_t)(now - m_txLastQueuedVoiceWallTime) : -1LL;
+                    int64_t wAge = m_txLastWrittenVoiceWallTime > 0U ? (int64_t)(now - m_txLastWrittenVoiceWallTime) : -1LL;
+                    ::LogDebugEx(LOG_MODEM, "ModemV24::convertFromAirV24()",
+                        "TX tail trigger: DUID=TDULC, dtTail=%lld ms, lastVoiceQ=$%02X qAge=%lld ms schedQ=%llu, lastVoiceW=$%02X wAge=%lld ms, voiceQ=%u, voiceW=%u, txQ=%u, immQ=%u",
+                        dtTail, m_txLastQueuedVoiceFrameType, qAge, m_txLastQueuedVoiceMsgTime, m_txLastWrittenVoiceFrameType, wAge,
+                        m_txVoiceFramesQueued, m_txVoiceFramesWritten, m_txP25Queue.dataSize(), m_txImmP25Queue.dataSize());
+                }
                 endOfStreamV24();
-            else if (m_debug)
+            } else if (m_debug)
                 ::LogDebugEx(LOG_MODEM, "ModemV24::convertFromAirV24()", "P25 TDULC received with no active V.24 TX call; suppressing STOP ICW");
 
             lc::tdulc::LC_TDULC_RAW tdulc = lc::tdulc::LC_TDULC_RAW();
