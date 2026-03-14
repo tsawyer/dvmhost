@@ -305,10 +305,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
                         LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
-                        if (m_p25->m_enableControl) {
-                            uint8_t denyReason = (dstId == 0U && !m_p25->m_forceAllowTG0) ? ReasonCode::DENY_PTT_BONK : ReasonCode::DENY_TGT_GROUP_NOT_VALID;
-                            m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, denyReason, TSBKO::IOSP_GRP_VCH, true, true);
-                        }
+                        uint8_t denyReason = (dstId == 0U && !m_p25->m_forceAllowTG0) ? ReasonCode::DENY_PTT_BONK : ReasonCode::DENY_TGT_GROUP_NOT_VALID;
+                        m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, denyReason, TSBKO::IOSP_GRP_VCH, true, true);
 
                         ::ActivityLog("P25", true, "RF voice rejection from %u to %s%u ", srcId, group ? "TG " : "", dstId);
                         m_lastRejectId = dstId;
