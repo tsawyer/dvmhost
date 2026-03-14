@@ -305,8 +305,9 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
                         LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
-                        uint8_t denyReason = (dstId == 0U && !m_p25->m_forceAllowTG0) ? ReasonCode::DENY_PTT_BONK : ReasonCode::DENY_TGT_GROUP_NOT_VALID;
-                        m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, denyReason, TSBKO::IOSP_GRP_VCH, true, true);
+                        if (m_p25->m_enableControl) {
+                            m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_GROUP_NOT_VALID, TSBKO::IOSP_GRP_VCH, true, true);
+                        }
 
                         ::ActivityLog("P25", true, "RF voice rejection from %u to %s%u ", srcId, group ? "TG " : "", dstId);
                         m_lastRejectId = dstId;
@@ -605,6 +606,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 }
             }
 
+            bool silenceCurrentFrame = false;
+
             if (!alreadyDecoded) {
                 bool ret = m_rfLC.decodeLDU1(data + 2U);
                 if (!ret) {
@@ -637,7 +640,17 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     m_rfUndecodableLC++;
                 }
                 else {
-                    m_rfLastLDU1 = m_rfLC;
+                    if (m_rfLC.getGroup() && m_rfLC.getDstId() == 0U && !m_p25->m_forceAllowTG0 && m_rfLastLDU1.getDstId() != 0U) {
+                        LogWarning(LOG_RF, P25_LDU1_STR ", TGID 0 detected mid-call, silencing frame and continuing on last TGID %u", m_rfLastLDU1.getDstId());
+                        ::ActivityLog("P25", true, "RF voice frame from %u to TG 0 silenced; continuing on TG %u", m_rfLC.getSrcId(), m_rfLastLDU1.getDstId());
+
+                        // Preserve the last good call metadata so the muted frame stays on the active TG.
+                        m_rfLC = m_rfLastLDU1;
+                        silenceCurrentFrame = true;
+                    }
+                    else {
+                        m_rfLastLDU1 = m_rfLC;
+                    }
                 }
             }
             else {
@@ -661,7 +674,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // are we swapping the LC out for the RFSS_STS_BCAST or LC_GROUP_UPDT?
             m_pktLDU1Count++;
-            if (m_pktLDU1Count > PKT_LDU1_COUNT) {
+            if (!silenceCurrentFrame && m_pktLDU1Count > PKT_LDU1_COUNT) {
                 m_pktLDU1Count = 0U;
 
                 // conventional registration or DVRS support?
@@ -720,7 +733,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // replace audio with silence in cases where the error rate
             // has exceeded the configured threshold
-            if (errors > m_silenceThreshold) {
+            if (silenceCurrentFrame || errors > m_silenceThreshold) {
                 // generate null audio
                 uint8_t buffer[9U * 25U];
                 ::memset(buffer, 0x00U, 9U * 25U);
@@ -732,7 +745,12 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     insertNullAudio(buffer);
                 }
 
-                LogWarning(LOG_RF, P25_LDU1_STR ", exceeded lost audio threshold, filling in");
+                if (silenceCurrentFrame) {
+                    LogWarning(LOG_RF, P25_LDU1_STR ", muted invalid TGID frame, filling in");
+                }
+                else {
+                    LogWarning(LOG_RF, P25_LDU1_STR ", exceeded lost audio threshold, filling in");
+                }
 
                 // add the audio
                 m_audio.encode(data + 2U, buffer + 10U, 0U);
