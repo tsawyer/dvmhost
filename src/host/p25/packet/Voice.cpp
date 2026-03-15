@@ -303,6 +303,15 @@ bool Voice::process(uint8_t* data, uint32_t len)
             else {
                 // validate the target ID, if the target is a talkgroup
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
+                    if (dstId == 0U && !m_p25->m_forceAllowTG0) {
+                        LogWarning(LOG_RF, P25_LDU1_STR ", TGID 0 detected at call start, dropping audio until a valid talkgroup is received");
+                        ::ActivityLog("P25", true, "RF voice frame from %u to TG 0 dropped; waiting for first valid TGID", srcId);
+                        m_p25->m_rfLastDstId = 0U;
+                        m_p25->m_rfLastSrcId = 0U;
+                        m_p25->m_rfTGHang.stop();
+                        return false;
+                    }
+
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
                         LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
