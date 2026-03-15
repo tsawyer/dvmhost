@@ -64,6 +64,7 @@ void Voice::resetRF()
     m_roamLDU1Count = 0U;
 
     m_inbound = false;
+    m_rfWaitForValidTG = false;
 }
 
 /* Resets the data states for the network. */
@@ -303,6 +304,19 @@ bool Voice::process(uint8_t* data, uint32_t len)
             else {
                 // validate the target ID, if the target is a talkgroup
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
+                    if (dstId == 0U && !m_p25->m_forceAllowTG0) {
+                        if (!m_rfWaitForValidTG) {
+                            LogWarning(LOG_RF, P25_LDU1_STR ", TGID 0 detected at call start, dropping audio until a valid talkgroup is received");
+                            ::ActivityLog("P25", true, "RF voice frame from %u to TG 0 dropped; waiting for first valid TGID", srcId);
+                        }
+
+                        m_rfWaitForValidTG = true;
+                        m_p25->m_rfLastDstId = 0U;
+                        m_p25->m_rfLastSrcId = 0U;
+                        m_p25->m_rfTGHang.stop();
+                        return false;
+                    }
+
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
                         LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
@@ -370,6 +384,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             m_rfLC = lc;
             m_rfLastLDU1 = m_rfLC;
+            m_rfWaitForValidTG = false;
             hduEncrypt = encrypted;
 
             m_lastRejectId = 0U;
@@ -1155,6 +1170,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
         }
 
         m_inbound = false;
+        m_rfWaitForValidTG = false;
         m_p25->m_rfState = RS_RF_LISTENING;
         return true;
     }
@@ -1445,6 +1461,7 @@ Voice::Voice(Control* p25, bool debug, bool verbose) :
     m_lastDUID(DUID::TDU),
     m_lastMI(nullptr),
     m_hadVoice(false),
+    m_rfWaitForValidTG(false),
     m_lastRejectId(0U),
     m_silenceThreshold(DEFAULT_SILENCE_THRESHOLD),
     m_pktLDU1Count(0U),

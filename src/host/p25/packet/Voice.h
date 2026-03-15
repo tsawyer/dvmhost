@@ -117,6 +117,7 @@ namespace p25
             uint8_t* m_lastMI;
 
             bool m_hadVoice;
+            bool m_rfWaitForValidTG;
             uint32_t m_lastRejectId;
 
             uint32_t m_silenceThreshold;
