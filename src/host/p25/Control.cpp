@@ -88,6 +88,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_immediateCallTerm(true),
     m_explicitTDUGrantRelease(true),
     m_disableDenyResponse(false),
+    m_tg0RemapTo(0U),
     m_defaultNetIdleTalkgroup(0U),
     m_idenTable(idenTable),
     m_ridLookup(ridLookup),
@@ -366,8 +367,17 @@ void Control::setOptions(yaml::Node& conf, bool supervisor, const std::string cw
     }
 
     m_forceAllowTG0 = p25Protocol["forceAllowTG0"].as<bool>(false);
-    if (m_forceAllowTG0) {
-        LogWarning(LOG_P25, "TGID 0 (P25 blackhole talkgroup) will be allowed. This is not recommended, and can cause undesired behavior, it is typically only needed by poorly behaved systems.");
+    m_tg0RemapTo = p25Protocol["tg0RemapTo"].as<uint32_t>(0U);
+    if (m_tg0RemapTo != 0U) {
+        if (m_forceAllowTG0) {
+            LogWarning(LOG_P25, "forceAllowTG0 is deprecated and ignored when tg0RemapTo is configured.");
+        }
+
+        LogWarning(LOG_P25, "TGID 0 (P25 blackhole talkgroup) will be remapped to TGID %u. This is intended only for poorly behaved systems and can cause undesired behavior.", m_tg0RemapTo);
+    }
+    else if (m_forceAllowTG0) {
+        m_tg0RemapTo = 1U;
+        LogWarning(LOG_P25, "forceAllowTG0 is deprecated. TGID 0 will be remapped to TGID %u for compatibility. This is not recommended and can cause undesired behavior.", m_tg0RemapTo);
     }
 
     m_immediateCallTerm = p25Protocol["immediateCallTerm"].as<bool>(true);
@@ -524,8 +534,8 @@ void Control::setOptions(yaml::Node& conf, bool supervisor, const std::string cw
             LogInfo("    DFSI Full Duplex: yes");
         }
 
-        if (m_forceAllowTG0) {
-            LogInfo("    Force Allow TGID 0: yes");
+        if (m_tg0RemapTo != 0U) {
+            LogInfo("    TGID 0 Remap Target: %u", m_tg0RemapTo);
         }
 
         LogInfo("    Patch Super Group: $%04X", m_control->m_patchSuperGroup);

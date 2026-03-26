@@ -320,6 +320,7 @@ namespace p25
         bool m_explicitTDUGrantRelease;
         bool m_disableDenyResponse;
 
+        uint32_t m_tg0RemapTo;
         uint32_t m_defaultNetIdleTalkgroup;
 
         ::lookups::IdenTableLookup* m_idenTable;

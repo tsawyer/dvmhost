@@ -260,9 +260,12 @@ protocols:
         #   (This applies only in conventional operations where channel granting is utilized and RF-only talkgroup
         #    steering is required.)
         disableNetworkGrant: false
-        # Flag indicating whether or not TGID 0 (P25 blackhole talkgroup) will be allowed.
-        #   (Normally this should *never* be enabled, it is here to support poorly behaved systems that transmit
-        #    TGID 0 for some reason.)
+        # Optional TGID remap target for inbound TGID 0 (P25 blackhole talkgroup) traffic.
+        #   (Set to 0 to reject TGID 0. If set to a non-zero value, TGID 0 will be remapped to the configured
+        #    talkgroup before validation and normal processing.)
+        tg0RemapTo: 0
+        # Deprecated compatibility flag for legacy behavior.
+        #   (If set to true and tg0RemapTo is 0, TGID 0 will be remapped to TGID 1. This is not recommended.)
         forceAllowTG0: false
         # Flag indicating whether or not a TGID will be tested for affiliations before being granted.
         ignoreAffiliationCheck: false
