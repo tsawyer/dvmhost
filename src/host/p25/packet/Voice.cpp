@@ -262,7 +262,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             // validate the source RID
             if (!acl::AccessControl::validateSrcId(srcId)) {
                 if (m_lastRejectId == 0U || m_lastRejectId != srcId) {
-                    LogWarning(LOG_RF, P25_HDU_STR " denial, RID rejection, srcId = %u", srcId);
+                    LogWarning(LOG_RF, P25_LDU1_STR " denial, RID rejection, srcId = %u", srcId);
                     if (m_p25->m_enableControl) {
                         m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_REQ_UNIT_NOT_VALID, (group ? TSBKO::IOSP_GRP_VCH : TSBKO::IOSP_UU_VCH), group, true);
                         m_p25->m_control->denialInhibit(srcId);
@@ -279,12 +279,21 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 return false;
             }
 
+            if (group && dstId == 0U && m_p25->m_isModemDFSI && !m_p25->m_forceAllowTG0) {
+                LogWarning(LOG_RF, "P25, DFSI LDU1 with TGID 0 while TG0 remap is disabled, discarding frame");
+
+                m_p25->m_rfLastDstId = 0U;
+                m_p25->m_rfLastSrcId = 0U;
+                m_p25->m_rfTGHang.stop();
+                return false;
+            }
+
             // is this a group or individual operation?
             if (!group) {
                 // validate the target RID
                 if (!acl::AccessControl::validateSrcId(dstId)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, RID rejection, dstId = %u", dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, RID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
                             m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_UNIT_NOT_VALID, TSBKO::IOSP_UU_VCH, false, true);
                         }
@@ -304,7 +313,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 // validate the target ID, if the target is a talkgroup
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, TGID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
                             m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_GROUP_NOT_VALID, TSBKO::IOSP_GRP_VCH, true, true);
                         }
@@ -322,7 +331,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
 
             if (group && dstId == 0U && m_p25->m_forceAllowTG0) {
-                LogWarning(LOG_RF, P25_HDU_STR " TGID 0 (P25 blackhole talkgroup) detected, srcId = %u", srcId);
+                LogWarning(LOG_RF, P25_LDU1_STR " TGID 0 (P25 blackhole talkgroup) detected, srcId = %u", srcId);
                 dstId = 1U; // force destination ID to TGID 1 -- TGID 0 is not allowed in P25, and the network won't properly handle it
                 lc.setDstId(dstId);
             }
@@ -332,7 +341,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             if (group && m_p25->m_enableControl) {
                 if (!m_p25->m_affiliations->isGroupAff(srcId, dstId) && m_p25->m_control->m_verifyAff) {
                     if (m_lastRejectId == 0 || m_lastRejectId != srcId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, RID not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, RID not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                         m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_REQ_UNIT_NOT_AUTH, TSBKO::IOSP_GRP_VCH, true, true);
                         m_p25->m_control->writeRF_TSDU_U_Reg_Cmd(srcId);
 
@@ -350,7 +359,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // bryanb: due to moronic reasons (mostly our favorite neighborhood OEM...) -- if this case happens, default the RID to something sane
             if (srcId == 0U) {
-                LogInfoEx(LOG_RF, P25_HDU_STR " ** source RID was 0, defaulting source RID, dstId = %u, mfId = $%02X", dstId, lc.getMFId());
+                LogInfoEx(LOG_RF, P25_LDU1_STR " ** source RID was 0, defaulting source RID, dstId = %u, mfId = $%02X", dstId, lc.getMFId());
                 srcId = WUID_FNE;
             }
 
@@ -363,7 +372,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     if (!group)
                         controlByte |= network::NET_CTRL_U2U;                               // Unit-to-unit Flag
 
-                    LogInfoEx(LOG_RF, P25_HDU_STR " remote grant demand, srcId = %u, dstId = %u", srcId, dstId);
+                    LogInfoEx(LOG_RF, P25_LDU1_STR " remote grant demand, srcId = %u, dstId = %u", srcId, dstId);
                     m_p25->m_network->writeP25TDU(lc, m_rfLSD, controlByte);
                 }
             }
@@ -388,7 +397,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                         if (m_p25->m_legacyGroupReg && group) {
                             if (!m_p25->m_affiliations->isGroupAff(srcId, dstId)) {
                                 if (m_p25->m_control->writeRF_TSDU_Grp_Aff_Rsp(srcId, dstId) != ResponseCode::ACCEPT) {
-                                    LogWarning(LOG_RF, P25_HDU_STR " denial, conventional affiliation required, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                                    LogWarning(LOG_RF, P25_LDU1_STR " denial, conventional affiliation required, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                                     m_p25->m_rfLastDstId = 0U;
                                     m_p25->m_rfLastSrcId = 0U;
                                     m_p25->m_rfTGHang.stop();
@@ -403,7 +412,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                         }
                     }
                     else {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, conventional affiliation required, and legacy group grant disabled, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, conventional affiliation required, and legacy group grant disabled, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                         m_p25->m_rfLastDstId = 0U;
                         m_p25->m_rfLastSrcId = 0U;
                         m_p25->m_rfTGHang.stop();
@@ -1848,7 +1857,7 @@ void Voice::writeNet_LDU1()
 
         // validate source RID
         if (!acl::AccessControl::validateSrcId(srcId)) {
-            LogWarning(LOG_NET, P25_HDU_STR " denial, RID rejection, srcId = %u", srcId);
+            LogWarning(LOG_NET, P25_LDU1_STR " denial, RID rejection, srcId = %u", srcId);
             return;
         }
 
@@ -1856,14 +1865,14 @@ void Voice::writeNet_LDU1()
         if (!group) {
             // validate the target RID
             if (!acl::AccessControl::validateSrcId(dstId)) {
-                LogWarning(LOG_NET, P25_HDU_STR " denial, RID rejection, dstId = %u", dstId);
+                LogWarning(LOG_NET, P25_LDU1_STR " denial, RID rejection, dstId = %u", dstId);
                 return;
             }
         }
         else {
             // validate the target ID, if the target is a talkgroup
             if (!acl::AccessControl::validateTGId(dstId)) {
-                LogWarning(LOG_NET, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
+                LogWarning(LOG_NET, P25_LDU1_STR " denial, TGID rejection, dstId = %u", dstId);
                 return;
             }
         }
@@ -1881,7 +1890,7 @@ void Voice::writeNet_LDU1()
 
             if (!m_p25->m_affiliations->isGranted(dstId)) {
                 if (!m_p25->m_control->writeRF_TSDU_Grant(srcId, dstId, serviceOptions, group, true)) {
-                    LogError(LOG_NET, P25_HDU_STR " call rejected, network call not granted, dstId = %u", dstId);
+                    LogError(LOG_NET, P25_LDU1_STR " call rejected, network call not granted, dstId = %u", dstId);
 
                     if ((!m_p25->m_networkWatchdog.isRunning() || m_p25->m_networkWatchdog.hasExpired()) &&
                         m_p25->m_netLastDstId != 0U) {
