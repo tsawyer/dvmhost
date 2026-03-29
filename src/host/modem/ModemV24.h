@@ -650,6 +650,22 @@ namespace modem
          * @param length Length of buffer.
          */
         void convertToAirTIA(const uint8_t *data, uint32_t length);
+        /**
+         * @brief Decode corrected LDU1 metadata from the current DFSI call buffer.
+         * @param[out] control Instance of p25::lc::LC populated from corrected LC bytes.
+         * @param[in] dfsiLabel Logging label for the DFSI format.
+         * @param[in] exceptDumpLabel Dump label used when RS decode throws.
+         * @returns bool True if corrected LDU1 metadata is usable, otherwise false.
+         */
+        bool decodeRxCallLDU1Metadata(p25::lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel);
+        /**
+         * @brief Decode corrected LDU2 metadata from the current DFSI call buffer.
+         * @param[out] control Instance of p25::lc::LC populated from corrected LC bytes.
+         * @param[in] dfsiLabel Logging label for the DFSI format.
+         * @param[in] exceptDumpLabel Dump label used when RS decode throws.
+         * @returns bool True if corrected LDU2 metadata is usable, otherwise false.
+         */
+        bool decodeRxCallLDU2Metadata(p25::lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel);
 
         /**
          * @brief Helper to add a V.24 data frame to the P25 Tx queue with the proper timestamp and formatting.
