@@ -1082,7 +1082,12 @@ bool Golay24128::decode24128(uint32_t code, uint32_t& out)
 
     out = code ^ error_pattern;
 
-    bool valid = (Utils::countBits32(syndrome) < 3U) || !(Utils::countBits32(out) & 1);
+    // The syndrome decoder operates on code >> 1, so it corrects only the 23-bit
+    // Golay core and does not directly repair the extra overall parity bit. If
+    // that parity bit is the only bit still wrong, the 12-bit decoded data is
+    // still valid as long as the corrected 23-bit error pattern had weight <= 2
+    // (for a total error weight <= 3).
+    bool valid = !(Utils::countBits32(out) & 1U) || (Utils::countBits32(error_pattern) <= 2U);
     out >>= 12;
 
     return valid;
