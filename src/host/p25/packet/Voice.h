@@ -95,6 +95,7 @@ namespace p25
             lc::LC m_rfLC;
             lc::LC m_rfLastHDU;
             bool m_rfLastHDUValid;
+            bool m_rfLastHDUTGRejected;
             lc::LC m_rfLastLDU1;
             lc::LC m_rfLastLDU2;
             bool m_rfFirstLDU2;

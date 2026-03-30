@@ -51,6 +51,7 @@ void Voice::resetRF()
     m_rfLC = lc;
     //m_rfLastHDU = lc;
     m_rfLastHDUValid = false;
+    m_rfLastHDUTGRejected = false;
     m_rfLastLDU1 = lc;
     m_rfLastLDU2 = lc;
     m_rfFirstLDU2 = true;
@@ -189,7 +190,9 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
 
             m_rfLastHDU = lc;
-            m_rfLastHDUValid = true;
+            m_rfLastHDUValid = lc.getDstId() != 0U &&
+                acl::AccessControl::validateTGId(lc.getDstId(), m_p25->m_forceAllowTG0);
+            m_rfLastHDUTGRejected = lc.getDstId() != 0U && !m_rfLastHDUValid;
 
             if (m_p25->m_rfState == RS_RF_LISTENING) {
                 if (!m_p25->m_dedicatedControl) {
@@ -226,12 +229,18 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             uint32_t srcId = lc.getSrcId();
             uint32_t dstId = lc.getDstId();
-            if (dstId == 0U && !lc.isStandardMFId() && m_rfLastHDUValid) {
-                dstId = m_rfLastHDU.getDstId();
-            }
-
             bool group = lc.getGroup();
             bool encrypted = lc.getEncrypted();
+            const bool haveTrustedHDUDst = m_rfLastHDUValid && m_rfLastHDU.getDstId() != 0U;
+
+            if (group && m_rfLastHDUTGRejected) {
+                dstId = m_rfLastHDU.getDstId();
+                lc.setDstId(dstId);
+            }
+            else if (dstId == 0U && haveTrustedHDUDst && (group || !lc.isStandardMFId())) {
+                dstId = m_rfLastHDU.getDstId();
+                lc.setDstId(dstId);
+            }
 
             alreadyDecoded = true;
 
@@ -581,6 +590,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
+            m_rfLastHDUTGRejected = false;
         }
 
         if (m_p25->m_rfState == RS_RF_AUDIO) {
@@ -1005,6 +1015,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
+            m_rfLastHDUTGRejected = false;
         }
 
         if (m_p25->m_rfState == RS_RF_AUDIO) {
@@ -1420,6 +1431,7 @@ Voice::Voice(Control* p25, bool debug, bool verbose) :
     m_rfLC(),
     m_rfLastHDU(),
     m_rfLastHDUValid(false),
+    m_rfLastHDUTGRejected(false),
     m_rfLastLDU1(),
     m_rfLastLDU2(),
     m_rfFirstLDU2(true),
