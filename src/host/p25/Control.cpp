@@ -1563,8 +1563,16 @@ void Control::processNetwork()
     }
 
     uint8_t gateDuid = length > 22U ? buffer[22U] : 0xFFU;
-    uint32_t gateSrcId = length > 7U ? GET_UINT24(buffer, 5U) : 0U;
-    uint32_t gateDstId = length > 10U ? GET_UINT24(buffer, 8U) : 0U;
+    uint32_t gateSrcId = 0U;
+    uint32_t gateDstId = 0U;
+
+    if (length > 7U) {
+        gateSrcId = GET_UINT24(buffer, 5U);
+    }
+
+    if (length > 10U) {
+        gateDstId = GET_UINT24(buffer, 8U);
+    }
 
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
