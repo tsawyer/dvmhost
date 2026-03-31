@@ -349,6 +349,8 @@ namespace p25
         bool m_ccRunning;
         bool m_ccPrevRunning;
         bool m_ccHalted;
+        bool m_netGateBlocked;
+        bool m_rfTimeoutExpiredLogged;
 
         Timer m_rfTimeout;
         Timer m_rfTGHang;
@@ -367,6 +369,7 @@ namespace p25
         Timer m_rfVoiceCallTermTimeout;
 
         StopWatch m_interval;
+        StopWatch m_netGateBlockWatch;
 
         uint32_t m_hangCount;
         uint32_t m_tduPreambleCount;
@@ -422,7 +425,24 @@ namespace p25
         /**
          * @brief Helper to process loss of frame stream from modem.
          */
-        void processFrameLoss();
+        void processFrameLoss(const char* reason = nullptr);
+        /**
+         * @brief Logs a diagnostic snapshot of the current sleep-related state.
+         * @param event Diagnostic event label.
+         * @param warn Flag indicating warning severity.
+         * @param srcId Source ID associated with the event.
+         * @param dstId Destination ID associated with the event.
+         * @param duid DUID associated with the event.
+         */
+        void logSleepState(const char* event, bool warn, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU) const;
+        /**
+         * @brief Tracks transitions into and out of the Net->RF sleep gate.
+         * @param blocked Flag indicating whether the gate is currently blocked.
+         * @param srcId Source ID associated with the gate event.
+         * @param dstId Destination ID associated with the gate event.
+         * @param duid DUID associated with the gate event.
+         */
+        void setNetGateBlocked(bool blocked, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU);
         /**
          * @brief Helper to process an In-Call Control message.
          * @param command In-Call Control Command.

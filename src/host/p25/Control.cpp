@@ -46,6 +46,43 @@ const uint32_t VOICE_CALL_TERM_TIMEOUT = 1000U;  // ms
 std::mutex Control::s_queueLock;
 std::mutex Control::s_activeTGLock;
 
+namespace
+{
+    const char* rfStateName(RPT_RF_STATE state)
+    {
+        switch (state) {
+            case RS_RF_LISTENING:
+                return "LISTENING";
+            case RS_RF_LATE_ENTRY:
+                return "LATE_ENTRY";
+            case RS_RF_AUDIO:
+                return "AUDIO";
+            case RS_RF_DATA:
+                return "DATA";
+            case RS_RF_REJECTED:
+                return "REJECTED";
+            case RS_RF_INVALID:
+                return "INVALID";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    const char* netStateName(RPT_NET_STATE state)
+    {
+        switch (state) {
+            case RS_NET_IDLE:
+                return "IDLE";
+            case RS_NET_AUDIO:
+                return "AUDIO";
+            case RS_NET_DATA:
+                return "DATA";
+            default:
+                return "UNKNOWN";
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -109,6 +146,8 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ccRunning(false),
     m_ccPrevRunning(false),
     m_ccHalted(false),
+    m_netGateBlocked(false),
+    m_rfTimeoutExpiredLogged(false),
     m_rfTimeout(1000U, timeout),
     m_rfTGHang(1000U, tgHang),
     m_rfLossWatchdog(1000U, 0U, 1500U),
@@ -120,6 +159,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ccPacketInterval(1000U, 0U, 15U),
     m_rfVoiceCallTermTimeout(1000U, VOICE_CALL_TERM_TIMEOUT),
     m_interval(),
+    m_netGateBlockWatch(),
     m_hangCount(3U * 8U),
     m_tduPreambleCount(8U),
     m_frameLossCnt(0U),
@@ -220,6 +260,8 @@ void Control::reset()
 {
     m_rfState = RS_RF_LISTENING;
     m_ccHalted = false;
+    m_netGateBlocked = false;
+    m_rfTimeoutExpiredLogged = false;
 
     if (m_voice != nullptr) {
         m_voice->resetRF();
@@ -621,7 +663,7 @@ bool Control::processFrame(uint8_t* data, uint32_t len)
         if (m_frameLossCnt > m_frameLossThreshold) {
             m_frameLossCnt = 0U;
 
-            processFrameLoss();
+            processFrameLoss("rf TAG_LOST threshold exceeded");
 
             return false;
         }
@@ -951,6 +993,16 @@ void Control::clock()
     m_netTimeout.clock(ms);
     m_rfVoiceCallTermTimeout.clock(ms);
 
+    if ((m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA) && m_rfTimeout.isRunning() && m_rfTimeout.hasExpired()) {
+        if (!m_rfTimeoutExpiredLogged) {
+            logSleepState("RF_TIMEOUT_EXPIRED", true, m_rfLastSrcId, m_rfLastDstId);
+            m_rfTimeoutExpiredLogged = true;
+        }
+    }
+    else {
+        m_rfTimeoutExpiredLogged = false;
+    }
+
     if (m_rfTGHang.isRunning()) {
         m_rfTGHang.clock(ms);
 
@@ -969,7 +1021,7 @@ void Control::clock()
 
             // has the talkgroup hang timer expired while the modem is in a non-listening state?
             if (m_rfState != RS_RF_LISTENING) {
-                processFrameLoss();
+                processFrameLoss("rf tg hang expired while not listening");
             }
         }
     }
@@ -981,7 +1033,7 @@ void Control::clock()
             if (m_rfLossWatchdog.hasExpired()) {
                 m_rfLossWatchdog.stop();
 
-                processFrameLoss();
+                processFrameLoss("rf loss watchdog expired");
             }
         }
     }
@@ -1035,6 +1087,8 @@ void Control::clock()
         m_networkWatchdog.clock(ms);
 
         if (m_networkWatchdog.isRunning() && m_networkWatchdog.hasExpired()) {
+            logSleepState("NET_WATCHDOG_EXPIRED", true, m_netLastSrcId, m_netLastDstId);
+
             if (m_netState == RS_NET_AUDIO) {
                 if (m_voice->m_netFrames > 0.0F) {
                     ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
@@ -1070,7 +1124,7 @@ void Control::clock()
     if (m_frameLossCnt > 0U && m_rfState == RS_RF_LISTENING)
         m_frameLossCnt = 0U;
     if (m_frameLossCnt >= m_frameLossThreshold && (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA)) {
-        processFrameLoss();
+        processFrameLoss("frame loss threshold exceeded");
     }
 
     // clock data and trunking
@@ -1292,6 +1346,11 @@ void Control::grantTG(uint32_t srcId, uint32_t dstId, bool grp)
 void Control::clearRFReject()
 {
     if (m_rfState == RS_RF_REJECTED) {
+        uint32_t srcId = m_rfLastSrcId;
+        uint32_t dstId = m_rfLastDstId;
+
+        logSleepState("RF_REJECT_CLEAR", false, srcId, dstId);
+
         m_txQueue.clear();
 
         m_voice->resetRF();
@@ -1303,6 +1362,9 @@ void Control::clearRFReject()
             m_network->resetP25();
 
         m_rfState = RS_RF_LISTENING;
+        m_rfTimeoutExpiredLogged = false;
+
+        setNetGateBlocked(false, srcId, dstId);
     }
 }
 
@@ -1349,6 +1411,56 @@ uint32_t Control::getLastSrcId() const
     }
 
     return 0U;
+}
+
+void Control::logSleepState(const char* event, bool warn, uint32_t srcId, uint32_t dstId, uint8_t duid) const
+{
+    const char* rfState = rfStateName(m_rfState);
+    const char* netState = netStateName(m_netState);
+
+    if (warn) {
+        LogWarning(LOG_P25,
+            "SLEEPTRACE %s: rfState=%s(%u), netState=%s(%u), rfLastDstId=%u, rfLastSrcId=%u, netLastDstId=%u, netLastSrcId=%u, srcId=%u, dstId=%u, duid=$%02X, rfHangRunning=%u, rfHangExpired=%u, netHangRunning=%u, netHangExpired=%u, rfTimeoutRunning=%u, rfTimeoutExpired=%u, netWatchdogRunning=%u, netWatchdogExpired=%u, tailOnIdle=%u, frameLossCnt=%u, txQ=%u, immQ=%u",
+            event, rfState, m_rfState, netState, m_netState, m_rfLastDstId, m_rfLastSrcId, m_netLastDstId, m_netLastSrcId,
+            srcId, dstId, duid, m_rfTGHang.isRunning(), m_rfTGHang.hasExpired(), m_netTGHang.isRunning(), m_netTGHang.hasExpired(),
+            m_rfTimeout.isRunning(), m_rfTimeout.hasExpired(), m_networkWatchdog.isRunning(), m_networkWatchdog.hasExpired(),
+            m_tailOnIdle, m_frameLossCnt, m_txQueue.dataSize(), m_txImmQueue.dataSize());
+    }
+    else {
+        LogInfoEx(LOG_P25,
+            "SLEEPTRACE %s: rfState=%s(%u), netState=%s(%u), rfLastDstId=%u, rfLastSrcId=%u, netLastDstId=%u, netLastSrcId=%u, srcId=%u, dstId=%u, duid=$%02X, rfHangRunning=%u, rfHangExpired=%u, netHangRunning=%u, netHangExpired=%u, rfTimeoutRunning=%u, rfTimeoutExpired=%u, netWatchdogRunning=%u, netWatchdogExpired=%u, tailOnIdle=%u, frameLossCnt=%u, txQ=%u, immQ=%u",
+            event, rfState, m_rfState, netState, m_netState, m_rfLastDstId, m_rfLastSrcId, m_netLastDstId, m_netLastSrcId,
+            srcId, dstId, duid, m_rfTGHang.isRunning(), m_rfTGHang.hasExpired(), m_netTGHang.isRunning(), m_netTGHang.hasExpired(),
+            m_rfTimeout.isRunning(), m_rfTimeout.hasExpired(), m_networkWatchdog.isRunning(), m_networkWatchdog.hasExpired(),
+            m_tailOnIdle, m_frameLossCnt, m_txQueue.dataSize(), m_txImmQueue.dataSize());
+    }
+}
+
+void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, uint8_t duid)
+{
+    if (blocked) {
+        if (!m_netGateBlocked) {
+            m_netGateBlocked = true;
+            m_netGateBlockWatch.start();
+
+            ::ActivityLog("P25", false, "sleep gate blocked, srcId=%u, dstId=%u, duid=$%02X, rfState=%u, rfLastDstId=%u, rfLastSrcId=%u",
+                srcId, dstId, duid, m_rfState, m_rfLastDstId, m_rfLastSrcId);
+            logSleepState("NET_GATE_BLOCK_BEGIN", true, srcId, dstId, duid);
+        }
+
+        return;
+    }
+
+    if (m_netGateBlocked) {
+        uint32_t heldMs = m_netGateBlockWatch.elapsed();
+
+        m_netGateBlocked = false;
+
+        ::ActivityLog("P25", false, "sleep gate reopened after %u ms, srcId=%u, dstId=%u, duid=$%02X, rfState=%u, rfLastDstId=%u, rfLastSrcId=%u",
+            heldMs, srcId, dstId, duid, m_rfState, m_rfLastDstId, m_rfLastSrcId);
+        LogWarning(LOG_P25, "SLEEPTRACE NET_GATE_BLOCK_END: held=%u ms, srcId=%u, dstId=%u, duid=$%02X", heldMs, srcId, dstId, duid);
+        logSleepState("NET_GATE_BLOCK_END", false, srcId, dstId, duid);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1450,12 +1562,19 @@ void Control::processNetwork()
         return;
     }
 
+    uint8_t gateDuid = length > 22U ? buffer[22U] : 0xFFU;
+    uint32_t gateSrcId = length > 7U ? GET_UINT24(buffer, 5U) : 0U;
+    uint32_t gateDstId = length > 10U ? GET_UINT24(buffer, 8U) : 0U;
+
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
+            setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
             return;
         }
     }
+
+    setNetGateBlocked(false, gateSrcId, gateDstId, gateDuid);
 
     bool grantDemand = (buffer[14U] & network::NET_CTRL_GRANT_DEMAND) == network::NET_CTRL_GRANT_DEMAND;
     bool grantDenial = (buffer[14U] & network::NET_CTRL_GRANT_DENIAL) == network::NET_CTRL_GRANT_DENIAL;
@@ -1705,8 +1824,17 @@ void Control::processNetwork()
 
 /* Helper to process loss of frame stream from modem. */
 
-void Control::processFrameLoss()
+void Control::processFrameLoss(const char* reason)
 {
+    uint32_t srcId = m_rfLastSrcId;
+    uint32_t dstId = m_rfLastDstId;
+    uint8_t duid = m_voice->m_lastDUID;
+
+    if (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA) {
+        LogWarning(LOG_P25, "SLEEPTRACE RF_FRAME_LOSS: reason=%s", reason != nullptr ? reason : "unspecified");
+        logSleepState("RF_FRAME_LOSS", true, srcId, dstId, duid);
+    }
+
     if (m_rfState == RS_RF_AUDIO) {
         if (m_rssi != 0U) {
             ::ActivityLog("P25", true, "transmission lost, %.1f seconds, BER: %.1f%%, RSSI: -%u/-%u/-%u dBm, loss count: %u",
@@ -1764,12 +1892,15 @@ void Control::processFrameLoss()
 
     m_voice->resetRF();
     m_data->resetRF();
+    m_rfTimeoutExpiredLogged = false;
 
     // if voice on control; and CC is halted restart CC
     if (m_voiceOnControl && m_ccHalted) {
         m_ccHalted = false;
         writeRF_ControlData();
     }
+
+    setNetGateBlocked(false, srcId, dstId, duid);
 }
 
 /* Helper to process an In-Call Control message. */
@@ -1794,12 +1925,13 @@ void Control::processInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId)
                     m_voice->m_rfLC.setDstId(dstId);
                 }
 
-                processFrameLoss();
+                processFrameLoss("network requested in-call reject");
 
                 m_rfLastDstId = 0U;
                 m_rfLastSrcId = 0U;
                 m_rfTGHang.stop();
                 m_rfState = RS_RF_REJECTED;
+                logSleepState("RF_REJECT_ENTER_ICC", true, m_voice->m_rfLC.getSrcId(), dstId);
             }
         }
         break;

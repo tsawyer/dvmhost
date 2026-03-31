@@ -1091,6 +1091,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
         }
     }
     else if (duid == DUID::TDU || duid == DUID::TDULC) {
+        m_p25->logSleepState("RF_TERMINATOR_RX", false, m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
+
         if (!m_p25->m_enableControl) {
             m_p25->m_affiliations->releaseGrant(m_rfLC.getDstId(), false);
         }
@@ -1159,6 +1161,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
         m_inbound = false;
         m_p25->m_rfState = RS_RF_LISTENING;
+        m_p25->m_rfTimeoutExpiredLogged = false;
+        m_p25->setNetGateBlocked(false, m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
         return true;
     }
     else {
@@ -1384,6 +1388,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
             // don't process network frames if the RF modem isn't in a listening state
             if (m_p25->m_rfState != RS_RF_LISTENING) {
+                m_p25->logSleepState("NET_TERMINATOR_DROPPED_RF_BUSY", true, control.getSrcId(), control.getDstId(), (uint8_t)duid);
                 resetNet();
                 return false;
             }
