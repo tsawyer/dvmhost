@@ -177,6 +177,12 @@ namespace p25
              */
             void writeNet_TDU();
             /**
+             * @brief Helper to resolve the best-known RF call state for a teardown.
+             * @param[out] control Link control to populate for a teardown.
+             * @returns bool True, if a valid source and destination were resolved.
+             */
+            bool resolveRFTerminatorLC(lc::LC& control) const;
+            /**
              * @brief Helper to check for an unflushed LDU1 packet.
              */
             void checkNet_LDU1();

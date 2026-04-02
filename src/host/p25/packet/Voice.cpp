@@ -370,6 +370,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             if (srcId == 0U) {
                 LogInfoEx(LOG_RF, P25_LDU1_STR " ** source RID was 0, defaulting source RID, dstId = %u, mfId = $%02X", dstId, lc.getMFId());
                 srcId = WUID_FNE;
+                lc.setSrcId(srcId);
             }
 
             // send network grant demand TDU
@@ -1102,17 +1103,31 @@ bool Voice::process(uint8_t* data, uint32_t len)
         }
 
         if (duid == DUID::TDU) {
-            if (m_p25->m_immediateCallTerm)
-                m_p25->writeRF_TDU(false);
+            lc::LC termLC = m_rfLC;
+            bool haveTermLC = resolveRFTerminatorLC(termLC);
+            bool repairedTermLC = termLC.getSrcId() != m_rfLC.getSrcId() || termLC.getDstId() != m_rfLC.getDstId();
+
+            if (repairedTermLC) {
+                LogWarning(LOG_RF, P25_TDU_STR ", repairing teardown LC, srcId = %u -> %u, dstId = %u -> %u",
+                    m_rfLC.getSrcId(), termLC.getSrcId(), m_rfLC.getDstId(), termLC.getDstId());
+                m_rfLC = termLC;
+            }
+
+            if (m_p25->m_immediateCallTerm) {
+                m_p25->writeRF_TDU(!haveTermLC);
+            }
             else {
-                if (m_rfLC.getDstId() != 0U && m_rfLC.getSrcId() != 0U) {
-                    m_p25->m_rfCallTermDstId = m_rfLC.getDstId();
-                    m_p25->m_rfCallTermSrcId = m_rfLC.getSrcId();
+                if (haveTermLC) {
+                    m_p25->m_rfCallTermDstId = termLC.getDstId();
+                    m_p25->m_rfCallTermSrcId = termLC.getSrcId();
                     m_p25->m_rfVoiceCallTermTimeout.start();
-                    m_p25->writeRF_TDU(true);
-                } else {
-                    m_p25->writeRF_TDU(false);
                 }
+
+                m_p25->writeRF_TDU(true);
+            }
+
+            if (!haveTermLC) {
+                LogWarning(LOG_RF, P25_TDU_STR ", dropping network call termination without active source/destination context");
             }
 
             m_lastDUID = duid;
@@ -1519,8 +1534,17 @@ void Voice::writeNetwork(const uint8_t *data, defines::DUID::E duid, defines::Fr
             break;
         case DUID::TDU:
         case DUID::TDULC:
-            m_p25->m_network->writeP25TDU(m_rfLC, m_rfLSD);
+        {
+            lc::LC termLC = m_rfLC;
+            if (!resolveRFTerminatorLC(termLC)) {
+                LogWarning(LOG_NET, "P25, dropping outbound TDU without active call context, srcId = %u, dstId = %u",
+                    m_rfLC.getSrcId(), m_rfLC.getDstId());
+                break;
+            }
+
+            m_p25->m_network->writeP25TDU(termLC, m_rfLSD);
             break;
+        }
         default:
             LogError(LOG_NET, "P25 unhandled voice DUID, duid = $%02X", duid);
             break;
@@ -1766,6 +1790,42 @@ void Voice::writeNet_TDU()
         m_p25->m_ccHalted = false;
         m_p25->writeRF_ControlData();
     }
+}
+
+/* Helper to resolve the best-known RF call state for a teardown. */
+
+bool Voice::resolveRFTerminatorLC(lc::LC& control) const
+{
+    const lc::LC* candidates[] = { &m_rfLC, &m_rfLastLDU2, &m_rfLastLDU1, &m_rfLastHDU };
+
+    for (const lc::LC* candidate : candidates) {
+        if (control.getSrcId() == 0U && control.getDstId() == 0U &&
+            (candidate->getSrcId() != 0U || candidate->getDstId() != 0U)) {
+            control = *candidate;
+        }
+
+        if (control.getSrcId() == 0U && candidate->getSrcId() != 0U) {
+            control.setSrcId(candidate->getSrcId());
+        }
+
+        if (control.getDstId() == 0U && candidate->getDstId() != 0U) {
+            control.setDstId(candidate->getDstId());
+        }
+
+        if (control.getSrcId() != 0U && control.getDstId() != 0U) {
+            break;
+        }
+    }
+
+    if (control.getSrcId() == 0U && m_p25->m_rfLastSrcId != 0U) {
+        control.setSrcId(m_p25->m_rfLastSrcId);
+    }
+
+    if (control.getDstId() == 0U && m_p25->m_rfLastDstId != 0U) {
+        control.setDstId(m_p25->m_rfLastDstId);
+    }
+
+    return control.getSrcId() != 0U && control.getDstId() != 0U;
 }
 
 /* Helper to check for an unflushed LDU1 packet. */

@@ -1068,16 +1068,20 @@ void Control::clock()
     if (m_rfVoiceCallTermTimeout.isRunning() && m_rfVoiceCallTermTimeout.hasExpired()) {
         m_rfVoiceCallTermTimeout.stop();
 
+        if (m_rfCallTermSrcId != 0U && m_rfCallTermDstId != 0U) {
+            p25::lc::LC lc = p25::lc::LC();
+            lc.setLCO(P25DEF::LCO::GROUP);
+            lc.setDstId(m_rfCallTermDstId);
+            lc.setSrcId(m_rfCallTermSrcId);
 
-        p25::lc::LC lc = p25::lc::LC();
-        lc.setLCO(P25DEF::LCO::GROUP);
-        lc.setDstId(m_rfCallTermDstId);
-        lc.setSrcId(m_rfCallTermSrcId);
+            p25::data::LowSpeedData lsd = p25::data::LowSpeedData();
 
-        p25::data::LowSpeedData lsd = p25::data::LowSpeedData();
-
-        uint8_t controlByte = 0x00U;
-        m_network->writeP25TDU(lc, lsd);
+            m_network->writeP25TDU(lc, lsd);
+        }
+        else if (m_rfCallTermSrcId != 0U || m_rfCallTermDstId != 0U) {
+            LogWarning(LOG_NET, "P25, dropping delayed RF call termination without active source/destination context, srcId = %u, dstId = %u",
+                m_rfCallTermSrcId, m_rfCallTermDstId);
+        }
 
         m_rfCallTermDstId = 0U;
         m_rfCallTermSrcId = 0U;
