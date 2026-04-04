@@ -177,6 +177,14 @@ namespace p25
              */
             void writeNet_TDU();
             /**
+             * @brief Determines whether a network voice frame overlaps the active RF voice call.
+             * @param srcId Source ID associated with the network frame.
+             * @param dstId Destination ID associated with the network frame.
+             * @param duid DUID associated with the network frame.
+             * @returns bool True, if the network frame matches the active RF voice call.
+             */
+            bool isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, defines::DUID::E duid) const;
+            /**
              * @brief Helper to resolve the best-known RF call state for a teardown.
              * @param[out] control Link control to populate for a teardown.
              * @returns bool True, if a valid source and destination were resolved.

@@ -48,6 +48,22 @@ std::mutex Control::s_activeTGLock;
 
 namespace
 {
+    bool isVoiceNetworkDUID(uint8_t duid)
+    {
+        switch ((DUID::E)duid) {
+            case DUID::HDU:
+            case DUID::LDU1:
+            case DUID::VSELP1:
+            case DUID::VSELP2:
+            case DUID::LDU2:
+            case DUID::TDU:
+            case DUID::TDULC:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     const char* rfStateName(RPT_RF_STATE state)
     {
         switch (state) {
@@ -1467,29 +1483,6 @@ void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, ui
     }
 }
 
-bool Control::isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, uint8_t duid) const
-{
-    if (m_rfState != RS_RF_AUDIO) {
-        return false;
-    }
-
-    if (srcId == 0U || dstId == 0U || m_rfLastSrcId == 0U || m_rfLastDstId == 0U) {
-        return false;
-    }
-
-    switch ((DUID::E)duid) {
-        case DUID::TDU:
-        case DUID::TDULC:
-        case DUID::LDU1:
-        case DUID::LDU2:
-            break;
-        default:
-            return false;
-    }
-
-    return srcId == m_rfLastSrcId && dstId == m_rfLastDstId;
-}
-
 // ---------------------------------------------------------------------------
 //  Private Class Members
 // ---------------------------------------------------------------------------
@@ -1601,17 +1594,19 @@ void Control::processNetwork()
         gateDstId = GET_UINT24(buffer, 8U);
     }
 
-    if (m_netState != RS_NET_DATA) {
+    const bool voiceNetworkFrame = isVoiceNetworkDUID(gateDuid);
+
+    if (!voiceNetworkFrame && m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
-            if (!isSameCallVoiceOverlap(gateSrcId, gateDstId, gateDuid)) {
-                setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
-                return;
-            }
+            setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
+            return;
         }
     }
 
-    setNetGateBlocked(false, gateSrcId, gateDstId, gateDuid);
+    if (!voiceNetworkFrame) {
+        setNetGateBlocked(false, gateSrcId, gateDstId, gateDuid);
+    }
 
     bool grantDemand = (buffer[14U] & network::NET_CTRL_GRANT_DEMAND) == network::NET_CTRL_GRANT_DEMAND;
     bool grantDenial = (buffer[14U] & network::NET_CTRL_GRANT_DENIAL) == network::NET_CTRL_GRANT_DENIAL;

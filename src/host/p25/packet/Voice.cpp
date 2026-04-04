@@ -1618,7 +1618,7 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
 
 bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DUID::E duid)
 {
-    if (m_p25->m_rfState != RS_RF_LISTENING && m_p25->isSameCallVoiceOverlap(srcId, dstId, (uint8_t)duid)) {
+    if (m_p25->m_rfState != RS_RF_LISTENING && isSameCallVoiceOverlap(srcId, dstId, duid)) {
         if (m_debug) {
             LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "ignoring overlapping network voice for active RF call, srcId = %u, dstId = %u, duid = $%02X",
                 srcId, dstId, duid);
@@ -1746,6 +1746,29 @@ void Voice::writeRF_EndOfVoice()
     // transmit channelNo release burst
     m_p25->writeRF_TDU(true, true);
     m_p25->m_control->writeRF_TDULC_ChanRelease(grp, srcId, dstId);
+}
+
+bool Voice::isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, defines::DUID::E duid) const
+{
+    if (m_p25->m_rfState != RS_RF_AUDIO) {
+        return false;
+    }
+
+    if (srcId == 0U || dstId == 0U || m_p25->m_rfLastSrcId == 0U || m_p25->m_rfLastDstId == 0U) {
+        return false;
+    }
+
+    switch (duid) {
+        case DUID::TDU:
+        case DUID::TDULC:
+        case DUID::LDU1:
+        case DUID::LDU2:
+            break;
+        default:
+            return false;
+    }
+
+    return srcId == m_p25->m_rfLastSrcId && dstId == m_p25->m_rfLastDstId;
 }
 
 /* Helper to write a network P25 TDU packet. */
