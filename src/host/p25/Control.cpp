@@ -1467,6 +1467,29 @@ void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, ui
     }
 }
 
+bool Control::isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, uint8_t duid) const
+{
+    if (m_rfState != RS_RF_AUDIO) {
+        return false;
+    }
+
+    if (srcId == 0U || dstId == 0U || m_rfLastSrcId == 0U || m_rfLastDstId == 0U) {
+        return false;
+    }
+
+    switch ((DUID::E)duid) {
+        case DUID::TDU:
+        case DUID::TDULC:
+        case DUID::LDU1:
+        case DUID::LDU2:
+            break;
+        default:
+            return false;
+    }
+
+    return srcId == m_rfLastSrcId && dstId == m_rfLastDstId;
+}
+
 // ---------------------------------------------------------------------------
 //  Private Class Members
 // ---------------------------------------------------------------------------
@@ -1581,8 +1604,10 @@ void Control::processNetwork()
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
-            setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
-            return;
+            if (!isSameCallVoiceOverlap(gateSrcId, gateDstId, gateDuid)) {
+                setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
+                return;
+            }
         }
     }
 

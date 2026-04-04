@@ -444,6 +444,14 @@ namespace p25
          */
         void setNetGateBlocked(bool blocked, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU);
         /**
+         * @brief Determines whether a network voice frame overlaps the active RF voice call.
+         * @param srcId Source ID associated with the network frame.
+         * @param dstId Destination ID associated with the network frame.
+         * @param duid DUID associated with the network frame.
+         * @returns bool True, if the network frame matches the active RF voice call.
+         */
+        bool isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, uint8_t duid) const;
+        /**
          * @brief Helper to process an In-Call Control message.
          * @param command In-Call Control Command.
          * @param dstId Destination ID.

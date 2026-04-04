@@ -1618,6 +1618,14 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
 
 bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DUID::E duid)
 {
+    if (m_p25->m_rfState != RS_RF_LISTENING && m_p25->isSameCallVoiceOverlap(srcId, dstId, (uint8_t)duid)) {
+        if (m_debug) {
+            LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "ignoring overlapping network voice for active RF call, srcId = %u, dstId = %u, duid = $%02X",
+                srcId, dstId, duid);
+        }
+        return true;
+    }
+
     // don't process network frames if the destination ID's don't match and the RF TG hang timer is running
     if (m_p25->m_rfLastDstId != 0U && dstId != 0U) {
         if (m_p25->m_rfLastDstId != dstId && (m_p25->m_rfTGHang.isRunning() && !m_p25->m_rfTGHang.hasExpired())) {
