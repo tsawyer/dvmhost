@@ -394,6 +394,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
 {
     if (m_p25->m_netState != RS_NET_DATA) {
         m_p25->m_netState = RS_NET_DATA;
+        m_p25->startNetworkWatchdog();
         m_inbound = false;
     }
 

@@ -444,6 +444,10 @@ namespace p25
          */
         void setNetGateBlocked(bool blocked, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU);
         /**
+         * @brief Starts the network watchdog once traffic is actually admitted.
+         */
+        void startNetworkWatchdog();
+        /**
          * @brief Helper to process an In-Call Control message.
          * @param command In-Call Control Command.
          * @param dstId Destination ID.

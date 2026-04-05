@@ -1483,6 +1483,11 @@ void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, ui
     }
 }
 
+void Control::startNetworkWatchdog()
+{
+    m_networkWatchdog.start();
+}
+
 // ---------------------------------------------------------------------------
 //  Private Class Members
 // ---------------------------------------------------------------------------
@@ -1739,8 +1744,6 @@ void Control::processNetwork()
 
     lsd.setLSD1(lsd1);
     lsd.setLSD2(lsd2);
-
-    m_networkWatchdog.start();
 
     if (m_debug) {
         Utils::dump(2U, "* !!! P25 Network Frame", data.get(), frameLength);
