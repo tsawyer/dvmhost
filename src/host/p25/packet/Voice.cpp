@@ -1288,6 +1288,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 if (m_p25->m_netState != RS_NET_IDLE) {
                     m_p25->m_netTGHang.start();
+                    m_p25->startNetworkWatchdog();
                     writeNet_LDU1();
                 }
 
@@ -1373,6 +1374,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 if (m_p25->m_netState != RS_NET_IDLE) {
                     m_p25->m_netTGHang.start();
+                    m_p25->startNetworkWatchdog();
                     writeNet_LDU2();
                 }
 
