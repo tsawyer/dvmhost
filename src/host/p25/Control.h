@@ -351,6 +351,8 @@ namespace p25
         bool m_ccHalted;
         bool m_netGateBlocked;
         bool m_rfTimeoutExpiredLogged;
+        bool m_lastNetFrameSeen;
+        bool m_lastNetFrameAdmitted;
 
         Timer m_rfTimeout;
         Timer m_rfTGHang;
@@ -370,6 +372,12 @@ namespace p25
 
         StopWatch m_interval;
         StopWatch m_netGateBlockWatch;
+        StopWatch m_lastNetFrameWatch;
+
+        uint32_t m_lastNetFrameSrcId;
+        uint32_t m_lastNetFrameDstId;
+        uint8_t m_lastNetFrameDuid;
+        const char* m_lastNetFrameReason;
 
         uint32_t m_hangCount;
         uint32_t m_tduPreambleCount;
@@ -436,6 +444,15 @@ namespace p25
          */
         void logSleepState(const char* event, bool warn, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU) const;
         /**
+         * @brief Logs a grep-friendly summary whenever a call end path is taken.
+         * @param networkSide Flag indicating whether the call ended on the network side.
+         * @param reason Short reason label describing the end path.
+         * @param srcId Source ID associated with the call end.
+         * @param dstId Destination ID associated with the call end.
+         * @param duid DUID associated with the call end.
+         */
+        void logCallEndSummary(bool networkSide, const char* reason, uint32_t srcId = 0U, uint32_t dstId = 0U, uint8_t duid = 0xFFU);
+        /**
          * @brief Tracks transitions into and out of the Net->RF sleep gate.
          * @param blocked Flag indicating whether the gate is currently blocked.
          * @param srcId Source ID associated with the gate event.
@@ -447,6 +464,15 @@ namespace p25
          * @brief Starts the network watchdog once traffic is actually admitted.
          */
         void startNetworkWatchdog();
+        /**
+         * @brief Remembers the last network frame decision relevant to sleep teardown.
+         * @param reason Short label describing the decision path.
+         * @param srcId Source ID associated with the network frame.
+         * @param dstId Destination ID associated with the network frame.
+         * @param duid DUID associated with the network frame.
+         * @param admitted Flag indicating whether the frame was admitted locally.
+         */
+        void rememberNetworkFrame(const char* reason, uint32_t srcId, uint32_t dstId, uint8_t duid, bool admitted);
         /**
          * @brief Helper to process an In-Call Control message.
          * @param command In-Call Control Command.

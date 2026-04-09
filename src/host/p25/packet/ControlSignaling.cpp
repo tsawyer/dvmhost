@@ -1447,6 +1447,8 @@ void ControlSignaling::writeNet_TDULC(lc::TDULC* lc)
         ::ActivityLog("P25", false, "network end of transmission, %u frames", m_p25->m_voice->m_netFrames);
     }
 
+    m_p25->logCallEndSummary(true, "NET_TDULC_RX", lc->getSrcId(), lc->getDstId(), (uint8_t)DUID::TDULC);
+
     if (m_p25->m_network != nullptr)
         m_p25->m_network->resetP25();
 

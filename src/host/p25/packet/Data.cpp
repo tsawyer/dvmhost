@@ -398,6 +398,8 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
         m_inbound = false;
     }
 
+    m_p25->rememberNetworkFrame("NET_DATA_ADMITTED", m_p25->m_netLastSrcId, m_p25->m_netLastDstId, DUID::PDU, true);
+
     LogInfoEx(LOG_NET, P25_PDU_STR ", received block %u, len = %u, totalBlocks = %u",
         currentBlock, blockLength, totalBlocks);
 

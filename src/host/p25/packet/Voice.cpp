@@ -1155,6 +1155,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     float(m_rfFrames) / 5.56F, float(m_rfErrs * 100U) / float(m_rfBits));
             }
 
+            m_p25->logCallEndSummary(false, "RF_TERMINATOR_RX", m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
+
             LogInfoEx(LOG_RF, P25_TDU_STR ", total frames: %d, bits: %d, undecodable LC: %d, errors: %d, BER: %.4f%%",
                 m_rfFrames, m_rfBits, m_rfUndecodableLC, m_rfErrs, float(m_rfErrs * 100U) / float(m_rfBits));
 
@@ -1274,6 +1276,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 if (m_p25->m_dedicatedControl && !m_p25->m_voiceOnControl) {
+                    m_p25->rememberNetworkFrame("NET_LDU1_ADMITTED", srcId, dstId, (uint8_t)duid, true);
                     return true;
                 }
 
@@ -1293,6 +1296,10 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 m_netLastDUID = duid;
+                m_p25->rememberNetworkFrame("NET_LDU1_ADMITTED", srcId, dstId, (uint8_t)duid, true);
+            }
+            else {
+                m_p25->rememberNetworkFrame("NET_LDU1_SHAPE_INVALID", srcId, dstId, (uint8_t)duid, false);
             }
             break;
         case DUID::LDU2:
@@ -1349,6 +1356,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 if (m_p25->m_dedicatedControl && !m_p25->m_voiceOnControl) {
+                    m_p25->rememberNetworkFrame("NET_LDU2_ADMITTED", srcId, dstId, (uint8_t)duid, true);
                     return true;
                 }
 
@@ -1379,6 +1387,10 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 m_netLastDUID = duid;
+                m_p25->rememberNetworkFrame("NET_LDU2_ADMITTED", srcId, dstId, (uint8_t)duid, true);
+            }
+            else {
+                m_p25->rememberNetworkFrame("NET_LDU2_SHAPE_INVALID", srcId, dstId, (uint8_t)duid, false);
             }
             break;
         case DUID::VSELP1:
@@ -1400,11 +1412,13 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
             // ignore a TDU that doesn't contain our destination ID
             if (control.getDstId() != m_p25->m_netLastDstId) {
+                m_p25->rememberNetworkFrame("NET_TERMINATOR_DST_MISMATCH", control.getSrcId(), control.getDstId(), (uint8_t)duid, false);
                 return false;
             }
 
             // don't process network frames if the RF modem isn't in a listening state
             if (m_p25->m_rfState != RS_RF_LISTENING) {
+                m_p25->rememberNetworkFrame("NET_TERMINATOR_RF_BUSY", control.getSrcId(), control.getDstId(), (uint8_t)duid, false);
                 m_p25->logSleepState("NET_TERMINATOR_DROPPED_RF_BUSY", true, control.getSrcId(), control.getDstId(), (uint8_t)duid);
                 resetNet();
                 return false;
@@ -1421,11 +1435,17 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
             }
 
             if (m_p25->m_netState != RS_NET_IDLE) {
+                m_p25->logCallEndSummary(true, duid == DUID::TDULC ? "NET_TDULC_RX" : "NET_TDU_RX",
+                    control.getSrcId(), control.getDstId(), (uint8_t)duid);
+
                 if (duid == DUID::TDU)
                     writeNet_TDU();
 
                 resetNet();
             }
+
+            m_p25->rememberNetworkFrame(duid == DUID::TDULC ? "NET_TDULC_ADMITTED" : "NET_TDU_ADMITTED",
+                control.getSrcId(), control.getDstId(), (uint8_t)duid, true);
             break;
 
         default:
@@ -1621,6 +1641,7 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
 bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DUID::E duid)
 {
     if (m_p25->m_rfState != RS_RF_LISTENING && isSameCallVoiceOverlap(srcId, dstId, duid)) {
+        m_p25->rememberNetworkFrame("NET_DROP_RF_ACTIVE_OVERLAP", srcId, dstId, (uint8_t)duid, false);
         if (m_debug) {
             LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "ignoring overlapping network voice for active RF call, srcId = %u, dstId = %u, duid = $%02X",
                 srcId, dstId, duid);
@@ -1631,6 +1652,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
     // don't process network frames if the destination ID's don't match and the RF TG hang timer is running
     if (m_p25->m_rfLastDstId != 0U && dstId != 0U) {
         if (m_p25->m_rfLastDstId != dstId && (m_p25->m_rfTGHang.isRunning() && !m_p25->m_rfTGHang.hasExpired())) {
+            m_p25->rememberNetworkFrame("NET_DROP_RF_TG_HANG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
             resetNet();
             if (m_p25->m_network != nullptr)
                 m_p25->m_network->resetP25();
@@ -1653,6 +1675,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
     // the destination ID doesn't match the default net idle talkgroup
     if (m_p25->m_defaultNetIdleTalkgroup != 0U && dstId != 0U && !m_p25->m_rfTGHang.isRunning()) {
         if (m_p25->m_defaultNetIdleTalkgroup != dstId && !m_p25->m_affiliations->hasGroupAff(dstId)) {
+            m_p25->rememberNetworkFrame("NET_DROP_IDLE_TG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
             if (!m_p25->m_dedicatedControl) {
                 if (m_p25->m_affiliations->isGranted(dstId)) {
                     m_p25->m_affiliations->releaseGrant(dstId, false);
@@ -1684,6 +1707,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
         // don't process network frames if the destination ID's don't match and the network TG hang timer is running
         if (m_p25->m_netLastDstId != 0U && dstId != 0U && (duid == DUID::LDU1 || duid == DUID::LDU2)) {
             if (m_p25->m_netLastDstId != dstId && (m_p25->m_netTGHang.isRunning() && !m_p25->m_netTGHang.hasExpired())) {
+                m_p25->rememberNetworkFrame("NET_DROP_NET_TG_HANG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
                 if (m_debug) {
                     LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "dropping frames, because dstId does not match and network TG hang timer is running, netLastDstId = %u, dstId = %u",
                         m_p25->m_netLastDstId, dstId);
@@ -1699,6 +1723,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
         // don't process network frames if the RF modem isn't in a listening state
         if (m_p25->m_rfState != RS_RF_LISTENING) {
             if (m_rfLC.getSrcId() == srcId && m_rfLC.getDstId() == dstId) {
+                m_p25->rememberNetworkFrame("NET_DROP_RF_BUSY_SAMECALL", srcId, dstId, (uint8_t)duid, false);
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic (Are we in a voting condition?), rfSrcId = %u, rfDstId = %u, netSrcId = %u, netDstId = %u", m_rfLC.getSrcId(), m_rfLC.getDstId(),
                     srcId, dstId);
                 resetNet();
@@ -1707,6 +1732,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
                 return true;
             }
             else {
+                m_p25->rememberNetworkFrame("NET_DROP_RF_BUSY_OTHERCALL", srcId, dstId, (uint8_t)duid, false);
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic, rfDstId = %u, netDstId = %u", m_rfLC.getDstId(),
                     dstId);
                 resetNet();
@@ -1719,6 +1745,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
 
     // don't process network frames if this modem isn't authoritative
     if (!m_p25->m_authoritative && m_p25->m_permittedDstId != dstId) {
+        m_p25->rememberNetworkFrame("NET_DROP_DST_NOT_PERMITTED", srcId, dstId, (uint8_t)duid, false);
         if (!g_disableNonAuthoritativeLogging)
             LogWarning(LOG_NET, "[NON-AUTHORITATIVE] Ignoring network traffic, destination not permitted, dstId = %u", dstId);
         resetNet();

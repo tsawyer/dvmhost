@@ -164,6 +164,8 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ccHalted(false),
     m_netGateBlocked(false),
     m_rfTimeoutExpiredLogged(false),
+    m_lastNetFrameSeen(false),
+    m_lastNetFrameAdmitted(false),
     m_rfTimeout(1000U, timeout),
     m_rfTGHang(1000U, tgHang),
     m_rfLossWatchdog(1000U, 0U, 1500U),
@@ -176,6 +178,11 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_rfVoiceCallTermTimeout(1000U, VOICE_CALL_TERM_TIMEOUT),
     m_interval(),
     m_netGateBlockWatch(),
+    m_lastNetFrameWatch(),
+    m_lastNetFrameSrcId(0U),
+    m_lastNetFrameDstId(0U),
+    m_lastNetFrameDuid(0xFFU),
+    m_lastNetFrameReason("none"),
     m_hangCount(3U * 8U),
     m_tduPreambleCount(8U),
     m_frameLossCnt(0U),
@@ -278,6 +285,12 @@ void Control::reset()
     m_ccHalted = false;
     m_netGateBlocked = false;
     m_rfTimeoutExpiredLogged = false;
+    m_lastNetFrameSeen = false;
+    m_lastNetFrameAdmitted = false;
+    m_lastNetFrameSrcId = 0U;
+    m_lastNetFrameDstId = 0U;
+    m_lastNetFrameDuid = 0xFFU;
+    m_lastNetFrameReason = "reset";
 
     if (m_voice != nullptr) {
         m_voice->resetRF();
@@ -1119,6 +1132,8 @@ void Control::clock()
                 ::ActivityLog("P25", false, "network watchdog has expired");
             }
 
+            logCallEndSummary(true, "NET_WATCHDOG_EXPIRED", m_netLastSrcId, m_netLastDstId);
+
             m_networkWatchdog.stop();
             m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
 
@@ -1456,6 +1471,64 @@ void Control::logSleepState(const char* event, bool warn, uint32_t srcId, uint32
     }
 }
 
+void Control::logCallEndSummary(bool networkSide, const char* reason, uint32_t srcId, uint32_t dstId, uint8_t duid)
+{
+    const char* side = networkSide ? "NET" : "RF";
+    const char* rfState = rfStateName(m_rfState);
+    const char* netState = netStateName(m_netState);
+    uint32_t lastNetFrameAgeMs = m_lastNetFrameSeen ? m_lastNetFrameWatch.elapsed() : 0U;
+
+    if (srcId == 0U) {
+        if (networkSide) {
+            if (m_netLastSrcId != 0U) {
+                srcId = m_netLastSrcId;
+            }
+            else if (m_voice != nullptr && m_voice->m_netLC.getSrcId() != 0U) {
+                srcId = m_voice->m_netLC.getSrcId();
+            }
+            else if (m_lastNetFrameSrcId != 0U) {
+                srcId = m_lastNetFrameSrcId;
+            }
+        }
+        else {
+            if (m_rfLastSrcId != 0U) {
+                srcId = m_rfLastSrcId;
+            }
+            else if (m_voice != nullptr && m_voice->m_rfLC.getSrcId() != 0U) {
+                srcId = m_voice->m_rfLC.getSrcId();
+            }
+        }
+    }
+
+    if (dstId == 0U) {
+        if (networkSide) {
+            if (m_netLastDstId != 0U) {
+                dstId = m_netLastDstId;
+            }
+            else if (m_voice != nullptr && m_voice->m_netLC.getDstId() != 0U) {
+                dstId = m_voice->m_netLC.getDstId();
+            }
+            else if (m_lastNetFrameDstId != 0U) {
+                dstId = m_lastNetFrameDstId;
+            }
+        }
+        else {
+            if (m_rfLastDstId != 0U) {
+                dstId = m_rfLastDstId;
+            }
+            else if (m_voice != nullptr && m_voice->m_rfLC.getDstId() != 0U) {
+                dstId = m_voice->m_rfLC.getDstId();
+            }
+        }
+    }
+
+    LogInfoEx(LOG_P25,
+        "CALLEND side=%s, reason=%s, srcId=%u, dstId=%u, duid=$%02X, rfState=%s(%u), netState=%s(%u), lastNetSeen=%u, lastNetAdmitted=%u, lastNetSrcId=%u, lastNetDstId=%u, lastNetDuid=$%02X, lastNetReason=%s, lastNetAgeMs=%u",
+        side, reason != nullptr ? reason : "unspecified", srcId, dstId, duid,
+        rfState, m_rfState, netState, m_netState,
+        m_lastNetFrameSeen, m_lastNetFrameAdmitted, m_lastNetFrameSrcId, m_lastNetFrameDstId, m_lastNetFrameDuid, m_lastNetFrameReason, lastNetFrameAgeMs);
+}
+
 void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, uint8_t duid)
 {
     if (blocked) {
@@ -1486,6 +1559,17 @@ void Control::setNetGateBlocked(bool blocked, uint32_t srcId, uint32_t dstId, ui
 void Control::startNetworkWatchdog()
 {
     m_networkWatchdog.start();
+}
+
+void Control::rememberNetworkFrame(const char* reason, uint32_t srcId, uint32_t dstId, uint8_t duid, bool admitted)
+{
+    m_lastNetFrameSeen = true;
+    m_lastNetFrameAdmitted = admitted;
+    m_lastNetFrameSrcId = srcId;
+    m_lastNetFrameDstId = dstId;
+    m_lastNetFrameDuid = duid;
+    m_lastNetFrameReason = reason != nullptr ? reason : "unspecified";
+    m_lastNetFrameWatch.start();
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,6 +1667,7 @@ void Control::processNetwork()
     if (length == 0U)
         return;
     if (buffer == nullptr) {
+        rememberNetworkFrame("NET_READ_NULL", 0U, 0U, 0xFFU, false);
         m_network->resetP25();
         return;
     }
@@ -1604,6 +1689,7 @@ void Control::processNetwork()
     if (!voiceNetworkFrame && m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
+            rememberNetworkFrame("NET_GATE_BLOCKED", gateSrcId, gateDstId, gateDuid, false);
             setNetGateBlocked(true, gateSrcId, gateDstId, gateDuid);
             return;
         }
@@ -1627,6 +1713,7 @@ void Control::processNetwork()
     uint8_t frameLength = buffer[23U];
 
     if (!m_network->validateP25FrameLength(frameLength, length, duid)) {
+        rememberNetworkFrame("NET_FRAME_LENGTH_INVALID", gateSrcId, gateDstId, gateDuid, false);
         m_network->resetP25();
         return;
     }
@@ -1879,6 +1966,8 @@ void Control::processFrameLoss(const char* reason)
             ::ActivityLog("P25", true, "transmission lost, %.1f seconds, BER: %.1f%%, loss count: %u",
                 float(m_voice->m_rfFrames) / 5.56F, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits), m_frameLossCnt);
         }
+
+        logCallEndSummary(false, "RF_FRAME_LOSS", srcId, dstId, duid);
 
         LogInfoEx(LOG_RF, P25_TDU_STR ", total frames: %d, bits: %d, undecodable LC: %d, errors: %d, BER: %.4f%%",
             m_voice->m_rfFrames, m_voice->m_rfBits, m_voice->m_rfUndecodableLC, m_voice->m_rfErrs, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits));
