@@ -20,6 +20,7 @@
 #include "common/edac/RS634717.h"
 #include "common/p25/data/DataHeader.h"
 #include "common/p25/data/DataBlock.h"
+#include "common/p25/dfsi/DFSIDefines.h"
 #include "common/p25/lc/LC.h"
 #include "common/p25/Audio.h"
 #include "common/p25/NID.h"
@@ -90,7 +91,9 @@ namespace modem
             dataCall(false),
             pduUserDataOffset(0U),
             pduTotalBlocks(0U),
-            errors(0U)
+            errors(0U),
+            ldu1Seq(0U),
+            ldu2Seq(0U)
         {
             MI = new uint8_t[P25DEF::MI_LENGTH_BYTES];
             VHDR1 = new uint8_t[P25DFSIDEF::DFSI_MOT_VHDR_1_LEN];
@@ -193,6 +196,9 @@ namespace modem
             pduTotalBlocks = 0U;
 
             errors = 0U;
+
+            ldu1Seq = 0U;
+            ldu2Seq = 0U;
         }
 
     public:
@@ -299,6 +305,14 @@ namespace modem
          * @brief Total errors for a given call sequence.
          */
         uint32_t errors;
+        /**
+         * @brief Standards-based LDU1 contiguous sequence tracker.
+         */
+        uint8_t ldu1Seq;
+        /**
+         * @brief Standards-based LDU2 contiguous sequence tracker.
+         */
+        uint8_t ldu2Seq;
         /** @} */
     };
 
@@ -550,6 +564,11 @@ namespace modem
          * @param set 
          */
         void setTIAFormat(bool set);
+        /**
+         * @brief Helper to set the legacy DFSI handling flag.
+         * @param set
+         */
+        void setLegacyDFSI(bool set);
 
         /**
          * @brief Opens connection to the air interface modem.
@@ -610,6 +629,7 @@ namespace modem
         edac::RS634717 m_rs;
 
         bool m_useTIAFormat;
+        bool m_legacyDFSI;
 
         std::mutex m_txP25QueueLock;
 
@@ -666,6 +686,28 @@ namespace modem
          * @returns bool True if corrected LDU2 metadata is usable, otherwise false.
          */
         bool decodeRxCallLDU2Metadata(p25::lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel);
+        /**
+         * @brief Advances RX voice frame sequencing and reports when an LDU is ready to emit.
+         * @param[in] frameType DFSI frame type that was just stored.
+         * @returns 0 if no LDU is ready, 1 if LDU1 is ready, 2 if LDU2 is ready.
+         */
+        uint8_t updateRxVoiceSequence(p25::dfsi::defines::DFSIFrameType::E frameType);
+        /**
+         * @brief Emits a corrected RX LDU1 from the current DFSI call buffers.
+         * @param[out] buffer Air interface buffer to populate.
+         * @param[in] dfsiLabel Logging label for the DFSI format.
+         * @param[in] exceptDumpLabel Dump label used when RS decode throws.
+         * @returns bool True if an LDU1 was emitted, otherwise false.
+         */
+        bool emitRxCallLDU1(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel);
+        /**
+         * @brief Emits a corrected RX LDU2 from the current DFSI call buffers.
+         * @param[out] buffer Air interface buffer to populate.
+         * @param[in] dfsiLabel Logging label for the DFSI format.
+         * @param[in] exceptDumpLabel Dump label used when RS decode throws.
+         * @returns bool True if an LDU2 was emitted, otherwise false.
+         */
+        bool emitRxCallLDU2(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel);
 
         /**
          * @brief Helper to add a V.24 data frame to the P25 Tx queue with the proper timestamp and formatting.

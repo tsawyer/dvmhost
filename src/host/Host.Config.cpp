@@ -523,6 +523,7 @@ bool Host::createModem()
     uint32_t fscHeartbeat = dfsiParams["fscHeartbeat"].as<uint32_t>(5U);
     bool fscInitiator = dfsiParams["initiator"].as<bool>(false);
     bool dfsiTIAMode = dfsiParams["dfsiTIAMode"].as<bool>(false);
+    bool legacyDFSI = dfsiParams["legacyDFSI"].as<bool>(true);
 
     // clamp fifo sizes
     if (dmrFifoLength < DMR_TX_BUFFER_LEN) {
@@ -641,6 +642,7 @@ bool Host::createModem()
         m_isModemDFSI = true;
         LogInfo("    DFSI RT/RT: %s", rtrt ? "yes" : "no");
         LogInfo("    DFSI Jitter Size: %u ms", jitter);
+        LogInfo("    DFSI Legacy Handling: %s", legacyDFSI ? "yes" : "no");
         if (g_remoteModemMode) {
             LogInfo("    DFSI Use FSC: %s", useFSCForUDP ? "yes" : "no");
             LogInfo("    DFSI FSC Heartbeat: %us", fscHeartbeat);
@@ -744,6 +746,7 @@ bool Host::createModem()
             dumpModemStatus, displayModemDebugMessages, trace, debug);
         ((ModemV24*)m_modem)->setCallTimeout(dfsiCallTimeout);
         ((ModemV24*)m_modem)->setTIAFormat(dfsiTIAMode);
+        ((ModemV24*)m_modem)->setLegacyDFSI(legacyDFSI);
     } else {
         m_modem = new Modem(modemPort, m_duplex, rxInvert, txInvert, pttInvert, dcBlocker, cosLockout, fdmaPreamble, dmrRxDelay, p25CorrCount,
             m_dmrQueueSizeBytes, m_p25QueueSizeBytes, m_nxdnQueueSizeBytes, disableOFlowReset, ignoreModemConfigArea, dumpModemStatus, displayModemDebugMessages, trace, debug);
