@@ -1,0 +1,10 @@
+services:
+  compiler:
+    build: .
+    platform: linux/amd64
+    volumes:
+      - .:/app:delegated  # Mounts dvmhost folder to /app in Linux
+    tty: true             # Keeps the container alive
+    stdin_open: true      # Allows you to jump into the terminal
+    environment:
+      - PATH=/usr/lib/ccache:$PATH # Speeds up C++ rebuilds

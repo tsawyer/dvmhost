@@ -34,6 +34,41 @@ using namespace p25::dfsi::frames;
 
 #include <cassert>
 
+namespace
+{
+    uint8_t getLDU1SequenceIndex(DFSIFrameType::E frameType)
+    {
+        switch (frameType) {
+            case DFSIFrameType::LDU1_VOICE1: return 1U;
+            case DFSIFrameType::LDU1_VOICE2: return 2U;
+            case DFSIFrameType::LDU1_VOICE3: return 3U;
+            case DFSIFrameType::LDU1_VOICE4: return 4U;
+            case DFSIFrameType::LDU1_VOICE5: return 5U;
+            case DFSIFrameType::LDU1_VOICE6: return 6U;
+            case DFSIFrameType::LDU1_VOICE7: return 7U;
+            case DFSIFrameType::LDU1_VOICE8: return 8U;
+            case DFSIFrameType::LDU1_VOICE9: return 9U;
+            default: return 0U;
+        }
+    }
+
+    uint8_t getLDU2SequenceIndex(DFSIFrameType::E frameType)
+    {
+        switch (frameType) {
+            case DFSIFrameType::LDU2_VOICE10: return 1U;
+            case DFSIFrameType::LDU2_VOICE11: return 2U;
+            case DFSIFrameType::LDU2_VOICE12: return 3U;
+            case DFSIFrameType::LDU2_VOICE13: return 4U;
+            case DFSIFrameType::LDU2_VOICE14: return 5U;
+            case DFSIFrameType::LDU2_VOICE15: return 6U;
+            case DFSIFrameType::LDU2_VOICE16: return 7U;
+            case DFSIFrameType::LDU2_VOICE17: return 8U;
+            case DFSIFrameType::LDU2_VOICE18: return 9U;
+            default: return 0U;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -61,6 +96,7 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_lastP25Tx(0U),
     m_rs(),
     m_useTIAFormat(false),
+    m_legacyDFSI(true),
     m_txP25QueueLock()
 {
     m_v24Connected = false; // defaulted to false for V.24 modems
@@ -99,6 +135,13 @@ void ModemV24::setP25NAC(uint32_t nac)
 void ModemV24::setTIAFormat(bool set)
 {
     m_useTIAFormat = set;
+}
+
+/* Helper to set the legacy DFSI handling flag. */
+
+void ModemV24::setLegacyDFSI(bool set)
+{
+    m_legacyDFSI = set;
 }
 
 /* Opens connection to the air interface modem. */
@@ -674,6 +717,214 @@ void ModemV24::create_TDU(uint8_t* buffer)
     ::memcpy(buffer, data, P25_TDU_FRAME_LENGTH_BYTES + 2U);
 }
 
+bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel)
+{
+    bool rsDecoded = false;
+
+    try {
+        rsDecoded = m_rs.decode241213(m_rxCall->LDULC);
+        if (!rsDecoded) {
+            LogError(LOG_MODEM, "%s LDU1, failed to decode RS (24,12,13) FEC", dfsiLabel);
+        }
+    }
+    catch (...) {
+        Utils::dump(2U, exceptDumpLabel, m_rxCall->LDULC, P25_LDU_LC_FEC_LENGTH_BYTES);
+    }
+
+    if (!rsDecoded) {
+        LogWarning(LOG_MODEM, "%s LDU1, discarding frame after RS decode failure", dfsiLabel);
+        return false;
+    }
+
+    if (!control.decodeLC(m_rxCall->LDULC)) {
+        LogWarning(LOG_MODEM, "%s LDU1, discarding frame with invalid corrected LC metadata, mfId = $%02X, lco = $%02X",
+            dfsiLabel, control.getMFId(), control.getLCO());
+        return false;
+    }
+
+    m_rxCall->lco = control.getLCO();
+    m_rxCall->mfId = control.getMFId();
+
+    if (control.isStandardMFId()) {
+        m_rxCall->srcId = control.getSrcId();
+        m_rxCall->dstId = control.getDstId();
+        m_rxCall->serviceOptions =
+            (control.getEmergency() ? 0x80U : 0x00U) +
+            (control.getEncrypted() ? 0x40U : 0x00U) +
+            (control.getPriority() & 0x07U);
+    }
+
+    return true;
+}
+
+bool ModemV24::decodeRxCallLDU2Metadata(lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel)
+{
+    bool rsDecoded = false;
+
+    try {
+        rsDecoded = m_rs.decode24169(m_rxCall->LDULC);
+        if (!rsDecoded) {
+            LogError(LOG_MODEM, "%s LDU2, failed to decode RS (24,16,9) FEC", dfsiLabel);
+        }
+    }
+    catch (...) {
+        Utils::dump(2U, exceptDumpLabel, m_rxCall->LDULC, P25_LDU_LC_FEC_LENGTH_BYTES);
+    }
+
+    if (!rsDecoded) {
+        return false;
+    }
+
+    ::memcpy(m_rxCall->MI, m_rxCall->LDULC, MI_LENGTH_BYTES);
+    m_rxCall->algoId = m_rxCall->LDULC[9U];
+    m_rxCall->kId = GET_UINT16(m_rxCall->LDULC, 10U);
+
+    control.setMI(m_rxCall->MI);
+    control.setAlgId(m_rxCall->algoId);
+    control.setKId(m_rxCall->kId);
+    return true;
+}
+
+/* Advances RX voice frame sequencing and reports when an LDU is ready to emit. */
+
+uint8_t ModemV24::updateRxVoiceSequence(DFSIFrameType::E frameType)
+{
+    uint8_t ldu1Seq = getLDU1SequenceIndex(frameType);
+    if (ldu1Seq != 0U) {
+        if (ldu1Seq == 1U) {
+            m_rxCall->ldu1Seq = 1U;
+            return 0U;
+        }
+
+        if ((m_rxCall->ldu1Seq + 1U) == ldu1Seq) {
+            m_rxCall->ldu1Seq = ldu1Seq;
+            return (ldu1Seq == 9U) ? 1U : 0U;
+        }
+
+        m_rxCall->ldu1Seq = 0U;
+        return 0U;
+    }
+
+    uint8_t ldu2Seq = getLDU2SequenceIndex(frameType);
+    if (ldu2Seq != 0U) {
+        if (ldu2Seq == 1U) {
+            m_rxCall->ldu2Seq = 1U;
+            return 0U;
+        }
+
+        if ((m_rxCall->ldu2Seq + 1U) == ldu2Seq) {
+            m_rxCall->ldu2Seq = ldu2Seq;
+            return (ldu2Seq == 9U) ? 2U : 0U;
+        }
+
+        m_rxCall->ldu2Seq = 0U;
+        return 0U;
+    }
+
+    return 0U;
+}
+
+/* Emits a corrected RX LDU1 from the current DFSI call buffers. */
+
+bool ModemV24::emitRxCallLDU1(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel)
+{
+    assert(buffer != nullptr);
+
+    lc::LC lc = lc::LC();
+    bool validMetadata = decodeRxCallLDU1Metadata(lc, dfsiLabel, exceptDumpLabel);
+
+    if (m_rxCall->errors > 0U) {
+        LogWarning(LOG_MODEM, P25_DFSI_LDU1_STR ", %s, errs = %u/1233 (%.1f%%)", dfsiLabel,
+            m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+        m_rxCall->errors = 0U;
+    }
+
+    m_rxCall->ldu1Seq = 0U;
+
+    if (!validMetadata) {
+        return false;
+    }
+
+    data::LowSpeedData lsd = data::LowSpeedData();
+    lsd.setLSD1(m_rxCall->lsd1);
+    lsd.setLSD2(m_rxCall->lsd2);
+
+    Sync::addP25Sync(buffer + 2U);
+    m_nid->encode(buffer + 2U, DUID::LDU1);
+    lc.encodeLDU1(buffer + 2U);
+    lsd.process(buffer + 2U);
+
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 10U, 0U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 26U, 1U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 55U, 2U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 80U, 3U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 105U, 4U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 130U, 5U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 155U, 6U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 180U, 7U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU1 + 204U, 8U);
+
+    P25Utils::addStatusBits(buffer + 2U, P25_LDU_FRAME_LENGTH_BITS, true, false);
+
+    buffer[0U] = modem::TAG_DATA;
+    buffer[1U] = 0x01U;
+    storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+    return true;
+}
+
+/* Emits a corrected RX LDU2 from the current DFSI call buffers. */
+
+bool ModemV24::emitRxCallLDU2(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel)
+{
+    assert(buffer != nullptr);
+
+    lc::LC lc = lc::LC();
+    bool validMetadata = decodeRxCallLDU2Metadata(lc, dfsiLabel, exceptDumpLabel);
+
+    if (m_rxCall->errors > 0U) {
+        LogWarning(LOG_MODEM, P25_DFSI_LDU2_STR ", %s, errs = %u/1233 (%.1f%%)", dfsiLabel,
+            m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+        m_rxCall->errors = 0U;
+    }
+
+    m_rxCall->ldu2Seq = 0U;
+
+    if (!validMetadata) {
+        lc.setMI(m_rxCall->MI);
+        lc.setAlgId(m_rxCall->algoId);
+        lc.setKId(m_rxCall->kId);
+        LogWarning(LOG_MODEM, "%s LDU2, using last known encryption metadata after RS decode failure", dfsiLabel);
+    }
+
+    data::LowSpeedData lsd = data::LowSpeedData();
+    lsd.setLSD1(m_rxCall->lsd1);
+    lsd.setLSD2(m_rxCall->lsd2);
+
+    Sync::addP25Sync(buffer + 2U);
+    m_nid->encode(buffer + 2U, DUID::LDU2);
+    lc.encodeLDU2(buffer + 2U);
+    lsd.process(buffer + 2U);
+
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 10U, 0U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 26U, 1U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 55U, 2U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 80U, 3U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 105U, 4U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 130U, 5U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 155U, 6U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 180U, 7U);
+    m_audio.encode(buffer + 2U, m_rxCall->netLDU2 + 204U, 8U);
+
+    P25Utils::addStatusBits(buffer + 2U, P25_LDU_FRAME_LENGTH_BITS, true, false);
+
+    buffer[0U] = modem::TAG_DATA;
+    buffer[1U] = 0x01U;
+    storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+    return true;
+}
+
 /* Internal helper to convert from V.24/DFSI to TIA-102 air interface. */
 
 void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
@@ -694,6 +945,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
     }
 
     DFSIFrameType::E frameType = (DFSIFrameType::E)dfsiData[0U];
+    bool rxVoiceFrameSeen = false;
     m_rxLastFrameTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     // Switch based on DFSI frame type
@@ -883,7 +1135,10 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 m_rxCall->errors += svf.fullRateVoice->getTotalErrors();
             }
 
-            m_rxCall->n++;
+            if (m_legacyDFSI)
+                m_rxCall->n++;
+            else
+                rxVoiceFrameSeen = true;
         }
         break;
         case DFSIFrameType::LDU2_VOICE10:
@@ -935,7 +1190,10 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 m_rxCall->errors += svf.fullRateVoice->getTotalErrors();
             }
 
-            m_rxCall->n++;
+            if (m_legacyDFSI)
+                m_rxCall->n++;
+            else
+                rxVoiceFrameSeen = true;
         }
         break;
 
@@ -1549,8 +1807,10 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     break;
             }
 
-            // increment our voice frame counter
-            m_rxCall->n++;
+            if (m_legacyDFSI)
+                m_rxCall->n++;
+            else
+                rxVoiceFrameSeen = true;
         }
         break;
     }
@@ -1712,6 +1972,15 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
         storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
 
         m_rxCall->n = 0;
+    }
+
+    if (!m_legacyDFSI && rxVoiceFrameSeen) {
+        uint8_t ready = updateRxVoiceSequence(frameType);
+        if (ready == 1U) {
+            emitRxCallLDU1(buffer, "V.24/DFSI", "Modem, V.24 LDU1 RS excepted with input data");
+        } else if (ready == 2U) {
+            emitRxCallLDU2(buffer, "V.24/DFSI", "Modem, V.24 LDU2 RS excepted with input data");
+        }
     }
 }
 
@@ -2153,8 +2422,16 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 break;
             }
 
-            // increment our voice frame counter
-            m_rxCall->n++;
+            if (m_legacyDFSI) {
+                m_rxCall->n++;
+            } else {
+                uint8_t ready = updateRxVoiceSequence(frameType);
+                if (ready == 1U) {
+                    emitRxCallLDU1(buffer, "TIA/DFSI", "Modem, TIA LDU1, RS excepted with input data");
+                } else if (ready == 2U) {
+                    emitRxCallLDU2(buffer, "TIA/DFSI", "Modem, TIA LDU2, RS excepted with input data");
+                }
+            }
         }
         break;
         
