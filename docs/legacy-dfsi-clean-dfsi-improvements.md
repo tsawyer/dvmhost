@@ -1,4 +1,4 @@
-# `codex/legacy-dfsi-clean` DFSI Improvements
+# DFSI Improvements
 
 ## Summary
 
