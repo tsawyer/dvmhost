@@ -8,7 +8,7 @@ The main practical benefit is safer LDU reconstruction when DFSI traffic is inco
 
 ## Scope
 
-This document intentionally covers only the DFSI-related changes in `codex/legacy-dfsi-clean`. It does not cover `tools/dvmCallReport.py`, and it also omits unrelated branch additions such as `Dockerfile`, `docker-compose.yml`, and `.DS_Store`.
+This document intentionally covers only the DFSI-related changes in `codex/legacy-dfsi-clean`.
 
 The DFSI-specific changes are concentrated in these files:
 
