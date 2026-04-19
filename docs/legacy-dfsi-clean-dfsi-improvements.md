@@ -1,6 +1,6 @@
 # `codex/legacy-dfsi-clean` DFSI Improvements
 
-## Executive Summary
+## Summary
 
 The DFSI work in `codex/legacy-dfsi-clean` adds an opt-in, sequence-based receive path for P25 DFSI traffic while preserving the existing behavior as the default. The branch introduces a new `legacyDFSI` configuration flag, wires it through host startup, and updates `ModemV24` so both Motorola V.24 DFSI and TIA-102 DFSI receive handling can assemble LDUs from actual voice-frame sequencing instead of relying only on a running frame count.
 
