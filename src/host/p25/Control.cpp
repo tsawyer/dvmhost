@@ -1453,6 +1453,17 @@ void Control::processNetwork()
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
+            uint8_t duid = (length > 22U) ? buffer[22U] : 0xFFU;
+            uint8_t ctrl = (length > 14U) ? buffer[14U] : 0x00U;
+            uint32_t srcId = (length > 7U) ? GET_UINT24(buffer, 5U) : 0U;
+            uint32_t dstId = (length > 10U) ? GET_UINT24(buffer, 8U) : 0U;
+
+            LogWarning(LOG_NET,
+                "P25, network frame ignored; RF not listening while NET idle, rfState = %u, netState = %u, "
+                "rfLastSrcId = %u, rfLastDstId = %u, netLastSrcId = %u, netLastDstId = %u, duid = $%02X, "
+                "ctrl = $%02X, srcId = %u, dstId = %u, len = %u",
+                m_rfState, m_netState, m_rfLastSrcId, m_rfLastDstId, m_netLastSrcId, m_netLastDstId, duid, ctrl,
+                srcId, dstId, length);
             return;
         }
     }
