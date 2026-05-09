@@ -70,10 +70,10 @@ const uint8_t   BIT_MASK_TABLE[] = { 0x80U, 0x40U, 0x20U, 0x10U, 0x08U, 0x04U, 0
  * @param offset Offset within uint8_t buffer
  */
 #define GET_UINT32(buffer, offset)                      \
-            (buffer[offset + 0U] << 24)     |           \
+            ((buffer[offset + 0U] << 24)    |           \
             (buffer[offset + 1U] << 16)     |           \
             (buffer[offset + 2U] << 8)      |           \
-            (buffer[offset + 3U] << 0);
+            (buffer[offset + 3U] << 0))
 /**
  * @brief Sets a uint32_t into 3 bytes of a buffer/array. (24-bit value).
  * @ingroup common
@@ -92,9 +92,9 @@ const uint8_t   BIT_MASK_TABLE[] = { 0x80U, 0x40U, 0x20U, 0x10U, 0x08U, 0x04U, 0
  * @param offset Offset within uint8_t buffer
  */
 #define GET_UINT24(buffer, offset)                      \
-            (buffer[offset + 0U] << 16)     |           \
+            ((buffer[offset + 0U] << 16)    |           \
             (buffer[offset + 1U] << 8)      |           \
-            (buffer[offset + 2U] << 0);
+            (buffer[offset + 2U] << 0))
 /**
  * @brief Sets a uint16_t into 2 bytes of a buffer/array. (16-bit value).
  * @ingroup common
@@ -112,7 +112,7 @@ const uint8_t   BIT_MASK_TABLE[] = { 0x80U, 0x40U, 0x20U, 0x10U, 0x08U, 0x04U, 0
  * @param offset Offset within uint8_t buffer
  */
 #define GET_UINT16(buffer, offset)                      \
-            ((buffer[offset + 0U] << 8) & 0xFF00U)  |   \
-            ((buffer[offset + 1U] << 0) & 0x00FFU);
+            (((buffer[offset + 0U] << 8) & 0xFF00U) |   \
+            ((buffer[offset + 1U] << 0) & 0x00FFU))
 
 #endif // __BIT_MANIPULATION_H__
