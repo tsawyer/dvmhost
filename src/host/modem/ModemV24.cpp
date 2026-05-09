@@ -720,47 +720,6 @@ void ModemV24::create_TDU(uint8_t* buffer)
 bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, const char* exceptDumpLabel)
 {
     bool rsDecoded = false;
-    auto useRawMetadata = [&]() {
-        control.setLCO(m_rxCall->lco);
-        control.setMFId(m_rxCall->mfId);
-
-        if (control.isStandardMFId()) {
-            control.setSrcId(m_rxCall->srcId);
-            control.setDstId(m_rxCall->dstId);
-        } else {
-            uint8_t rsBuffer[P25_LDU_LC_FEC_LENGTH_BYTES];
-            ::memset(rsBuffer, 0x00U, P25_LDU_LC_FEC_LENGTH_BYTES);
-
-            rsBuffer[0U] = m_rxCall->LDULC[0U];
-            rsBuffer[1U] = m_rxCall->LDULC[1U];
-            rsBuffer[2U] = m_rxCall->LDULC[2U];
-            rsBuffer[3U] = m_rxCall->LDULC[3U];
-            rsBuffer[4U] = m_rxCall->LDULC[4U];
-            rsBuffer[5U] = m_rxCall->LDULC[5U];
-            rsBuffer[6U] = m_rxCall->LDULC[6U];
-            rsBuffer[7U] = m_rxCall->LDULC[7U];
-            rsBuffer[8U] = m_rxCall->LDULC[8U];
-
-            ulong64_t rsValue = 0U;
-            rsValue = rsBuffer[1U];
-            rsValue = (rsValue << 8) + rsBuffer[2U];
-            rsValue = (rsValue << 8) + rsBuffer[3U];
-            rsValue = (rsValue << 8) + rsBuffer[4U];
-            rsValue = (rsValue << 8) + rsBuffer[5U];
-            rsValue = (rsValue << 8) + rsBuffer[6U];
-            rsValue = (rsValue << 8) + rsBuffer[7U];
-            rsValue = (rsValue << 8) + rsBuffer[8U];
-
-            control.setRS(rsValue);
-        }
-
-        bool emergency = ((m_rxCall->serviceOptions & 0xFFU) & 0x80U) == 0x80U;
-        bool encryption = ((m_rxCall->serviceOptions & 0xFFU) & 0x40U) == 0x40U;
-        uint8_t priority = ((m_rxCall->serviceOptions & 0xFFU) & 0x07U);
-        control.setEmergency(emergency);
-        control.setEncrypted(encryption);
-        control.setPriority(priority);
-    };
 
     try {
         rsDecoded = m_rs.decode241213(m_rxCall->LDULC);
@@ -773,16 +732,14 @@ bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, 
     }
 
     if (!rsDecoded) {
-        useRawMetadata();
-        LogWarning(LOG_MODEM, "%s LDU1, using raw LC metadata after RS decode failure", dfsiLabel);
-        return true;
+        LogWarning(LOG_MODEM, "%s LDU1, discarding frame after RS decode failure", dfsiLabel);
+        return false;
     }
 
     if (!control.decodeLC(m_rxCall->LDULC)) {
-        useRawMetadata();
-        LogWarning(LOG_MODEM, "%s LDU1, using raw LC metadata after invalid corrected LC metadata, mfId = $%02X, lco = $%02X",
+        LogWarning(LOG_MODEM, "%s LDU1, discarding frame with invalid corrected LC metadata, mfId = $%02X, lco = $%02X",
             dfsiLabel, control.getMFId(), control.getLCO());
-        return true;
+        return false;
     }
 
     m_rxCall->lco = control.getLCO();
