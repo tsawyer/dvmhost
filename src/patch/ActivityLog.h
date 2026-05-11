@@ -25,6 +25,7 @@
 #endif // defined(_WIN32)
 
 #include <string>
+#include <ctime>
 
 // ---------------------------------------------------------------------------
 //  Global Functions
@@ -70,15 +71,19 @@ HOST_SW_API void ActivityLog(const std::string& fmt, Args... args)
     int prefixLen = 0;
     char prefixBuf[256];
 
-    time_t now;
-    ::time(&now);
-    struct tm* tm = ::localtime(&now);
-
     struct timeval nowMillis;
     ::gettimeofday(&nowMillis, NULL);
 
+    time_t now = nowMillis.tv_sec;
+    struct tm tm;
+#if defined(_WIN32)
+    ::localtime_s(&tm, &now);
+#else
+    ::localtime_r(&now, &tm);
+#endif // defined(_WIN32)
+
     prefixLen = ::sprintf(prefixBuf, "A: %04d-%02d-%02d %02d:%02d:%02d.%03lu ", 
-        tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, nowMillis.tv_usec / 1000U);
+        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, nowMillis.tv_usec / 1000U);
 
     auto size = static_cast<size_t>(size_s);
     auto buf = std::make_unique<char[]>(size);

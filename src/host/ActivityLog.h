@@ -26,6 +26,7 @@
 
 #include <string>
 #include <cstring>
+#include <ctime>
 
 // ---------------------------------------------------------------------------
 //  Global Functions
@@ -73,20 +74,24 @@ HOST_SW_API void ActivityLog(const char* mode, const bool sourceRf, const std::s
     int prefixLen = 0;
     char prefixBuf[256];
 
-    time_t now;
-    ::time(&now);
-    struct tm* tm = ::localtime(&now);
-
     struct timeval nowMillis;
     ::gettimeofday(&nowMillis, NULL);
 
+    time_t now = nowMillis.tv_sec;
+    struct tm tm;
+#if defined(_WIN32)
+    ::localtime_s(&tm, &now);
+#else
+    ::localtime_r(&now, &tm);
+#endif // defined(_WIN32)
+
     if (strcmp(mode, "") == 0) {
         prefixLen = ::sprintf(prefixBuf, "A: %04d-%02d-%02d %02d:%02d:%02d.%03lu ", 
-            tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, nowMillis.tv_usec / 1000U);
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, nowMillis.tv_usec / 1000U);
     }
     else {
         prefixLen = ::sprintf(prefixBuf, "A: %04d-%02d-%02d %02d:%02d:%02d.%03lu %s %s ", 
-            tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, nowMillis.tv_usec / 1000U, mode, (sourceRf) ? "RF" : "Net");
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, nowMillis.tv_usec / 1000U, mode, (sourceRf) ? "RF" : "Net");
     }
 
     auto size = static_cast<size_t>(size_s);
