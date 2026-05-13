@@ -961,14 +961,17 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 }
             } else {
                 if (m_rxCallInProgress) {
+                    bool hasCallIdentity = m_rxCall->srcId != 0U || m_rxCall->dstId != 0U;
                     m_rxCall->resetCallData();
                     m_rxCallInProgress = false;
                     if (m_debug) {
                         ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirV24()", "V.24 RX, ICW, opcode = $%02X, type = $%02X", start.getOpcode(), start.getArgument1());
                     }
-                    // generate a TDU
-                    create_TDU(buffer);
-                    storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BYTES + 2U);
+                    if (m_legacyDFSI || hasCallIdentity) {
+                        // generate a TDU
+                        create_TDU(buffer);
+                        storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BYTES + 2U);
+                    }
                 }
             }
         }
@@ -2042,18 +2045,20 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
         {
             dataOffs += 1U;
 
-            // generate Sync
-            Sync::addP25Sync(buffer + 2U);
+            if (m_legacyDFSI || m_rxCall->srcId != 0U || m_rxCall->dstId != 0U) {
+                // generate Sync
+                Sync::addP25Sync(buffer + 2U);
 
-            // generate NID
-            m_nid->encode(buffer + 2U, DUID::TDU);
+                // generate NID
+                m_nid->encode(buffer + 2U, DUID::TDU);
 
-            // add status bits
-            P25Utils::setStatusBitsAllIdle(buffer + 2U, P25_TDU_FRAME_LENGTH_BITS);
+                // add status bits
+                P25Utils::setStatusBitsAllIdle(buffer + 2U, P25_TDU_FRAME_LENGTH_BITS);
 
-            buffer[0U] = modem::TAG_DATA;
-            buffer[1U] = 0x01U;
-            storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BITS + 2U);
+                buffer[0U] = modem::TAG_DATA;
+                buffer[1U] = 0x01U;
+                storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BITS + 2U);
+            }
         }
         break;
 

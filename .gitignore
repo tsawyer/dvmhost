@@ -23,6 +23,12 @@ _deps
 # Ignore thumbnails created by windows
 Thumbs.db
 
+# Ignore macOS Finder metadata
+.DS_Store
+
+# Ignore local standards/reference documents
+docs/TIA Docs/
+
 # Ignore files created by clang-check
 *.plist
 
