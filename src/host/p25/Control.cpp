@@ -1048,10 +1048,8 @@ void Control::clock()
             m_networkWatchdog.stop();
             m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
 
-            if (m_dedicatedControl) {
-                if (m_network != nullptr)
-                    m_network->resetP25();
-            }
+            if (m_network != nullptr)
+                m_network->resetP25();
 
             m_netState = RS_NET_IDLE;
             m_tailOnIdle = true;
