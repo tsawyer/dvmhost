@@ -68,6 +68,55 @@ TagP25Data::~TagP25Data()
     delete m_packetData;
 }
 
+/* Helper to reset an active call matching a peer stream. */
+
+bool TagP25Data::resetMatchingCallStream(uint32_t peerId, uint32_t ssrc, uint32_t streamId)
+{
+    auto it = std::find_if(m_status.begin(), m_status.end(), [&](StatusMapPair& x) {
+        return x.second.activeCall &&
+            x.second.peerId == peerId &&
+            x.second.ssrc == ssrc &&
+            x.second.streamId == streamId;
+    });
+    if (it == m_status.end()) {
+        return false;
+    }
+
+    uint32_t dstId = it->second.dstId;
+    if (dstId == 0U) {
+        dstId = it->first;
+    }
+
+    lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(dstId);
+
+    m_status.lock(false);
+    m_status[dstId].reset();
+    m_status.unlock();
+
+    auto pvCall = std::find_if(m_statusPVCall.begin(), m_statusPVCall.end(), [&](StatusMapPair& x) {
+        return x.second.activeCall &&
+            x.second.peerId == peerId &&
+            x.second.ssrc == ssrc &&
+            x.second.streamId == streamId;
+    });
+    if (pvCall != m_statusPVCall.end()) {
+        m_statusPVCall.lock(false);
+        m_statusPVCall[dstId].reset();
+        m_statusPVCall.unlock();
+    }
+
+    if (!tg.config().parrot()) {
+        m_network->m_totalActiveCalls--;
+        if (m_network->m_totalActiveCalls < 0) {
+            m_network->m_totalActiveCalls = 0;
+        }
+    }
+
+    m_network->eraseStreamPktSeq(peerId, streamId);
+
+    return true;
+}
+
 /* Process a data frame from the network. */
 
 bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId, uint32_t ssrc, uint16_t pktSeq, uint32_t streamId, bool fromUpstream)
@@ -223,11 +272,17 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                 // reject TDU with no source or destination
                 if (srcId == 0U && dstId == 0U) {
                     LogWarning(LOG_NET, "P25, invalid TDU, peer = %u, ssrc = %u, srcId = %u, dstId = %u, streamId = %u, fromUpstream = %u", peerId, ssrc, srcId, dstId, streamId, fromUpstream);
+                    if (resetMatchingCallStream(peerId, ssrc, streamId)) {
+                        LogWarning(LOG_NET, "P25, invalid TDU reset matching call stream, peer = %u, ssrc = %u, streamId = %u, fromUpstream = %u", peerId, ssrc, streamId, fromUpstream);
+                    }
                     return false;
                 }
 
                 // reject TDU's with no destination
                 if (dstId == 0U) {
+                    if (resetMatchingCallStream(peerId, ssrc, streamId)) {
+                        LogWarning(LOG_NET, "P25, no-destination TDU reset matching call stream, peer = %u, ssrc = %u, srcId = %u, streamId = %u, fromUpstream = %u", peerId, ssrc, srcId, streamId, fromUpstream);
+                    }
                     return false;
                 }
 
@@ -406,10 +461,18 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                     if ((lastPktDuration / 1000) > m_network->m_callCollisionTimeout) {
                                         LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Call Collision, lasted more then %us with no further updates, resetting call source", m_network->m_callCollisionTimeout);
 
+                                        m_network->eraseStreamPktSeq(status.peerId, status.streamId);
+
                                         m_status.lock(false);
+                                        m_status[dstId].callStartTime = pktTime;
+                                        m_status[dstId].lastPacket = pktTime;
                                         m_status[dstId].streamId = streamId;
+                                        m_status[dstId].peerId = peerId;
                                         m_status[dstId].srcId = srcId;
+                                        m_status[dstId].dstId = dstId;
                                         m_status[dstId].ssrc = ssrc;
+                                        m_status[dstId].activeCall = true;
+                                        m_status[dstId].callTakeover = false;
                                         m_status.unlock();
                                     }
                                     else {

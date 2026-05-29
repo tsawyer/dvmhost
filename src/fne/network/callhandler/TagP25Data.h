@@ -339,6 +339,15 @@ namespace network
             bool validate(uint32_t peerId, p25::lc::LC& control, P25DEF::DUID::E duid, const p25::lc::TSBK* tsbk, uint32_t streamId);
 
             /**
+             * @brief Helper to reset an active call matching a peer stream.
+             * @param peerId Peer ID.
+             * @param ssrc Synchronization source.
+             * @param streamId Stream ID.
+             * @returns bool True, if a matching active call was reset, otherwise false.
+             */
+            bool resetMatchingCallStream(uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+            /**
              * @brief Helper to write a grant packet.
              * @param peerId Peer ID.
              * @param srcId Source Radio ID.
