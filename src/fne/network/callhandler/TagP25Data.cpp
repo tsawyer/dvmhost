@@ -53,6 +53,7 @@ TagP25Data::TagP25Data(TrafficNetwork* network, bool debug) :
     m_lastParrotDstId(0U),
     m_status(),
     m_statusPVCall(),
+    m_suppressedCallStreams(),
     m_packetData(nullptr),
     m_debug(debug)
 {
@@ -117,6 +118,51 @@ bool TagP25Data::resetMatchingCallStream(uint32_t peerId, uint32_t ssrc, uint32_
     return true;
 }
 
+/* Helper to suppress stale traffic from a call stream after collision timeout. */
+
+void TagP25Data::suppressCallStream(const RxStatus& status)
+{
+    if (status.streamId == 0U || status.dstId == 0U)
+        return;
+
+    RxStatus suppressed = status;
+    suppressed.lastPacket = hrc::now();
+
+    m_suppressedCallStreams.lock(false);
+    m_suppressedCallStreams[status.streamId] = suppressed;
+    m_suppressedCallStreams.unlock();
+}
+
+/* Helper to determine if a frame is from a suppressed call stream. */
+
+bool TagP25Data::isSuppressedCallStream(uint32_t peerId, uint32_t ssrc, uint32_t srcId, uint32_t dstId, uint32_t streamId, uint8_t duid)
+{
+    auto it = m_suppressedCallStreams.find(streamId);
+    if (it == m_suppressedCallStreams.end())
+        return false;
+
+    RxStatus suppressed = it->second;
+
+    // Keep suppression bounded if a matching TDU never arrives.
+    if ((hrc::diff(hrc::now(), suppressed.lastPacket) / 1000) > 300U) {
+        m_suppressedCallStreams.erase(streamId);
+        return false;
+    }
+
+    bool matches = suppressed.peerId == peerId &&
+        suppressed.ssrc == ssrc &&
+        suppressed.srcId == srcId &&
+        suppressed.dstId == dstId;
+    if (!matches)
+        return false;
+
+    if (duid == DUID::TDU || duid == DUID::TDULC) {
+        m_suppressedCallStreams.erase(streamId);
+    }
+
+    return true;
+}
+
 /* Process a data frame from the network. */
 
 bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId, uint32_t ssrc, uint16_t pktSeq, uint32_t streamId, bool fromUpstream)
@@ -159,6 +205,12 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
     // perform TGID route rewrites if configured
     routeRewrite(buffer, peerId, duid, dstId, false);
     dstId = GET_UINT24(buffer, 8U);
+
+    if (isSuppressedCallStream(peerId, ssrc, srcId, dstId, streamId, duid)) {
+        LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Suppressed Stale Call Stream, peer = %u, ssrc = %u, srcId = %u, dstId = %u, streamId = %u, fromUpstream = %u",
+            peerId, ssrc, srcId, dstId, streamId, fromUpstream);
+        return false;
+    }
 
     lc::LC control;
     data::LowSpeedData lsd;
@@ -459,9 +511,17 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                 if (m_network->m_callCollisionTimeout > 0U && !hasCallPriority) {
                                     uint64_t lastPktDuration = hrc::diff(hrc::now(), status.lastPacket);
                                     if ((lastPktDuration / 1000) > m_network->m_callCollisionTimeout) {
-                                        LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Call Collision, lasted more then %us with no further updates, resetting call source", m_network->m_callCollisionTimeout);
+                                        LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Call Collision, lasted more than %us with no further updates, rejecting previous stream and resetting call source, peer = %u, ssrc = %u, sysId = $%03X, netId = $%05X, srcId = %u, dstId = %u, streamId = %u, rxPeer = %u, rxSsrc = %u, rxSrcId = %u, rxDstId = %u, rxStreamId = %u, fromUpstream = %u",
+                                            m_network->m_callCollisionTimeout, peerId, ssrc, sysId, netId, srcId, dstId, streamId, status.peerId, status.ssrc, status.srcId, status.dstId, status.streamId, fromUpstream);
 
                                         m_network->eraseStreamPktSeq(status.peerId, status.streamId);
+                                        suppressCallStream(status);
+                                        if (m_network->isPeerLocal(status.ssrc))
+                                            m_network->writePeerICC(status.peerId, status.streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, status.dstId, 0U, true, false,
+                                                status.ssrc);
+                                        else
+                                            m_network->writePeerICC(status.peerId, status.streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, status.dstId, 0U, true, true,
+                                                status.ssrc);
 
                                         m_status.lock(false);
                                         m_status[dstId].callStartTime = pktTime;

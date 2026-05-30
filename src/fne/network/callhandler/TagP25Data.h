@@ -267,6 +267,7 @@ namespace network
             typedef std::pair<const uint32_t, RxStatus> StatusMapPair;
             concurrent::unordered_map<uint32_t, RxStatus> m_status;
             concurrent::unordered_map<uint32_t, RxStatus> m_statusPVCall;
+            concurrent::unordered_map<uint32_t, RxStatus> m_suppressedCallStreams;
 
             friend class packetdata::P25PacketData;
             packetdata::P25PacketData* m_packetData;
@@ -346,6 +347,20 @@ namespace network
              * @returns bool True, if a matching active call was reset, otherwise false.
              */
             bool resetMatchingCallStream(uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+            /**
+             * @brief Helper to suppress stale traffic from a call stream after collision timeout.
+             * @param status Call stream status to suppress.
+             */
+            void suppressCallStream(const RxStatus& status);
+            /**
+             * @brief Helper to determine if a frame is from a suppressed call stream.
+             * @param peerId Peer ID.
+             * @param ssrc Synchronization source.
+             * @param srcId Source Radio ID.
+             * @param dstId Destination ID.
+             * @param streamId Stream ID.
+             */
+            bool isSuppressedCallStream(uint32_t peerId, uint32_t ssrc, uint32_t srcId, uint32_t dstId, uint32_t streamId, uint8_t duid);
 
             /**
              * @brief Helper to write a grant packet.
