@@ -222,7 +222,7 @@ Here is a listing of files in the configs folder in this repo that pertain to FN
 - `adj_site_map.example.yml` - This is an example configuration file configuring adjacent site mappings for trunked `dvmhost` instances.
 - `fne-config.example.yml` - This is the main/primary example configuration file for an FNE instance.
 - `peer_list.example.dat` - This is a simple CSV-style file containing access control permissions for peers allowed to connect to the FNE (this includes both downstream peers (like `dvmhost` or `dvmbridge`) and other `dvmfne` instances connecting *to* the FNE instance).
-- `rid_acl.example.dat` - This is a simple CSV-style file containing the access control permissions for radio ID (RID)s allowed to use a configured system/network.
+- `rid_acl.example.dat` - This is a simple CSV-style file containing the access control permissions for radio ID (RID)s allowed to use a configured system/network. It also carries per-RID key policy for whether a RID can request keys, whether it can be OTAR rekeyed, and an optional allowed key ID list.
 - `talkgroup_rules.example.yml` - This is the second most important configuration file for an FNE, this file describes all the talkgroups and their related access control and configuration parameters.
 
 There is another file that is attributed to the FNE that an example is not provided for and that is the `key-container.ekc` file. This file provides cryptographic material needed for providing keyloading functionality across a configured system/network.

@@ -4,7 +4,7 @@
  * GPLv2 Open Source. Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- *  Copyright (C) 2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2025-2026 Bryan Biedenkapp, N2PLL
  *
  */
 #include "fne/Defines.h"
@@ -28,6 +28,7 @@ using namespace p25::kmm;
 
 #include <cassert>
 #include <chrono>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 //  Macros
@@ -456,6 +457,22 @@ UInt8Array P25OTARService::processKMM(const uint8_t* data, uint32_t len, uint32_
             else {
                 if (kmm->getFlag() == KMM_HelloFlag::REKEY_REQUEST_UKEK ||
                     (kmm->getFlag() == KMM_HelloFlag::REKEY_REQUEST_NO_UKEK && m_allowNoUKEKRekey)) {
+                    lookups::RadioId ridEntry = m_network->m_ridLookup->find(kmm->getSrcLLId());
+                    if (ridEntry.radioDefault()) {
+                        LogInfoEx(LOG_P25, P25_KMM_STR ", %s, rekey denied; RID %u has no key policy entry", kmm->toString().c_str(), kmm->getSrcLLId());
+                        return write_KMM_NoService(llId, kmm->getSrcLLId(), payloadSize);
+                    }
+
+                    if (!ridEntry.radioEnabled()) {
+                        LogInfoEx(LOG_P25, P25_KMM_STR ", %s, rekey denied; RID %u disabled", kmm->toString().c_str(), kmm->getSrcLLId());
+                        return write_KMM_NoService(llId, kmm->getSrcLLId(), payloadSize);
+                    }
+
+                    if (!ridEntry.canRekey()) {
+                        LogInfoEx(LOG_P25, P25_KMM_STR ", %s, rekey denied; RID %u not rekeyable", kmm->toString().c_str(), kmm->getSrcLLId());
+                        return write_KMM_NoService(llId, kmm->getSrcLLId(), payloadSize);
+                    }
+
                     // send rekey-command
                     EKCKeyItem keyItem = m_network->m_cryptoLookup->findUKEK(llId);
                     if (keyItem.isInvalid()) {
@@ -615,6 +632,15 @@ UInt8Array P25OTARService::write_KMM_Rekey_Command(uint32_t llId, uint32_t kmmRS
     outKmm.setAlgId(kekAlgId);
     outKmm.setKId(kekKId);
 
+    lookups::RadioId ridEntry = m_network->m_ridLookup->find(kmmRSI);
+    std::vector<uint16_t> allowedKIds;
+    if (ridEntry.radioDefault()) {
+        LogWarning(LOG_P25, P25_KMM_STR ", %s, aborting rekey, RID %u has no key policy entry", outKmm.toString().c_str(), kmmRSI);
+        return nullptr;
+    }
+
+    allowedKIds = ridEntry.allowedKIds();
+
     KeysetItem ks;
     ks.keysetId(1U);
     ks.algId(ALGO_AES_256); // we currently can only OTAR AES256 keys
@@ -627,6 +653,15 @@ UInt8Array P25OTARService::write_KMM_Rekey_Command(uint32_t llId, uint32_t kmmRS
         if (keyItem.algId() != ALGO_AES_256) {
             LogWarning(LOG_P25, P25_KMM_STR", %s, ignoring kId = %u, is not an AES-256 key, llId = %u, RSI = %u", outKmm.toString().c_str(),
                 keyItem.kId(), outKmm.getSrcLLId(), outKmm.getDstLLId());
+            continue;
+        }
+
+        // check if this keyItem is allowed for the RID
+        if (!allowedKIds.empty() && std::find(allowedKIds.begin(), allowedKIds.end(), (uint16_t)keyItem.kId()) == allowedKIds.end()) {
+            if (m_verbose) {
+                LogInfoEx(LOG_P25, P25_KMM_STR ", %s, skipping kId = %u; not allowed for RID %u", outKmm.toString().c_str(),
+                    keyItem.kId(), kmmRSI);
+            }
             continue;
         }
 

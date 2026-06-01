@@ -1025,6 +1025,16 @@ void RESTAPI::restAPI_GetRIDQuery(const HTTPPayload& request, HTTPPayload& reply
                 ridObj["enabled"].set<bool>(enabled);
                 std::string alias = entry.second.radioAlias();
                 ridObj["alias"].set<std::string>(alias);
+                bool canRequestKeys = entry.second.canRequestKeys();
+                ridObj["canRequestKeys"].set<bool>(canRequestKeys);
+                bool canRekey = entry.second.canRekey();
+                ridObj["canRekey"].set<bool>(canRekey);
+                json::array allowedKIds = json::array();
+                std::vector<uint16_t> kIds = entry.second.allowedKIds();
+                for (uint16_t kId : kIds) {
+                    allowedKIds.push_back(json::value((double)kId));
+                }
+                ridObj["allowedKIds"].set<json::array>(allowedKIds);
 
                 rids.push_back(json::value(ridObj));
             }
@@ -1070,10 +1080,54 @@ void RESTAPI::restAPI_PutRIDAdd(const HTTPPayload& request, HTTPPayload& reply, 
         alias = req["alias"].get<std::string>();
     }
 
+    bool canRequestKeys = false;
+    if (req.find("canRequestKeys") != req.end()) {
+        if (!req["canRequestKeys"].is<bool>()) {
+            errorPayload(reply, "canRequestKeys was not a valid boolean");
+            return;
+        }
+
+        canRequestKeys = req["canRequestKeys"].get<bool>();
+    }
+
+    bool canRekey = false;
+    if (req.find("canRekey") != req.end()) {
+        if (!req["canRekey"].is<bool>()) {
+            errorPayload(reply, "canRekey was not a valid boolean");
+            return;
+        }
+
+        canRekey = req["canRekey"].get<bool>();
+    }
+
+    std::vector<uint16_t> allowedKIds;
+    if (req.find("allowedKIds") != req.end()) {
+        if (!req["allowedKIds"].is<json::array>()) {
+            errorPayload(reply, "allowedKIds was not a valid JSON array");
+            return;
+        }
+
+        json::array kIdArray = req["allowedKIds"].get<json::array>();
+        for (auto entry : kIdArray) {
+            if (!entry.is<uint32_t>()) {
+                errorPayload(reply, "allowedKIds entry was not a valid number");
+                return;
+            }
+
+            uint32_t value = entry.get<uint32_t>();
+            if (value > 0xFFFFU) {
+                errorPayload(reply, "allowedKIds entry exceeded 16-bit key id range");
+                return;
+            }
+
+            allowedKIds.push_back((uint16_t)value);
+        }
+    }
+
     LogInfoEx(LOG_REST, "request to add RID ACL, rid = %u", rid);
 
     // The addEntry function will automatically update an existing entry, so no need to check for an exisitng one here
-    m_ridLookup->addEntry(rid, enabled, alias);
+    m_ridLookup->addEntry(rid, enabled, alias, "", canRequestKeys, canRekey, allowedKIds);
 /*    
     if (m_network != nullptr) {
         m_network->m_forceListUpdate = true;

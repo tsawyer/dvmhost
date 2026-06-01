@@ -37,6 +37,7 @@ using namespace compress;
 #include <streambuf>
 
 // ---------------------------------------------------------------------------
+#include <algorithm>
 //  Constants
 // ---------------------------------------------------------------------------
 
@@ -1807,6 +1808,35 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                     {
                                         KMMModifyKey* modifyKey = static_cast<KMMModifyKey*>(frame.get());
                                         if (modifyKey->getAlgId() > 0U && modifyKey->getKId() > 0U) {
+                                            uint32_t requestingRid = modifyKey->getSrcLLId();
+                                            lookups::RadioId ridEntry = network->m_ridLookup->find(requestingRid);
+                                            if (ridEntry.radioDefault()) {
+                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u has no key policy entry, no response",
+                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                break;
+                                            }
+
+                                            if (!ridEntry.radioEnabled()) {
+                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u is disabled, no response",
+                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                break;
+                                            }
+
+                                            if (!ridEntry.canRequestKeys()) {
+                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u cannot request keys, no response",
+                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                break;
+                                            }
+
+                                            std::vector<uint16_t> allowedKIds = ridEntry.allowedKIds();
+
+                                            // check if this RID is allowed to request the KID in question
+                                            if (!allowedKIds.empty() && std::find(allowedKIds.begin(), allowedKIds.end(), modifyKey->getKId()) == allowedKIds.end()) {
+                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key kID = $%04X but RID %u is not permitted for that key, no response",
+                                                    peerId, connection->identWithQualifier().c_str(), modifyKey->getKId(), requestingRid);
+                                                break;
+                                            }
+
                                             LogInfoEx(LOG_MASTER, "PEER %u (%s) requested enc. key, algId = $%02X, kID = $%04X", peerId, connection->identWithQualifier().c_str(),
                                                 modifyKey->getAlgId(), modifyKey->getKId());
                                             ::EKCKeyItem keyItem = network->m_cryptoLookup->find(modifyKey->getKId());
