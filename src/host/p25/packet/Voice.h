@@ -193,6 +193,25 @@ namespace p25
             void writeNet_LDU2();
 
             /**
+             * @brief Decode a network LDU1 DFSI payload, filling malformed or missing voice slots.
+             * @param data Buffer containing DFSI LDU1 payload.
+             * @param len Length of data buffer.
+             * @param control Link Control Data.
+             * @param lsd Low Speed Data.
+             * @param recoveredSlots Number of voice slots filled with null IMBE.
+             * @returns bool True, if at least one slot was decoded or recovered, otherwise false.
+             */
+            bool decodeNetLDU1Payload(uint8_t* data, uint32_t len, lc::LC& control, data::LowSpeedData& lsd, uint8_t& recoveredSlots);
+            /**
+             * @brief Decode a network LDU2 DFSI payload, filling malformed or missing voice slots.
+             * @param data Buffer containing DFSI LDU2 payload.
+             * @param len Length of data buffer.
+             * @param recoveredSlots Number of voice slots filled with null IMBE.
+             * @returns bool True, if at least one slot was decoded or recovered, otherwise false.
+             */
+            bool decodeNetLDU2Payload(uint8_t* data, uint32_t len, uint8_t& recoveredSlots);
+
+            /**
              * @brief Helper to insert IMBE null frames for missing audio.
              * @param data Buffer containing frame data.
              */

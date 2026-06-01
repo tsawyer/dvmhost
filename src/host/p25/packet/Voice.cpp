@@ -1158,53 +1158,11 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
     if (checkNetTrafficCollision(srcId, dstId, duid))
         return false;
 
-    uint32_t count = 0U;
     switch (duid) {
         case DUID::LDU1:
-            if ((data[0U] == DFSIFrameType::LDU1_VOICE1) && (data[22U] == DFSIFrameType::LDU1_VOICE2) &&
-                (data[36U] == DFSIFrameType::LDU1_VOICE3) && (data[53U] == DFSIFrameType::LDU1_VOICE4) &&
-                (data[70U] == DFSIFrameType::LDU1_VOICE5) && (data[87U] == DFSIFrameType::LDU1_VOICE6) &&
-                (data[104U] == DFSIFrameType::LDU1_VOICE7) && (data[121U] == DFSIFrameType::LDU1_VOICE8) &&
-                (data[138U] == DFSIFrameType::LDU1_VOICE9)) {
-
-                m_dfsiLC = dfsi::LC(control, lsd);
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE1);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 10U);
-                count += DFSI_LDU1_VOICE1_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE2);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 26U);
-                count += DFSI_LDU1_VOICE2_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE3);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 55U);
-                count += DFSI_LDU1_VOICE3_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE4);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 80U);
-                count += DFSI_LDU1_VOICE4_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE5);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 105U);
-                count += DFSI_LDU1_VOICE5_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE6);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 130U);
-                count += DFSI_LDU1_VOICE6_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE7);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 155U);
-                count += DFSI_LDU1_VOICE7_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE8);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 180U);
-                count += DFSI_LDU1_VOICE8_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU1_VOICE9);
-                m_dfsiLC.decodeLDU1(data + count, m_netLDU1 + 204U);
-                count += DFSI_LDU1_VOICE9_FRAME_LENGTH_BYTES;
-
+        {
+            uint8_t recoveredSlots = 0U;
+            if (decodeNetLDU1Payload(data, len, control, lsd, recoveredSlots)) {
                 m_gotNetLDU1 = true;
 
                 // these aren't set by the DFSI decoder, so we'll manually
@@ -1254,49 +1212,12 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 m_netLastDUID = duid;
             }
+        }
             break;
         case DUID::LDU2:
-            if ((data[0U] == DFSIFrameType::LDU2_VOICE10) && (data[22U] == DFSIFrameType::LDU2_VOICE11) &&
-                (data[36U] == DFSIFrameType::LDU2_VOICE12) && (data[53U] == DFSIFrameType::LDU2_VOICE13) &&
-                (data[70U] == DFSIFrameType::LDU2_VOICE14) && (data[87U] == DFSIFrameType::LDU2_VOICE15) &&
-                (data[104U] == DFSIFrameType::LDU2_VOICE16) && (data[121U] == DFSIFrameType::LDU2_VOICE17) &&
-                (data[138U] == DFSIFrameType::LDU2_VOICE18)) {
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE10);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 10U);
-                count += DFSI_LDU2_VOICE10_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE11);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 26U);
-                count += DFSI_LDU2_VOICE11_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE12);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 55U);
-                count += DFSI_LDU2_VOICE12_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE13);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 80U);
-                count += DFSI_LDU2_VOICE13_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE14);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 105U);
-                count += DFSI_LDU2_VOICE14_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE15);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 130U);
-                count += DFSI_LDU2_VOICE15_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE16);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 155U);
-                count += DFSI_LDU2_VOICE16_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE17);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 180U);
-                count += DFSI_LDU2_VOICE17_FRAME_LENGTH_BYTES;
-
-                m_dfsiLC.setFrameType(DFSIFrameType::LDU2_VOICE18);
-                m_dfsiLC.decodeLDU2(data + count, m_netLDU2 + 204U);
-                count += DFSI_LDU2_VOICE18_FRAME_LENGTH_BYTES;
-
+        {
+            uint8_t recoveredSlots = 0U;
+            if (decodeNetLDU2Payload(data, len, recoveredSlots)) {
                 m_gotNetLDU2 = true;
 
                 if (m_p25->m_enableControl) {
@@ -1339,6 +1260,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 m_netLastDUID = duid;
             }
+        }
             break;
         case DUID::VSELP1:
         case DUID::VSELP2:
@@ -1668,6 +1590,113 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
     }
 
     return false;
+}
+
+/* Decode a network LDU1 DFSI payload, filling malformed or missing voice slots. */
+
+bool Voice::decodeNetLDU1Payload(uint8_t* data, uint32_t len, lc::LC& control, data::LowSpeedData& lsd, uint8_t& recoveredSlots)
+{
+    static const DFSIFrameType::E FRAME_TYPES[] = {
+        DFSIFrameType::LDU1_VOICE1, DFSIFrameType::LDU1_VOICE2, DFSIFrameType::LDU1_VOICE3,
+        DFSIFrameType::LDU1_VOICE4, DFSIFrameType::LDU1_VOICE5, DFSIFrameType::LDU1_VOICE6,
+        DFSIFrameType::LDU1_VOICE7, DFSIFrameType::LDU1_VOICE8, DFSIFrameType::LDU1_VOICE9
+    };
+    static const uint32_t FRAME_LENGTHS[] = {
+        DFSI_LDU1_VOICE1_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE2_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE3_FRAME_LENGTH_BYTES,
+        DFSI_LDU1_VOICE4_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE5_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE6_FRAME_LENGTH_BYTES,
+        DFSI_LDU1_VOICE7_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE8_FRAME_LENGTH_BYTES, DFSI_LDU1_VOICE9_FRAME_LENGTH_BYTES
+    };
+    static const uint32_t AUDIO_OFFSETS[] = { 10U, 26U, 55U, 80U, 105U, 130U, 155U, 180U, 204U };
+
+    recoveredSlots = 0U;
+    uint8_t decodedSlots = 0U;
+    uint32_t offset = 0U;
+
+    m_dfsiLC = dfsi::LC(control, lsd);
+    resetWithNullAudio(m_netLDU1, control.getEncrypted());
+
+    for (uint8_t slot = 0U; slot < 9U; slot++) {
+        bool haveSlot = (offset + FRAME_LENGTHS[slot]) <= len && data[offset] == FRAME_TYPES[slot];
+        if (haveSlot) {
+            m_dfsiLC.setFrameType(FRAME_TYPES[slot]);
+            if (m_dfsiLC.decodeLDU1(data + offset, m_netLDU1 + AUDIO_OFFSETS[slot])) {
+                decodedSlots++;
+            }
+            else {
+                recoveredSlots++;
+            }
+        }
+        else {
+            recoveredSlots++;
+        }
+
+        offset += FRAME_LENGTHS[slot];
+    }
+
+    if (decodedSlots == 0U && recoveredSlots == 9U) {
+        return false;
+    }
+
+    if (recoveredSlots > 0U) {
+        m_netLost += recoveredSlots;
+        LogWarning(LOG_NET, "P25, NET-to-DFSI Recovery, filled malformed or missing LDU1 voice slots, srcId = %u, dstId = %u, recoveredSlots = %u, len = %u",
+            control.getSrcId(), control.getDstId(), recoveredSlots, len);
+    }
+
+    return true;
+}
+
+/* Decode a network LDU2 DFSI payload, filling malformed or missing voice slots. */
+
+bool Voice::decodeNetLDU2Payload(uint8_t* data, uint32_t len, uint8_t& recoveredSlots)
+{
+    static const DFSIFrameType::E FRAME_TYPES[] = {
+        DFSIFrameType::LDU2_VOICE10, DFSIFrameType::LDU2_VOICE11, DFSIFrameType::LDU2_VOICE12,
+        DFSIFrameType::LDU2_VOICE13, DFSIFrameType::LDU2_VOICE14, DFSIFrameType::LDU2_VOICE15,
+        DFSIFrameType::LDU2_VOICE16, DFSIFrameType::LDU2_VOICE17, DFSIFrameType::LDU2_VOICE18
+    };
+    static const uint32_t FRAME_LENGTHS[] = {
+        DFSI_LDU2_VOICE10_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE11_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE12_FRAME_LENGTH_BYTES,
+        DFSI_LDU2_VOICE13_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE14_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE15_FRAME_LENGTH_BYTES,
+        DFSI_LDU2_VOICE16_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE17_FRAME_LENGTH_BYTES, DFSI_LDU2_VOICE18_FRAME_LENGTH_BYTES
+    };
+    static const uint32_t AUDIO_OFFSETS[] = { 10U, 26U, 55U, 80U, 105U, 130U, 155U, 180U, 204U };
+
+    recoveredSlots = 0U;
+    uint8_t decodedSlots = 0U;
+    uint32_t offset = 0U;
+
+    resetWithNullAudio(m_netLDU2, m_netLC.getEncrypted());
+
+    for (uint8_t slot = 0U; slot < 9U; slot++) {
+        bool haveSlot = (offset + FRAME_LENGTHS[slot]) <= len && data[offset] == FRAME_TYPES[slot];
+        if (haveSlot) {
+            m_dfsiLC.setFrameType(FRAME_TYPES[slot]);
+            if (m_dfsiLC.decodeLDU2(data + offset, m_netLDU2 + AUDIO_OFFSETS[slot])) {
+                decodedSlots++;
+            }
+            else {
+                recoveredSlots++;
+            }
+        }
+        else {
+            recoveredSlots++;
+        }
+
+        offset += FRAME_LENGTHS[slot];
+    }
+
+    if (decodedSlots == 0U && recoveredSlots == 9U) {
+        return false;
+    }
+
+    if (recoveredSlots > 0U) {
+        m_netLost += recoveredSlots;
+        LogWarning(LOG_NET, "P25, NET-to-DFSI Recovery, filled malformed or missing LDU2 voice slots, srcId = %u, dstId = %u, recoveredSlots = %u, len = %u",
+            m_netLC.getSrcId(), m_netLC.getDstId(), recoveredSlots, len);
+    }
+
+    return true;
 }
 
 /* Helper to write end of frame data. */

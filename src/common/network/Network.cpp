@@ -524,7 +524,7 @@ void Network::clock(uint32_t ms)
                                 m_rxP25Data.addData(&len, 1U);
                             }
 
-                            m_rxP25Data.addData(buffer.get(), len);
+                            m_rxP25Data.addData(buffer.get(), length);
                         }
                     }
                     break;
