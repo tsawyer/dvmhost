@@ -837,6 +837,25 @@ namespace network
          */
         virtual UInt8Array readP25(bool& ret, uint32_t& frameLength);
         /**
+         * @brief Helper to test if the given buffer contains a complete set of P25 LDU voice vectors for the given DUID type.
+         * @param[in] data Buffer containing the data to check.
+         * @param len Length of the data buffer.
+         * @param[in] duid P25 DUID type.
+         * @returns bool True, if the buffer contains P25 LDU voice vectors for the given DUID type, otherwise false.
+         */
+        static bool hasLDUVectors(const uint8_t* data, uint32_t len, P25DEF::DUID::E duid);
+        /**
+         * @brief Helper to reconstruct P25 LDU voice vectors from the given DFSI data.
+         * @param[in] dfsiData Buffer containing the DFSI data to reconstruct from.
+         * @param len Length of the DFSI data buffer.
+         * @param[in] dfsiLC Instance of p25::dfsi::LC containing the DFSI link control data.
+         * @param[in] duid P25 DUID type.
+         * @param[out] outLDU Buffer to write the reconstructed LDU voice vectors to.
+         * @returns uint8_t Number of missing frames, 9 if reconstruction failed, otherwise the number of missing frames.
+         */
+        static uint8_t reconstructLDUVectors(const uint8_t* dfsiData, uint32_t len, p25::dfsi::LC* dfsiLC, P25DEF::DUID::E duid, 
+            uint8_t* outLDU);
+        /**
          * @brief Writes P25 LDU1 frame data to the network.
          * @param[in] control Instance of p25::lc::LC containing link control data.
          * @param[in] lsd Instance of p25::data::LowSpeedData containing low speed data.
