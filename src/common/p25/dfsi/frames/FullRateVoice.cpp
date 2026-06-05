@@ -89,7 +89,7 @@ bool FullRateVoice::decode(const uint8_t* data)
     assert(data != nullptr);
 
     if (imbeData != nullptr)
-        delete imbeData;
+        delete[] imbeData;
     imbeData = new uint8_t[IMBE_BUF_LEN];
     ::memset(imbeData, 0x00U, IMBE_BUF_LEN);
 
@@ -103,6 +103,8 @@ bool FullRateVoice::decode(const uint8_t* data)
     m_busy = (uint8_t)(data[13U] & 0x03U);
 
     if (isVoice3thru8() || isVoice12thru17() || isVoice9or18()) {
+        if (additionalData == nullptr)
+            additionalData = new uint8_t[ADDITIONAL_LENGTH];
         ::memset(additionalData, 0x00U, ADDITIONAL_LENGTH);
 
         if (isVoice9or18()) {
@@ -113,7 +115,7 @@ bool FullRateVoice::decode(const uint8_t* data)
         }
     } else {
         if (additionalData != nullptr)
-            delete additionalData;
+            delete[] additionalData;
         additionalData = nullptr;
     }
 
@@ -137,6 +139,9 @@ void FullRateVoice::encode(uint8_t* data)
         (m_busy & 0x03U));                                      // Busy Status
 
     if (isVoice3thru8() || isVoice12thru17() || isVoice9or18()) {
+        if (additionalData == nullptr)
+            return;
+
         if (isVoice9or18()) {
             // CAI 9 and 18 are 3 bytes of additional data not 4
             ::memcpy(data + 14U, additionalData, ADDITIONAL_LENGTH - 1U);

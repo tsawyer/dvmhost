@@ -136,7 +136,7 @@ bool Data::process(uint8_t* data, uint32_t len)
                     LogInfoEx(LOG_RF, P25_PDU_STR ", ISP, response, OSP ACK, llId = %u, all blocks received OK, n = %u",
                         m_rfAssembler->dataHeader.getLLId(), m_rfAssembler->dataHeader.getResponseStatus());
                     if (m_retryPDUData != nullptr && m_retryPDUBitLength > 0U) {
-                        delete m_retryPDUData;
+                        delete[] m_retryPDUData;
                         m_retryPDUData = nullptr;
 
                         m_retryPDUBitLength = 0U;
@@ -179,7 +179,7 @@ bool Data::process(uint8_t* data, uint32_t len)
                                 m_retryCount++;
                             }
                             else {
-                                delete m_retryPDUData;
+                                delete[] m_retryPDUData;
                                 m_retryPDUData = nullptr;
 
                                 m_retryPDUBitLength = 0U;
@@ -816,7 +816,7 @@ Data::~Data()
     delete[] m_rfPDU;
 
     if (m_retryPDUData != nullptr)
-        delete m_retryPDUData;
+        delete[] m_retryPDUData;
 
     delete[] m_rfPduUserData;
     delete[] m_netPduUserData;
@@ -972,7 +972,7 @@ void Data::writeRF_PDU(const uint8_t* pdu, uint32_t bitLength, bool imm, bool ac
 
     if (!ackRetry) {
         if (m_retryPDUData != nullptr)
-            delete m_retryPDUData;
+            delete[] m_retryPDUData;
 
         // store PDU for ACK RETRY logic
         m_retryCount = 0U;

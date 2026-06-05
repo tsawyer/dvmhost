@@ -46,3 +46,12 @@ The bug was that `Network::clock()` reused the shortened remainder byte as the p
 That leaves the P25 network ring misaligned or underflowed. Later P25 packets can still arrive from UDP, but the host-side P25 frame reader is consuming corrupt ring-buffer state instead of valid P25 frames.
 
 The fix is intentionally small: keep the two-byte length prefix, but always append the full original packet length to `m_rxP25Data`.
+
+## Follow-up Isolated Fixes
+
+During the post-deployment audit we found a few unrelated but obvious P25/DFSI cleanup defects. These are kept small so they can be reviewed without changing the wider sleep-test theory:
+
+- `ModemV24::create_TDU()` generated a TDU and then overwrote the modem tag bytes with the generated air frame copy. The helper now copies the generated frame first and then sets `TAG_EOT`.
+- The TIA DFSI end-of-stream path queued a generated TDU using `P25_TDU_FRAME_LENGTH_BITS` as a byte count. It now uses `P25_TDU_FRAME_LENGTH_BYTES`.
+- The TIA DFSI LDU1 voice 4 and voice 5 handlers cleared the whole LC FEC buffer after earlier LDU1 LC bytes had already been captured. They now append their LC bytes without erasing the earlier pieces.
+- Host RF-to-network TDU forwarding now refuses to send a network TDU when the current RF call identity has already been cleared to `srcId = 0` or `dstId = 0`. The FNE already rejects those invalid TDUs, so suppressing them at the host keeps the journal cleaner without changing a valid call path.

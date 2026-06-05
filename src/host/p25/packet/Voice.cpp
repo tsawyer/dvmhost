@@ -1415,6 +1415,11 @@ void Voice::writeNetwork(const uint8_t *data, defines::DUID::E duid, defines::Fr
             break;
         case DUID::TDU:
         case DUID::TDULC:
+            if (m_rfLC.getSrcId() == 0U || m_rfLC.getDstId() == 0U) {
+                LogWarning(LOG_NET, "P25, not sending network TDU with invalid call identity, srcId = %u, dstId = %u",
+                    m_rfLC.getSrcId(), m_rfLC.getDstId());
+                break;
+            }
             m_p25->m_network->writeP25TDU(m_rfLC, m_rfLSD);
             break;
         default:
