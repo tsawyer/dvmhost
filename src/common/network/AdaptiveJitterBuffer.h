@@ -142,6 +142,12 @@ namespace network
             uint64_t currentTime = 0ULL);
 
         /**
+         * @brief Flushes all currently buffered frames.
+         * @param[out] readyFrames Vector of frames ready for delivery.
+         */
+        void flush(std::vector<BufferedFrame*>& readyFrames);
+
+        /**
          * @brief Resets the jitter buffer state.
          * @param clearStats If true, also resets statistics (default: false).
          * 
@@ -153,13 +159,13 @@ namespace network
          * @brief Gets the current buffer occupancy.
          * @returns size_t Number of frames currently buffered.
          */
-        size_t getBufferSize() const { return m_buffer.size(); }
+        size_t getBufferSize() const;
 
         /**
          * @brief Gets the next expected sequence number.
          * @returns uint16_t Next expected sequence number.
          */
-        uint16_t getNextExpectedSeq() const { return m_nextExpectedSeq; }
+        uint16_t getNextExpectedSeq() const;
 
         /**
          * @brief Gets statistics about jitter buffer performance.
@@ -175,13 +181,13 @@ namespace network
          * @brief Sets the maximum buffer size.
          * @param maxBufferSize Maximum number of frames to buffer.
          */
-        void setMaxBufferSize(uint16_t maxBufferSize) { m_maxBufferSize = maxBufferSize; }
+        void setMaxBufferSize(uint16_t maxBufferSize);
 
         /**
          * @brief Sets the maximum wait time for out-of-order frames.
          * @param maxWaitTime Maximum wait time in microseconds.
          */
-        void setMaxWaitTime(uint32_t maxWaitTime) { m_maxWaitTime = maxWaitTime; }
+        void setMaxWaitTime(uint32_t maxWaitTime);
 
     private:
         std::map<uint16_t, BufferedFrame*> m_buffer;

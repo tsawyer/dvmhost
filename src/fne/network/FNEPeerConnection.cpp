@@ -16,6 +16,18 @@ using namespace network;
 //  Public Class Members
 // ---------------------------------------------------------------------------
 
+/* Finalizes a instance of the FNEPeerConnection class. */
+
+FNEPeerConnection::~FNEPeerConnection()
+{
+    std::lock_guard<std::mutex> lock(m_jitterMutex);
+
+    for (auto& pair : m_jitterBuffers) {
+        delete pair.second;
+    }
+    m_jitterBuffers.clear();
+}
+
 /* Gets or creates a jitter buffer for the specified stream. */
 
 AdaptiveJitterBuffer* FNEPeerConnection::getOrCreateJitterBuffer(uint64_t streamId)
@@ -29,6 +41,38 @@ AdaptiveJitterBuffer* FNEPeerConnection::getOrCreateJitterBuffer(uint64_t stream
     return m_jitterBuffers[streamId];
 }
 
+/* Processes a frame through the jitter buffer for the specified stream. */
+
+bool FNEPeerConnection::processJitterFrame(uint64_t streamId, uint16_t seq, const uint8_t* data, uint32_t length,
+    std::vector<BufferedFrame*>& readyFrames)
+{
+    std::lock_guard<std::mutex> lock(m_jitterMutex);
+
+    if (m_jitterBuffers.find(streamId) == m_jitterBuffers.end()) {
+        m_jitterBuffers[streamId] = new AdaptiveJitterBuffer(m_jitterMaxSize, m_jitterMaxWait);
+    }
+
+    AdaptiveJitterBuffer* buffer = m_jitterBuffers[streamId];
+    if (buffer == nullptr) {
+        return false;
+    }
+
+    buffer->checkTimeouts(readyFrames);
+    return buffer->processFrame(seq, data, length, readyFrames);
+}
+
+/* Flushes all buffered frames for the specified stream. */
+
+void FNEPeerConnection::flushJitterBuffer(uint64_t streamId, std::vector<BufferedFrame*>& readyFrames)
+{
+    std::lock_guard<std::mutex> lock(m_jitterMutex);
+
+    auto it = m_jitterBuffers.find(streamId);
+    if (it != m_jitterBuffers.end() && it->second != nullptr) {
+        it->second->flush(readyFrames);
+    }
+}
+
 /* Cleans up jitter buffer for the specified stream. */
 
 void FNEPeerConnection::cleanupJitterBuffer(uint64_t streamId)
@@ -39,32 +83,5 @@ void FNEPeerConnection::cleanupJitterBuffer(uint64_t streamId)
     if (it != m_jitterBuffers.end()) {
         delete it->second;
         m_jitterBuffers.erase(it);
-    }
-}
-
-/* Checks for timed-out buffered frames across all streams. */
-
-void FNEPeerConnection::checkJitterTimeouts()
-{
-    if (!m_jitterBufferEnabled) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(m_jitterMutex);
-    
-    // check timeouts for all active jitter buffers
-    for (auto& pair : m_jitterBuffers) {
-        AdaptiveJitterBuffer* buffer = pair.second;
-        if (buffer != nullptr) {
-            std::vector<BufferedFrame*> timedOutFrames;
-            buffer->checkTimeouts(timedOutFrames);
-            
-            // note: timed-out frames are handled by the calling context
-            // this method just ensures the buffers are checked periodically
-            // the frames themselves are cleaned up by the caller
-            for (BufferedFrame* frame : timedOutFrames) {
-                delete frame;
-            }
-        }
     }
 }

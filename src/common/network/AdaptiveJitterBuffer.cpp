@@ -122,13 +122,30 @@ bool AdaptiveJitterBuffer::processFrame(uint16_t seq, const uint8_t* data, uint3
     // frame is in the future - buffer it
     m_reorderedFrames++;
 
+    auto existing = m_buffer.find(seq);
+    if (existing != m_buffer.end()) {
+        delete existing->second;
+        m_buffer.erase(existing);
+        m_droppedFrames++;
+    }
+
     // check buffer capacity
     if (m_buffer.size() >= m_maxBufferSize) {
-        // buffer is full - drop oldest frame to make room
-        auto oldestIt = m_buffer.begin();
-        delete oldestIt->second;
-        m_buffer.erase(oldestIt);
-        m_droppedFrames++;
+        // buffer is full - drop the oldest received frame to make room
+        auto oldestIt = m_buffer.end();
+        uint64_t oldestTimestamp = UINT64_MAX;
+        for (auto it = m_buffer.begin(); it != m_buffer.end(); ++it) {
+            if (it->second != nullptr && it->second->timestamp < oldestTimestamp) {
+                oldestTimestamp = it->second->timestamp;
+                oldestIt = it;
+            }
+        }
+
+        if (oldestIt != m_buffer.end()) {
+            delete oldestIt->second;
+            m_buffer.erase(oldestIt);
+            m_droppedFrames++;
+        }
     }
 
     // add frame to buffer
@@ -198,6 +215,41 @@ void AdaptiveJitterBuffer::checkTimeouts(std::vector<BufferedFrame*>& timedOutFr
     }
 }
 
+/* Flushes all currently buffered frames. */
+
+void AdaptiveJitterBuffer::flush(std::vector<BufferedFrame*>& readyFrames)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (m_buffer.empty()) {
+        return;
+    }
+
+    std::vector<uint16_t> seqs;
+    for (auto& pair : m_buffer) {
+        seqs.push_back(pair.first);
+    }
+
+    std::sort(seqs.begin(), seqs.end(), [this](uint16_t a, uint16_t b) {
+        int32_t aDiff = seqDiff(a, m_nextExpectedSeq);
+        int32_t bDiff = seqDiff(b, m_nextExpectedSeq);
+        return aDiff < bDiff;
+    });
+
+    for (uint16_t seq : seqs) {
+        auto it = m_buffer.find(seq);
+        if (it != m_buffer.end() && it->second != nullptr) {
+            readyFrames.push_back(it->second);
+            m_buffer.erase(it);
+            m_timedOutFrames++;
+        }
+    }
+
+    if (!seqs.empty()) {
+        m_nextExpectedSeq = (seqs.back() + 1) & 0xFFFF;
+    }
+}
+
 /* Resets the jitter buffer state. */
 
 void AdaptiveJitterBuffer::reset(bool clearStats)
@@ -234,6 +286,50 @@ void AdaptiveJitterBuffer::getStatistics(uint64_t& totalFrames, uint64_t& reorde
     reorderedFrames = m_reorderedFrames;
     droppedFrames = m_droppedFrames;
     timedOutFrames = m_timedOutFrames;
+}
+
+/* Gets the current buffer occupancy. */
+
+size_t AdaptiveJitterBuffer::getBufferSize() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_buffer.size();
+}
+
+/* Gets the next expected sequence number. */
+
+uint16_t AdaptiveJitterBuffer::getNextExpectedSeq() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_nextExpectedSeq;
+}
+
+/* Sets the maximum buffer size. */
+
+void AdaptiveJitterBuffer::setMaxBufferSize(uint16_t maxBufferSize)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (maxBufferSize < MIN_JITTER_MAX_SIZE)
+        maxBufferSize = MIN_JITTER_MAX_SIZE;
+    if (maxBufferSize > MAX_JITTER_MAX_SIZE)
+        maxBufferSize = MAX_JITTER_MAX_SIZE;
+
+    m_maxBufferSize = maxBufferSize;
+}
+
+/* Sets the maximum wait time for out-of-order frames. */
+
+void AdaptiveJitterBuffer::setMaxWaitTime(uint32_t maxWaitTime)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (maxWaitTime < MIN_JITTER_MAX_WAIT)
+        maxWaitTime = MIN_JITTER_MAX_WAIT;
+    if (maxWaitTime > MAX_JITTER_MAX_WAIT)
+        maxWaitTime = MAX_JITTER_MAX_WAIT;
+
+    m_maxWaitTime = maxWaitTime;
 }
 
 // ---------------------------------------------------------------------------
