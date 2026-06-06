@@ -1843,7 +1843,7 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 }
                                             }
                                             else {
-                                                if (!network->m_kmfAllowRID0) {
+                                                if (!network->m_kmfAllowRID0 && connection->peerClass() != PEER_CONN_CLASS_NEIGHBOR) {
                                                     LogError(LOG_MASTER, "PEER %u (%s) requested enc. key with RID 0 but such requests are not allowed, no response",
                                                         peerId, connection->identWithQualifier().c_str());
                                                     break;
