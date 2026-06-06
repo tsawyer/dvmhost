@@ -2529,7 +2529,7 @@ void* HostBridge::threadNetworkProcess(void* arg)
                     if (bridge->m_p25Crypto->getTEKLength() == 0U && !bridge->m_requestedTek) {
                         bridge->m_requestedTek = true;
                         LogInfoEx(LOG_HOST, "Bridge encryption enabled, requesting TEK from network.");
-                        bridge->m_network->writeKeyReq(bridge->m_tekKeyId, bridge->m_tekAlgoId);
+                        bridge->m_network->writeKeyReq(bridge->m_tekKeyId, bridge->m_tekAlgoId, bridge->m_srcId);
                     }
                 }
             }
