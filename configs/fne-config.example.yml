@@ -179,6 +179,9 @@ master:
     kmfServicesEnabled: false
     # Port number to listen on for P25 OTAR KMF services.
     kmfOtarPort: 64414
+    # Flag indicating whether or not P25 OTAR KMF services will allow RID 0 (broadcast) key requests.
+    #   NOTE: This is used for peer key requests (NOT OTAR REQUESTS).
+    kmfAllowRID0: false
     # Flag indicating whether or not verbose debug logging for P25 OTAR KMF services is enabled.
     kmfDebug: false
 

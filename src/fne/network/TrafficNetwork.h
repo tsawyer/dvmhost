@@ -327,6 +327,7 @@ namespace network
         uint32_t m_parrotOverrideSrcId;
 
         bool m_kmfServicesEnabled;
+        bool m_kmfAllowRID0;
 
         lookups::RadioIdLookup* m_ridLookup;
         lookups::TalkgroupRulesLookup* m_tidLookup;

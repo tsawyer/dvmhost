@@ -461,9 +461,10 @@ namespace network
          * @brief Writes a enc. key request to the network.
          * @param kId Key ID.
          * @param algId Algorithm ID.
+         * @param srcId Source Radio ID.
          * @returns bool True, if request was sent, otherwise false. 
          */
-        bool writeKeyReq(const uint16_t kId, const uint8_t algId);
+        bool writeKeyReq(const uint16_t kId, const uint8_t algId, const uint32_t srcId = 0U);
 
         /**
          * @brief Writes the local activity log to the network.

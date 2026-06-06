@@ -124,7 +124,7 @@ bool BaseNetwork::writeGrantReq(const uint8_t mode, const uint32_t srcId, const 
 
 /* Writes enc. key request to the network. */
 
-bool BaseNetwork::writeKeyReq(const uint16_t kId, const uint8_t algId)
+bool BaseNetwork::writeKeyReq(const uint16_t kId, const uint8_t algId, const uint32_t srcId)
 {
     using namespace p25::defines;
     using namespace p25::kmm;
@@ -136,6 +136,7 @@ bool BaseNetwork::writeKeyReq(const uint16_t kId, const uint8_t algId)
     ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
 
     KMMModifyKey modifyKeyCmd = KMMModifyKey();
+    modifyKeyCmd.setSrcLLId(srcId);
     modifyKeyCmd.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
     modifyKeyCmd.setAlgId(algId);
     modifyKeyCmd.setKId(kId);

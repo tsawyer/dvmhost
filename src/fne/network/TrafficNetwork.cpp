@@ -35,9 +35,9 @@ using namespace compress;
 #include <chrono>
 #include <fstream>
 #include <streambuf>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
-#include <algorithm>
 //  Constants
 // ---------------------------------------------------------------------------
 
@@ -89,6 +89,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_parrotOnlyOriginating(false),
     m_parrotOverrideSrcId(0U),
     m_kmfServicesEnabled(false),
+    m_kmfAllowRID0(false),
     m_ridLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
@@ -287,6 +288,7 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
     m_kmfServicesEnabled = false;
     LogWarning(LOG_MASTER, "FNE is compiled without OpenSSL support, KMF services are unavailable.");
 #endif // ENABLE_SSL
+    m_kmfAllowRID0 = conf["kmfAllowRID0"].as<bool>(false);
 
     m_callCollisionTimeout = conf["callCollisionTimeout"].as<uint32_t>(5U);
 
@@ -401,6 +403,7 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         LogInfo("    P25 OTAR KMF Services Enabled: %s", m_kmfServicesEnabled ? "yes" : "no");
         LogInfo("    P25 OTAR KMF Listening Address: %s", m_address.c_str());
         LogInfo("    P25 OTAR KMF Listening Port: %u", kmfOtarPort);
+        LogInfo("    P25 KMF Allow RID 0 Requests: %s", m_kmfAllowRID0 ? "yes" : "no");
         LogInfo("    High Availability Enabled: %s", m_haEnabled ? "yes" : "no");
         if (m_haEnabled) {
             LogInfo("    Advertised HA WAN IP: %s", m_advertisedHAAddress.c_str());
@@ -1809,32 +1812,42 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                         KMMModifyKey* modifyKey = static_cast<KMMModifyKey*>(frame.get());
                                         if (modifyKey->getAlgId() > 0U && modifyKey->getKId() > 0U) {
                                             uint32_t requestingRid = modifyKey->getSrcLLId();
-                                            lookups::RadioId ridEntry = network->m_ridLookup->find(requestingRid);
-                                            if (ridEntry.radioDefault()) {
-                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u has no key policy entry, no response",
-                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
-                                                break;
+
+                                            if (requestingRid > 0U) {
+                                                lookups::RadioId ridEntry = network->m_ridLookup->find(requestingRid);
+                                                if (ridEntry.radioDefault()) {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u has no key policy entry, no response",
+                                                        peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                    break;
+                                                }
+
+                                                if (!ridEntry.radioEnabled()) {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u is disabled, no response",
+                                                        peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                    break;
+                                                }
+
+                                                if (!ridEntry.canRequestKeys()) {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u cannot request keys, no response",
+                                                        peerId, connection->identWithQualifier().c_str(), requestingRid);
+                                                    break;
+                                                }
+
+                                                std::vector<uint16_t> allowedKIds = ridEntry.allowedKIds();
+
+                                                // check if this RID is allowed to request the KID in question
+                                                if (!allowedKIds.empty() && std::find(allowedKIds.begin(), allowedKIds.end(), modifyKey->getKId()) == allowedKIds.end()) {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested enc. key kID = $%04X but RID %u is not permitted for that key, no response",
+                                                        peerId, connection->identWithQualifier().c_str(), modifyKey->getKId(), requestingRid);
+                                                    break;
+                                                }
                                             }
-
-                                            if (!ridEntry.radioEnabled()) {
-                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u is disabled, no response",
-                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
-                                                break;
-                                            }
-
-                                            if (!ridEntry.canRequestKeys()) {
-                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but RID %u cannot request keys, no response",
-                                                    peerId, connection->identWithQualifier().c_str(), requestingRid);
-                                                break;
-                                            }
-
-                                            std::vector<uint16_t> allowedKIds = ridEntry.allowedKIds();
-
-                                            // check if this RID is allowed to request the KID in question
-                                            if (!allowedKIds.empty() && std::find(allowedKIds.begin(), allowedKIds.end(), modifyKey->getKId()) == allowedKIds.end()) {
-                                                LogError(LOG_MASTER, "PEER %u (%s) requested enc. key kID = $%04X but RID %u is not permitted for that key, no response",
-                                                    peerId, connection->identWithQualifier().c_str(), modifyKey->getKId(), requestingRid);
-                                                break;
+                                            else {
+                                                if (!network->m_kmfAllowRID0) {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested enc. key with RID 0 but such requests are not allowed, no response",
+                                                        peerId, connection->identWithQualifier().c_str());
+                                                    break;
+                                                }
                                             }
 
                                             LogInfoEx(LOG_MASTER, "PEER %u (%s) requested enc. key, algId = $%02X, kID = $%04X", peerId, connection->identWithQualifier().c_str(),
