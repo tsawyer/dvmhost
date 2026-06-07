@@ -90,6 +90,34 @@ namespace network
         }
     };
 
+    /**
+     * @brief Represents a jitter buffer observation for operational logging.
+     * @ingroup network_core
+     */
+    struct JitterBufferEvent {
+        enum class Type {
+            TIMEOUT,
+            LATE_DROP,
+            DUPLICATE_DROP,
+            OVERFLOW_DROP,
+            STREAM_RESET
+        };
+
+        Type type;                          //<! Event type
+        uint16_t seq;                       //<! RTP sequence number involved
+        uint16_t expectedSeq;               //<! Expected RTP sequence number
+        uint64_t age;                       //<! Buffered frame age in microseconds
+
+        JitterBufferEvent(Type eventType, uint16_t sequence, uint16_t expected, uint64_t frameAge = 0ULL) :
+            type(eventType),
+            seq(sequence),
+            expectedSeq(expected),
+            age(frameAge)
+        {
+            /* stub */
+        }
+    };
+
     // ---------------------------------------------------------------------------
     //  Class Declaration
     // ---------------------------------------------------------------------------
@@ -128,7 +156,7 @@ namespace network
          * Out-of-order packets are buffered and returned when they become sequential.
          */
         bool processFrame(uint16_t seq, const uint8_t* data, uint32_t length, 
-            std::vector<BufferedFrame*>& readyFrames);
+            std::vector<BufferedFrame*>& readyFrames, std::vector<JitterBufferEvent>* events = nullptr);
 
         /**
          * @brief Checks for timed-out buffered frames and forces their delivery.
@@ -139,7 +167,7 @@ namespace network
          * buffered frames are delivered even if missing packets never arrive.
          */
         void checkTimeouts(std::vector<BufferedFrame*>& timedOutFrames, 
-            uint64_t currentTime = 0ULL);
+            uint64_t currentTime = 0ULL, std::vector<JitterBufferEvent>* events = nullptr);
 
         /**
          * @brief Flushes all currently buffered frames.
@@ -170,12 +198,15 @@ namespace network
         /**
          * @brief Gets statistics about jitter buffer performance.
          * @param[out] totalFrames Total frames processed.
-         * @param[out] reorderedFrames Frames that were out-of-order but successfully reordered.
+         * @param[out] reorderedFrames Future frames buffered while waiting for a missing sequence.
+         * @param[out] recoveredFrames Buffered frames delivered in sequence when the missing frame arrived.
          * @param[out] droppedFrames Frames dropped due to buffer overflow or severe reordering.
          * @param[out] timedOutFrames Frames delivered due to timeout (missing packets).
+         * @param[out] flushedFrames Frames delivered during stream flush/end-of-call cleanup.
          */
         void getStatistics(uint64_t& totalFrames, uint64_t& reorderedFrames, 
-            uint64_t& droppedFrames, uint64_t& timedOutFrames) const;
+            uint64_t& recoveredFrames, uint64_t& droppedFrames, uint64_t& timedOutFrames,
+            uint64_t& flushedFrames) const;
 
         /**
          * @brief Sets the maximum buffer size.
@@ -199,8 +230,10 @@ namespace network
         
         uint64_t m_totalFrames;
         uint64_t m_reorderedFrames;
+        uint64_t m_recoveredFrames;
         uint64_t m_droppedFrames;
         uint64_t m_timedOutFrames;
+        uint64_t m_flushedFrames;
         
         bool m_initialized;
         
@@ -211,7 +244,7 @@ namespace network
          * Internal helper that flushes all frames starting from m_nextExpectedSeq
          * until a gap is encountered.
          */
-        void flushSequentialFrames(std::vector<BufferedFrame*>& readyFrames);
+        void flushSequentialFrames(std::vector<BufferedFrame*>& readyFrames, bool countRecovered);
 
         /**
          * @brief Calculates sequence number difference handling wraparound.
