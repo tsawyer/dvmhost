@@ -95,6 +95,8 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_cryptoLookup(nullptr),
     m_status(NET_STAT_INVALID),
     m_peers(),
+    m_retiredPeers(),
+    m_retiredPeersLock(),
     m_peerReplicaPeers(),
     m_peerAffiliations(),
     m_ccPeerMap(),
@@ -186,6 +188,19 @@ TrafficNetwork::~TrafficNetwork()
 {
     if (m_kmfServicesEnabled) {
         m_p25OTARService->close();
+    }
+
+    for (auto& peer : m_peers) {
+        delete peer.second;
+    }
+    m_peers.clear();
+
+    {
+        std::lock_guard<std::mutex> guard(m_retiredPeersLock);
+        for (FNEPeerConnection* peer : m_retiredPeers) {
+            delete peer;
+        }
+        m_retiredPeers.clear();
     }
 
     delete m_p25OTARService;
@@ -533,8 +548,15 @@ void TrafficNetwork::clock(uint32_t ms)
     uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     if (m_forceListUpdate) {
+        std::vector<uint32_t> peersToUpdate = std::vector<uint32_t>();
+        m_peers.shared_lock();
         for (auto& peer : m_peers) {
-            peerMetadataUpdate(peer.first);
+            peersToUpdate.push_back(peer.first);
+        }
+        m_peers.shared_unlock();
+
+        for (uint32_t peerId : peersToUpdate) {
+            peerMetadataUpdate(peerId);
         }
         m_forceListUpdate = false;
     }
@@ -746,9 +768,16 @@ void TrafficNetwork::close()
         uint8_t buffer[1U];
         ::memset(buffer, 0x00U, 1U);
 
-        uint32_t streamId = createStreamId();
+        std::vector<uint32_t> peersToDisconnect = std::vector<uint32_t>();
+        m_peers.shared_lock();
         for (auto& peer : m_peers) {
-            writePeer(peer.first, m_peerId, { NET_FUNC::MST_DISC, NET_SUBFUNC::NOP }, buffer, 1U, RTP_END_OF_CALL_SEQ, 
+            peersToDisconnect.push_back(peer.first);
+        }
+        m_peers.shared_unlock();
+
+        uint32_t streamId = createStreamId();
+        for (uint32_t peerId : peersToDisconnect) {
+            writePeer(peerId, m_peerId, { NET_FUNC::MST_DISC, NET_SUBFUNC::NOP }, buffer, 1U, RTP_END_OF_CALL_SEQ,
                 streamId);
         }
     }
@@ -937,8 +966,6 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                             streamId, pktSeq, lastRxSeq);
                     }
                 }
-
-                network->m_peers[peerId] = connection;
             }
 
             // if we don't have a stream ID and are receiving call data -- throw an error and discard
@@ -1333,7 +1360,6 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                         connection->connectionState(NET_STAT_WAITING_CONFIG);
                                         network->writePeerACK(peerId, streamId);
                                         LogInfoEx(LOG_MASTER, "PEER %u RPTK ACK, completed the login exchange", peerId);
-                                        network->m_peers[peerId] = connection;
                                     }
                                     else {
                                         LogWarning(LOG_MASTER, "PEER %u RPTK NAK, failed the login exchange", peerId);
@@ -1411,8 +1437,6 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 LogInfoEx(LOG_MASTER, "PEER %u >> Has Call Priority", peerId);
                                             }
                                         }
-
-                                        network->m_peers[peerId] = connection;
 
                                         // attach extra notification data to the RPTC ACK to notify the peer of 
                                         // the use of the alternate diagnostic port
@@ -1605,8 +1629,6 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                 payload[5U] = (uint8_t)((now >> 16) & 0xFFU);
                                 payload[6U] = (uint8_t)((now >> 8) & 0xFFU);
                                 payload[7U] = (uint8_t)((now >> 0) & 0xFFU);
-
-                                network->m_peers[peerId] = connection;
                                 network->writePeerCommand(peerId, { NET_FUNC::PONG, NET_SUBFUNC::NOP }, payload, 8U, streamId, false);
 
                                 if (network->m_reportPeerPing) {
@@ -2256,7 +2278,11 @@ void TrafficNetwork::disconnectPeer(uint32_t peerId, FNEPeerConnection* connecti
 
         logSpanningTree();
     }
-    delete peerToDelete;
+
+    {
+        std::lock_guard<std::mutex> guard(m_retiredPeersLock);
+        m_retiredPeers.push_back(peerToDelete);
+    }
 }
 
 /* Helper to erase the peer from the peers list. */
@@ -2264,13 +2290,14 @@ void TrafficNetwork::disconnectPeer(uint32_t peerId, FNEPeerConnection* connecti
 void TrafficNetwork::erasePeer(uint32_t peerId)
 {
     bool neighborFNE = false;
-    {
-        auto it = std::find_if(m_peers.begin(), m_peers.end(), [&](PeerMapPair x) { return x.first == peerId; });
-        if (it != m_peers.end()) {
-            neighborFNE = it->second->isNeighborFNEPeer();
-            m_peers.erase(peerId);
-        }
+    m_peers.lock();
+    auto peer = m_peers.get().find(peerId);
+    if (peer != m_peers.get().end()) {
+        if (peer->second != nullptr)
+            neighborFNE = peer->second->isNeighborFNEPeer();
+        m_peers.get().erase(peer);
     }
+    m_peers.unlock();
 
     // erase any CC maps for this peer
     {
@@ -2405,10 +2432,7 @@ bool TrafficNetwork::resetPeer(uint32_t peerId)
             LogInfoEx(LOG_MASTER, "PEER %u (%s) resetting peer connection", peerId, connection->identWithQualifier().c_str());
 
             writePeerNAK(peerId, TAG_REPEATER_LOGIN, NET_CONN_NAK_PEER_RESET, addr, addrLen);
-            connection->lock();
-            erasePeer(peerId);
-            connection->unlock();
-            delete connection;
+            disconnectPeer(peerId, connection);
 
             return true;
         }
@@ -2461,7 +2485,9 @@ void TrafficNetwork::setupRepeaterLogin(uint32_t peerId, uint32_t streamId, FNEP
     LogInfoEx(LOG_MASTER, "PEER %u started login from, %s:%u", peerId, connection->address().c_str(), connection->port());
 
     connection->connectionState(NET_STAT_WAITING_AUTHORISATION);
-    m_peers[peerId] = connection;
+    m_peers.lock();
+    m_peers.get()[peerId] = connection;
+    m_peers.unlock();
 
     // transmit salt to peer
     uint8_t salt[4U];

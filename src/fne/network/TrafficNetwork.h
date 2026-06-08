@@ -47,6 +47,7 @@
 #include <cstdint>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 //  Class Prototypes
@@ -338,6 +339,8 @@ namespace network
 
         typedef std::pair<const uint32_t, network::FNEPeerConnection*> PeerMapPair;
         concurrent::shared_unordered_map<uint32_t, FNEPeerConnection*> m_peers;
+        std::vector<FNEPeerConnection*> m_retiredPeers;
+        std::mutex m_retiredPeersLock;
         concurrent::unordered_map<uint32_t, json::array> m_peerReplicaPeers;
         typedef std::pair<const uint32_t, lookups::AffiliationLookup*> PeerAffiliationMapPair;
         concurrent::unordered_map<uint32_t, fne_lookups::AffiliationLookup*> m_peerAffiliations;
