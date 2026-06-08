@@ -1214,7 +1214,7 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                 if (connection->connectionState() == NET_STAT_RUNNING) {
                                     LogInfoEx(LOG_MASTER, "PEER %u (%s) resetting peer connection, connectionState = %u", peerId, connection->identWithQualifier().c_str(),
                                         connection->connectionState());
-                                    delete connection;
+                                    network->disconnectPeer(peerId, connection);
 
                                     connection = new FNEPeerConnection(peerId, req->address, req->addrLen);
                                     connection->lastPing(now);
@@ -2222,15 +2222,41 @@ void TrafficNetwork::disconnectPeer(uint32_t peerId, FNEPeerConnection* connecti
     if (connection == nullptr)
         return;
 
-    connection->connected(false);
-    connection->connectionState(NET_STAT_INVALID);
-
-    connection->lock();
-    erasePeer(peerId);
-    connection->unlock();
-    if (connection != nullptr) {
-        delete connection;
+    FNEPeerConnection* peerToDelete = nullptr;
+    bool neighborFNE = false;
+    m_peers.lock();
+    auto it = m_peers.get().find(peerId);
+    if (it != m_peers.get().end() && it->second == connection) {
+        peerToDelete = it->second;
+        neighborFNE = peerToDelete->isNeighborFNEPeer();
+        m_peers.get().erase(it);
     }
+    m_peers.unlock();
+
+    if (peerToDelete == nullptr)
+        return;
+
+    peerToDelete->connected(false);
+    peerToDelete->connectionState(NET_STAT_INVALID);
+    erasePeer(peerId);
+    if (neighborFNE && m_enableSpanningTree) {
+        std::lock_guard<std::mutex> guard(m_treeLock);
+
+        SpanningTree* tree = SpanningTree::findByPeerID(peerId);
+        if (tree != nullptr) {
+            if (tree->hasChildren()) {
+                uint32_t totalChildren = tree->countChildren(tree);
+                for (uint8_t i = 0U; i < 3U; i++)
+                    LogWarning(LOG_MASTER, "PEER %u downstream netsplit, lost %u downstream connections", peerId, totalChildren);
+            }
+
+            LogWarning(LOG_MASTER, "PEER %u downstream netsplit, disconnected", peerId);
+            SpanningTree::erasePeer(peerId);
+        }
+
+        logSpanningTree();
+    }
+    delete peerToDelete;
 }
 
 /* Helper to erase the peer from the peers list. */
