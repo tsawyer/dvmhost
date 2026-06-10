@@ -462,6 +462,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_hadVoice = true;
 
             m_p25->m_rfState = RS_RF_AUDIO;
+            m_p25->m_rfLossWatchdog.start();
 
             if (group) {
                 m_p25->m_rfTGHang.start();
@@ -569,6 +570,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_grpUpdtCount = 0U;
             m_roamLDU1Count = 0U;
             m_p25->m_rfTimeout.start();
+            m_p25->m_rfLossWatchdog.start();
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
@@ -1139,6 +1141,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
         m_inbound = false;
         m_p25->m_rfState = RS_RF_LISTENING;
+        m_p25->m_rfLossWatchdog.stop();
         return true;
     }
     else {

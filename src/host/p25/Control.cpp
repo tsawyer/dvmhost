@@ -979,6 +979,8 @@ void Control::clock()
             m_rfLossWatchdog.clock(ms);
 
             if (m_rfLossWatchdog.hasExpired()) {
+                LogWarning(LOG_RF, "P25, RF loss watchdog expired; recovering stale RF state, rfState = %u, netState = %u, rfLastSrcId = %u, rfLastDstId = %u",
+                    m_rfState, m_netState, m_rfLastSrcId, m_rfLastDstId);
                 m_rfLossWatchdog.stop();
 
                 processFrameLoss();
@@ -1743,6 +1745,7 @@ void Control::processFrameLoss()
         m_rfLastDstId = 0U;
         m_rfLastSrcId = 0U;
         m_rfTGHang.stop();
+        m_rfLossWatchdog.stop();
 
         m_rfVoiceCallTermTimeout.stop();
         m_rfCallTermSrcId = 0U;
@@ -1762,6 +1765,7 @@ void Control::processFrameLoss()
         m_rfLastDstId = 0U;
         m_rfLastSrcId = 0U;
         m_rfTGHang.stop();
+        m_rfLossWatchdog.stop();
 
         m_tailOnIdle = true;
 

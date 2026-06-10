@@ -85,6 +85,7 @@ bool Data::process(uint8_t* data, uint32_t len)
             ::memset(m_rfPDU, 0x00U, P25_PDU_FRAME_LENGTH_BYTES + 2U);
 
             m_p25->m_rfState = RS_RF_DATA;
+            m_p25->m_rfLossWatchdog.start();
 
             ::memset(m_rfPduUserData, 0x00U, P25_MAX_PDU_BLOCKS * P25_PDU_CONFIRMED_LENGTH_BYTES + 2U);
             m_rfPduUserDataLength = 0U;

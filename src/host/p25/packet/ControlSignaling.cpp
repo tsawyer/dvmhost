@@ -188,6 +188,7 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
         if (m_p25->m_rfState != RS_RF_DATA) {
             m_p25->m_rfState = RS_RF_DATA;
+            m_p25->m_rfLossWatchdog.start();
         }
 
         if (preDecodedTSBK == nullptr) {
