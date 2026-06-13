@@ -1233,7 +1233,6 @@ void Network::clock(uint32_t ms)
             }
             break;
 
-
         case NET_FUNC::KEY_LLA_RSP:                                     // LLA Enc. Key Response
             {
                 if (m_enabled) {
