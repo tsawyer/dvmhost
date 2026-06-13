@@ -1308,7 +1308,7 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
 
                                         if (network->m_debug) {
                                             std::string address = __IP_FROM_UINT(rxEntry.masterIP);
-                                            LogDebugEx(LOG_REPL, "MetadataNetwork::taskNetworkRx", "PEER %u (%s) Peer Replication, HA Parameters, %s:%u", peerId, connection->identWithQualifier().c_str(),
+                                            LogDebugEx(LOG_REPL, "MetadataNetwork::taskNetworkRx()", "PEER %u (%s) Peer Replication, HA Parameters, %s:%u", peerId, connection->identWithQualifier().c_str(),
                                                 address.c_str(), rxEntry.masterPort);
                                         }
                                     }

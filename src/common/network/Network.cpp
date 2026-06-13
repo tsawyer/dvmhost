@@ -952,6 +952,8 @@ void Network::clock(uint32_t ms)
 
                             // always add the configured address to the HA IP list
                             m_haIPs.push_back(PeerHAIPEntry(m_configuredAddress, m_configuredPort));
+                            if (m_debug)
+                                LogDebugEx(LOG_NET, "Network::clock()", "HA PARAMS, 1, %s:%u", m_configuredAddress.c_str(), m_configuredPort);
 
                             uint32_t len = GET_UINT32(buffer, 6U);
                             if (len > 0U) {
@@ -965,8 +967,12 @@ void Network::clock(uint32_t ms)
 
                                 std::string address = __IP_FROM_UINT(ipAddr);
 
+                                if (address == m_configuredAddress && port == m_configuredPort) {
+                                    continue; // skip if this is the same as our configured address
+                                }
+
                                 if (m_debug)
-                                    LogDebugEx(LOG_NET, "Network::clock()", "HA PARAMS, %s:%u", address.c_str(), port);
+                                    LogDebugEx(LOG_NET, "Network::clock()", "HA PARAMS, %u, %s:%u", i + 2, address.c_str(), port);
 
                                 m_haIPs.push_back(PeerHAIPEntry(address, port));
                             }
@@ -974,7 +980,8 @@ void Network::clock(uint32_t ms)
                             if (m_haIPs.size() > 1U) {
                                 m_currentHAIP = 1U; // because the first entry is our configured entry, set
                                                     // the current HA IP to the next available
-                                LogInfoEx(LOG_NET, "Loaded %u HA IPs from master", m_haIPs.size() - 1U);
+                                LogInfoEx(LOG_NET, "Loaded %u HA IPs from master", m_haIPs.size());
+                                LogInfoEx(LOG_NET, "Current HA IP %s:%u", m_haIPs[m_currentHAIP].masterAddress.c_str(), m_haIPs[m_currentHAIP].masterPort);
                             }
                         }
                     }
