@@ -62,12 +62,14 @@ namespace network
 
             GRANT_REQ = 0x7AU,                      //!< Grant Request
             INCALL_CTRL = 0x7BU,                    //!< In-Call Control
-            KEY_REQ = 0x7CU,                        //!< Encryption Key Request
-            KEY_RSP = 0x7DU,                        //!< Encryption Key Response
+            KEY_REQ = 0x7CU,                        //!< Encryption Key TEK Request
+            KEY_RSP = 0x7DU,                        //!< Encryption Key TEK Response
 
             ACK = 0x7EU,                            //!< Packet Acknowledge
             NAK = 0x7FU,                            //!< Packet Negative Acknowledge
 
+            KEY_LLA_REQ = 0x80U,                    //!< Encryption Key LLA Request
+            KEY_LLA_RSP = 0x81U,                    //!< Encryption Key LLA Response
             KEYS_INVENTORY = 0x8EU,                 //!< Encryption Key Container Inventory
             KEYS_UPDATE = 0x8FU,                    //!< Encryption Key Container Update
 

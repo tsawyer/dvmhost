@@ -56,6 +56,7 @@ const uint32_t FIXED_HA_UPDATE_INTERVAL = 30U; // 30s
 // ---------------------------------------------------------------------------
 
 std::timed_mutex TrafficNetwork::s_keyQueueMutex;
+std::timed_mutex TrafficNetwork::s_llaKeyQueueMutex;
 
 // ---------------------------------------------------------------------------
 //  Public Class Members
@@ -101,6 +102,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_peerAffiliations(),
     m_ccPeerMap(),
     m_peerReplicaKeyQueue(),
+    m_peerReplicaLLAKeyQueue(),
     m_globalAff(nullptr),
     m_treeRoot(nullptr),
     m_treeLock(),
@@ -617,6 +619,9 @@ void TrafficNetwork::clock(uint32_t ms)
                             peer.second->setAttachedKeyRSPHandler(true); // this is the only place this should happen
                             peer.second->setKeyResponseCallback([=](p25::kmm::KeyItem ki, uint8_t algId, uint8_t keyLength) {
                                 processTEKResponse(&ki, algId, keyLength);
+                            });
+                            peer.second->setLLAKeyResponseCallback([=](uint32_t srcId, p25::kmm::KeyItem ki, uint8_t keyLength) {
+                                processLLAResponse(srcId, &ki, keyLength);
                             });
                         }
 
@@ -1913,6 +1918,138 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                             }
                                                         }
                                                     }
+                                                } else {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) no local key or container and no replica masters to forward request to, no response, algId = $%02X, kID = $%04X", peerId, connection->identWithQualifier().c_str(),
+                                                        modifyKey->getAlgId(), modifyKey->getKId());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    break;
+
+                                default:
+                                    break;
+                                }
+                            }
+                            else {
+                                network->writePeerNAK(peerId, streamId, TAG_REPEATER_KEY, NET_CONN_NAK_FNE_UNAUTHORIZED);
+                            }
+                        }
+                    }
+                }
+                break;
+
+            case NET_FUNC::KEY_LLA_REQ:                                     // LLA Enc. Key Request
+                {
+                    using namespace p25::defines;
+                    using namespace p25::kmm;
+
+                    if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+                        FNEPeerConnection* connection = network->m_peers[peerId];
+                        if (connection != nullptr) {
+                            std::string ip = udp::Socket::address(req->address);
+
+                            // validate peer (simple validation really)
+                            if (connection->connected() && connection->address() == ip) {
+                                // is this peer allowed to request keys?
+                                if (network->m_peerListLookup->getACL()) {
+                                    lookups::PeerId peerEntry = network->m_peerListLookup->find(peerId);
+                                    if (peerEntry.peerDefault()) {
+                                        break;
+                                    } else {
+                                        if (!peerEntry.canRequestKeys()) {
+                                            LogError(LOG_MASTER, "PEER %u (%s) requested enc. key but is not allowed, no response", peerId, connection->identWithQualifier().c_str());
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                std::unique_ptr<KMMFrame> frame = KMMFactory::create(req->buffer + 11U);
+                                if (frame == nullptr) {
+                                    LogWarning(LOG_MASTER, "PEER %u (%s), undecodable KMM frame from peer", peerId, connection->identWithQualifier().c_str());
+                                    break;
+                                }
+
+                                switch (frame->getMessageId()) {
+                                case P25DEF::KMM_MessageType::MODIFY_KEY_CMD:
+                                    {
+                                        KMMModifyKey* modifyKey = static_cast<KMMModifyKey*>(frame.get());
+
+                                        LogDebugEx(LOG_MASTER, "TrafficNetwork::taskNetworkRx()", "PEER %u (%s) LLA enc. key request received, dstLLId = %u, algId = %u, kId = %u", peerId, connection->identWithQualifier().c_str(), modifyKey->getDstLLId(), modifyKey->getAlgId(), modifyKey->getKId());
+
+                                        if (modifyKey->getAlgId() == ALGO_AES_128 && modifyKey->getDstLLId() > 0U) {
+                                            LogDebugEx(LOG_MASTER, "TrafficNetwork::taskNetworkRx()", "PEER %u (%s) LLA enc. key request received", peerId, connection->identWithQualifier().c_str());
+                                            uint32_t requestingRid = modifyKey->getDstLLId();
+
+                                            LogInfoEx(LOG_MASTER, "PEER %u (%s) requested LLA enc. key, rsi = %u", peerId, connection->identWithQualifier().c_str(),
+                                                requestingRid);
+
+                                            ::EKCKeyItem keyItem = network->m_cryptoLookup->findLLA(requestingRid);
+                                            if (!keyItem.isInvalid()) {
+                                                uint8_t key[P25DEF::MAX_ENC_KEY_LENGTH_BYTES];
+                                                ::memset(key, 0x00U, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                uint8_t keyLength = keyItem.getKey(key);
+
+                                                //if (network->m_debug) {
+                                                    LogDebugEx(LOG_HOST, "TrafficNetwork::threadedNetworkRx()", "keyLength = %u", keyLength);
+                                                    Utils::dump(1U, "TrafficNetwork::taskNetworkRx(), Key", key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                //}
+
+                                                LogInfoEx(LOG_MASTER, "PEER %u (%s) local enc. key, algId = $%02X, rsi = %u", peerId, connection->identWithQualifier().c_str(),
+                                                    modifyKey->getAlgId(), requestingRid);
+
+                                                // build response buffer
+                                                uint8_t buffer[DATA_PACKET_LENGTH];
+                                                ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
+
+                                                KMMModifyKey modifyKeyRsp = KMMModifyKey();
+                                                modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+                                                modifyKeyRsp.setAlgId(modifyKey->getAlgId());
+                                                modifyKeyRsp.setKId(0U);
+                                                modifyKeyRsp.setSrcLLId(WUID_FNE);
+                                                modifyKeyRsp.setDstLLId(requestingRid);
+
+                                                KeysetItem ks = KeysetItem();
+                                                ks.keysetId(1U);
+                                                ks.algId(modifyKey->getAlgId());
+                                                ks.keyLength(keyLength);
+
+                                                p25::kmm::KeyItem ki = p25::kmm::KeyItem();
+                                                ki.keyFormat(KEY_FORMAT_TEK);
+                                                ki.kId((uint16_t)keyItem.kId());
+                                                ki.sln((uint16_t)keyItem.sln());
+                                                ki.setKey(key, keyLength);
+
+                                                ks.push_back(ki);
+                                                modifyKeyRsp.setKeysetItem(ks);
+
+                                                modifyKeyRsp.encode(buffer + 11U);
+
+                                                network->writePeer(peerId, network->m_peerId, { NET_FUNC::KEY_LLA_RSP, NET_SUBFUNC::NOP }, buffer, modifyKeyRsp.length() + 11U, 
+                                                    RTP_END_OF_CALL_SEQ, network->createStreamId());
+                                            } else {
+                                                // attempt to forward KMM key request to replica masters
+                                                if (network->m_host->m_peerNetworks.size() > 0) {
+                                                    for (auto& peer : network->m_host->m_peerNetworks) {
+                                                        if (peer.second != nullptr) {
+                                                            if (peer.second->isEnabled() && peer.second->isReplica()) {
+                                                                LogInfoEx(LOG_PEER, "PEER %u (%s) no local key or container, requesting key from upstream master, algId = $%02X, rsi = %u", peerId, connection->identWithQualifier().c_str(),
+                                                                    modifyKey->getAlgId(), requestingRid);
+
+                                                                bool locked = network->s_llaKeyQueueMutex.try_lock_for(std::chrono::milliseconds(60));
+                                                                network->m_peerReplicaLLAKeyQueue[peerId] = modifyKey->getDstLLId();
+
+                                                                if (locked)
+                                                                    network->s_llaKeyQueueMutex.unlock();
+
+                                                                peer.second->writeMaster({ NET_FUNC::KEY_LLA_REQ, NET_SUBFUNC::NOP }, 
+                                                                    req->buffer, req->length, RTP_END_OF_CALL_SEQ, 0U, false);
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    LogError(LOG_MASTER, "PEER %u (%s) requested LLA enc. key with no local key and no upstream masters to query, algId = $%02X, rsi = %u, no response", peerId, connection->identWithQualifier().c_str(),
+                                                        modifyKey->getAlgId(), requestingRid);
                                                 }
                                             }
                                         }
@@ -3451,4 +3588,74 @@ void TrafficNetwork::processTEKResponse(p25::kmm::KeyItem* rspKi, uint8_t algId,
         m_peerReplicaKeyQueue.erase(peerId);
 
     s_keyQueueMutex.unlock();
+}
+
+/* Helper to process a FNE KMM LLA response. */
+
+void TrafficNetwork::processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* rspKi, uint8_t keyLength)
+{
+    using namespace p25::defines;
+    using namespace p25::kmm;
+
+    if (rspKi == nullptr)
+        return;
+
+    LogInfoEx(LOG_PEER, "upstream master LLA enc. key, rsi = %u", srcId);
+
+    s_llaKeyQueueMutex.lock();
+
+    std::vector<uint32_t> peersToRemove;
+    for (auto entry : m_peerReplicaLLAKeyQueue) {
+        uint32_t requestingRid = entry.second;
+        if (requestingRid == srcId) {
+            uint32_t peerId = entry.first;
+
+            uint8_t key[P25DEF::MAX_ENC_KEY_LENGTH_BYTES];
+            ::memset(key, 0x00U, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+            rspKi->getKey(key);
+
+            if (m_debug) {
+                LogDebugEx(LOG_HOST, "TrafficNetwork::processLLAResponse()", "keyLength = %u", keyLength);
+                Utils::dump(1U, "TrafficNetwork::processLLAResponse(), Key", key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+            }
+
+            // build response buffer
+            uint8_t buffer[DATA_PACKET_LENGTH];
+            ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
+
+            KMMModifyKey modifyKeyRsp = KMMModifyKey();
+            modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+            modifyKeyRsp.setAlgId(ALGO_AES_128);
+            modifyKeyRsp.setKId(0U);
+            modifyKeyRsp.setSrcLLId(WUID_FNE);
+            modifyKeyRsp.setDstLLId(srcId);
+
+            KeysetItem ks = KeysetItem();
+            ks.keysetId(1U);
+            ks.algId(ALGO_AES_128);
+            ks.keyLength(keyLength);
+
+            p25::kmm::KeyItem ki = p25::kmm::KeyItem();
+            ki.keyFormat(KEY_FORMAT_TEK);
+            ki.kId(rspKi->kId());
+            ki.sln(rspKi->sln());
+            ki.setKey(key, keyLength);
+
+            ks.push_back(ki);
+            modifyKeyRsp.setKeysetItem(ks);
+
+            modifyKeyRsp.encode(buffer + 11U);
+
+            writePeer(peerId, m_peerId, { NET_FUNC::KEY_LLA_RSP, NET_SUBFUNC::NOP }, buffer, modifyKeyRsp.length() + 11U, 
+                RTP_END_OF_CALL_SEQ, createStreamId());
+
+            peersToRemove.push_back(peerId);
+        }
+    }
+
+    // remove peers who were sent keys
+    for (auto& peerId : peersToRemove)
+        m_peerReplicaLLAKeyQueue.erase(peerId);
+
+    s_llaKeyQueueMutex.unlock();
 }

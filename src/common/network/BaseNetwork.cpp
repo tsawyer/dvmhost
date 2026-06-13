@@ -154,6 +154,38 @@ bool BaseNetwork::writeKeyReq(const uint16_t kId, const uint8_t algId, const uin
     return writeMaster({ NET_FUNC::KEY_REQ, NET_SUBFUNC::NOP }, buffer, modifyKeyCmd.length() + 11U, RTP_END_OF_CALL_SEQ, 0U);
 }
 
+/* Writes LLA enc. key request to the network. */
+
+bool BaseNetwork::writeLLAKeyReq(const uint32_t srcId)
+{
+    using namespace p25::defines;
+    using namespace p25::kmm;
+
+    if (m_status != NET_STAT_RUNNING && m_status != NET_STAT_MST_RUNNING)
+        return false;
+
+    uint8_t buffer[DATA_PACKET_LENGTH];
+    ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
+
+    KMMModifyKey modifyKeyCmd = KMMModifyKey();
+    modifyKeyCmd.setDstLLId(srcId);
+    modifyKeyCmd.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+    modifyKeyCmd.setAlgId(ALGO_AES_128);
+    modifyKeyCmd.setKId(0U);
+
+    KeysetItem ks = KeysetItem();
+    ks.keysetId(0U);
+    ks.algId(ALGO_AES_128);
+    ks.keyLength(P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+    modifyKeyCmd.setKeysetItem(ks);
+
+    modifyKeyCmd.encode(buffer + 11U);
+
+    //Utils::dump("BaseNetwork::writeLLAKeyReq(), KMM Buffer", buffer, modifyKeyCmd.length() + 11U);
+
+    return writeMaster({ NET_FUNC::KEY_LLA_REQ, NET_SUBFUNC::NOP }, buffer, modifyKeyCmd.length() + 11U, RTP_END_OF_CALL_SEQ, 0U);
+}
+
 /* Writes the local activity log to the network. */
 
 bool BaseNetwork::writeActLog(const char* message)

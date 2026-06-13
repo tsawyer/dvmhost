@@ -205,6 +205,8 @@ namespace p25
         const uint8_t   ALGO_DES = 0x81U;
         /** @brief AES-256 */
         const uint8_t   ALGO_AES_256 = 0x84U;
+        /** @brief AES-128 */
+        const uint8_t   ALGO_AES_128 = 0x85U;
         /** @brief ARC4 */
         const uint8_t   ALGO_ARC4 = 0xAAU;
         /** @} */

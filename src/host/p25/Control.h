@@ -34,6 +34,7 @@
 #include "common/network/NetRPC.h"
 #include "common/network/RTPFNEHeader.h"
 #include "common/network/Network.h"
+#include "common/p25/kmm/KeysetItem.h"
 #include "common/p25/SiteData.h"
 #include "common/RingBuffer.h"
 #include "common/StopWatch.h"
@@ -379,10 +380,16 @@ namespace p25
 
         std::mt19937 m_random;
 
-        uint8_t* m_llaK;
-        uint8_t* m_llaRS;
-        uint8_t* m_llaCRS;
-        uint8_t* m_llaKS;
+        /**
+         * @brief Struct to hold LLA data for a given Radio ID for FNE KMM LLA responses.
+         */
+        struct LLAParams {
+            uint8_t* k;
+            uint8_t* rs;
+            uint8_t* crs;
+            uint8_t* ks;
+        };
+        std::unordered_map<uint32_t, LLAParams*> m_llaRID;
 
         NID m_nid;
 
@@ -503,9 +510,27 @@ namespace p25
         /** @} */
 
         /**
-         * @brief Helper to setup and generate LLA AM1 parameters.
+         * @brief Helper to retrieve LLA AM1 parameters for a given source ID.
+         * @param srcId Source ID.
+         * @param[out] rs Buffer to store generated RS parameter.
+         * @param[out] crs Buffer to store generated CRS parameter.
+         * @param[out] ks Buffer to store generated KS parameter.
+         * @returns bool True, if LLA AM1 parameters were successfully retrieved, otherwise false
          */
-        void generateLLA_AM1_Parameters();
+        bool getLLA_AM1_Parameters(uint32_t srcId, uint8_t* rs, uint8_t* crs, uint8_t* ks);
+        /**
+         * @brief Helper to clear LLA AM1 parameters for a given source ID.
+         * @param srcId Source ID.
+         */
+        void clearLLA_AM1_Parameters(uint32_t srcId);
+
+        /**
+         * @brief Helper to process a FNE KMM LLA response.
+         * @param srcId Source Radio ID for the LLA response.
+         * @param ki Key Item.
+         * @param keyLength Length of key in bytes.
+         */
+        void processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* ki, uint8_t keyLength);
     };
 } // namespace p25
 

@@ -290,6 +290,11 @@ namespace network
          * @param callback 
          */
         void setKeyResponseCallback(std::function<void(p25::kmm::KeyItem, uint8_t, uint8_t)>&& callback) { m_keyRespCallback = callback; }
+        /**
+         * @brief Helper to set the LLA encryption key response callback.
+         * @param callback 
+         */
+        void setLLAKeyResponseCallback(std::function<void(uint32_t, p25::kmm::KeyItem, uint8_t)>&& callback) { m_llaKeyRespCallback = callback; }
 
     public:
         /**
@@ -401,6 +406,11 @@ namespace network
          *  (This is called once the master responds to a key request.)
          */
         std::function<void(p25::kmm::KeyItem ki, uint8_t algId, uint8_t keyLength)> m_keyRespCallback;
+        /**
+         * @brief LLA Encryption Key Response Function Callback.
+         *  (This is called once the master responds to a key LLA request.)
+         */
+        std::function<void(uint32_t rsi, p25::kmm::KeyItem ki, uint8_t keyLength)> m_llaKeyRespCallback;
 
         /**
          * @brief Helper to verify the given RTP sequence for the given RTP stream.

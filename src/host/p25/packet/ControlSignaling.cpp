@@ -597,6 +597,8 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
                 }
 
                 writeRF_TSDU_U_Dereg_Ack(srcId);
+                if (m_requireLLAForReg)
+                    m_p25->clearLLA_AM1_Parameters(srcId);
             }
             break;
             case TSBKO::IOSP_U_REG:
@@ -643,52 +645,59 @@ bool ControlSignaling::process(uint8_t* data, uint32_t len, std::unique_ptr<lc::
 
                 ::ActivityLog("P25", true, "authentication response from %u", srcId);
 
-                crypto::AES* aes = new crypto::AES(crypto::AESKeyLength::AES_128);
+                DECLARE_UINT8_ARRAY(ks, AUTH_KEY_LENGTH_BYTES);
+                if (m_p25->getLLA_AM1_Parameters(srcId, nullptr, nullptr, ks)) {
+                    crypto::AES* aes = new crypto::AES(crypto::AESKeyLength::AES_128);
 
-                // get RES1 from response
-                uint8_t RES1[AUTH_RES_LENGTH_BYTES];
-                isp->getAuthRes(RES1);
+                    // get RES1 from response
+                    uint8_t RES1[AUTH_RES_LENGTH_BYTES];
+                    isp->getAuthRes(RES1);
 
-                // get challenge for our SU
-                ulong64_t challenge = 0U;
-                try {
-                    challenge = m_llaDemandTable.at(srcId);
-                }
-                catch (...) {
-                    challenge = 0U;
-                }
-
-                uint8_t RC[AUTH_RAND_CHLNG_LENGTH_BYTES];
-                SET_UINT32(challenge >> 8, RC, 0);
-                RC[4U] = (uint8_t)(challenge & 0xFFU);
-
-                // expand RAND1 to 16 bytes
-                uint8_t expandedRAND1[16];
-                ::memset(expandedRAND1, 0x00U, AUTH_KEY_LENGTH_BYTES);
-                for (uint32_t i = 0; i < AUTH_RAND_CHLNG_LENGTH_BYTES; i++)
-                    expandedRAND1[i] = RC[i];
-
-                // generate XRES1
-                uint8_t* XRES1 = aes->encryptECB(expandedRAND1, AUTH_KEY_LENGTH_BYTES * sizeof(uint8_t), m_p25->m_llaKS);
-
-                // compare RES1 and XRES1
-                bool authFailed = false;
-                for (uint32_t i = 0; i < AUTH_RES_LENGTH_BYTES; i++) {
-                    if (XRES1[i] != RES1[i]) {
-                        authFailed = true;
+                    // get challenge for our SU
+                    ulong64_t challenge = 0U;
+                    try {
+                        challenge = m_llaDemandTable.at(srcId);
                     }
-                }
+                    catch (...) {
+                        challenge = 0U;
+                    }
 
-                // cleanup buffers
-                delete[] XRES1;
-                delete aes;
+                    uint8_t RC[AUTH_RAND_CHLNG_LENGTH_BYTES];
+                    SET_UINT32(challenge >> 8, RC, 0);
+                    RC[4U] = (uint8_t)(challenge & 0xFFU);
 
-                if (!authFailed) {
-                    writeRF_TSDU_U_Reg_Rsp(srcId, m_p25->m_siteData.sysId());
-                }
-                else {
+                    // expand RAND1 to 16 bytes
+                    uint8_t expandedRAND1[16];
+                    ::memset(expandedRAND1, 0x00U, AUTH_KEY_LENGTH_BYTES);
+                    for (uint32_t i = 0; i < AUTH_RAND_CHLNG_LENGTH_BYTES; i++)
+                        expandedRAND1[i] = RC[i];
+
+                    // generate XRES1
+                    uint8_t* XRES1 = aes->encryptECB(expandedRAND1, AUTH_KEY_LENGTH_BYTES * sizeof(uint8_t), ks);
+
+                    // compare RES1 and XRES1
+                    bool authFailed = false;
+                    for (uint32_t i = 0; i < AUTH_RES_LENGTH_BYTES; i++) {
+                        if (XRES1[i] != RES1[i]) {
+                            authFailed = true;
+                        }
+                    }
+
+                    // cleanup buffers
+                    delete[] XRES1;
+                    delete aes;
+
+                    if (!authFailed) {
+                        writeRF_TSDU_U_Reg_Rsp(srcId, m_p25->m_siteData.sysId());
+                    }
+                    else {
+                        LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, AUTH failed, src = %u", isp->toString().c_str(), srcId);
+                        ::ActivityLog("P25", true, "unit registration request from %u denied, authentication failure", srcId);
+                        writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_SU_FAILED_AUTH, TSBKO::IOSP_U_REG);
+                    }
+                } else {
                     LogWarning(LOG_RF, P25_TSDU_STR ", %s denial, AUTH failed, src = %u", isp->toString().c_str(), srcId);
-                    ::ActivityLog("P25", true, "unit registration request from %u denied, authentication failure", srcId);
+                    ::ActivityLog("P25", true, "unit registration request from %u denied, authentication failure, LLA keys not found", srcId);
                     writeRF_TSDU_Deny(srcId, WUID_FNE, ReasonCode::DENY_SU_FAILED_AUTH, TSBKO::IOSP_U_REG);
                 }
             }
@@ -1279,6 +1288,7 @@ ControlSignaling::ControlSignaling(Control* p25, bool dumpTSBKData, bool debug, 
     m_sccbTable(),
     m_sccbUpdateCnt(),
     m_llaDemandTable(),
+    m_llaDeferredAuthList(),
     m_lastMFID(MFG_STANDARD),
     m_noStatusAck(false),
     m_noMessageAck(true),
@@ -3066,32 +3076,42 @@ bool ControlSignaling::writeRF_TSDU_Loc_Reg_Rsp(uint32_t srcId, uint32_t dstId, 
 
 void ControlSignaling::writeRF_TSDU_Auth_Dmd(uint32_t srcId)
 {
-    std::unique_ptr<MBT_OSP_AUTH_DMD> osp = std::make_unique<MBT_OSP_AUTH_DMD>();
-    osp->setSrcId(WUID_FNE);
-    osp->setDstId(srcId);
-    osp->setAuthRS(m_p25->m_llaRS);
+    DECLARE_UINT8_ARRAY(rs, AUTH_KEY_LENGTH_BYTES);
+    if (m_p25->getLLA_AM1_Parameters(srcId, rs, nullptr, nullptr)) {
+        std::unique_ptr<MBT_OSP_AUTH_DMD> osp = std::make_unique<MBT_OSP_AUTH_DMD>();
+        osp->setSrcId(WUID_FNE);
+        osp->setDstId(srcId);
+        osp->setAuthRS(rs);
 
-    // generate challenge
-    uint8_t RC[AUTH_RAND_CHLNG_LENGTH_BYTES];
-    std::uniform_int_distribution<uint32_t> dist(DVM_RAND_MIN, DVM_RAND_MAX);
-    uint32_t rnd = dist(m_p25->m_random);
-    SET_UINT32(rnd, RC, 0U);
+        // generate challenge
+        uint8_t RC[AUTH_RAND_CHLNG_LENGTH_BYTES];
+        std::uniform_int_distribution<uint32_t> dist(DVM_RAND_MIN, DVM_RAND_MAX);
+        uint32_t rnd = dist(m_p25->m_random);
+        SET_UINT32(rnd, RC, 0U);
 
-    rnd = dist(m_p25->m_random);
-    RC[4U] = (uint8_t)(rnd & 0xFFU);
+        rnd = dist(m_p25->m_random);
+        RC[4U] = (uint8_t)(rnd & 0xFFU);
 
-    ulong64_t challenge = GET_UINT32(RC, 0U);
-    challenge = (challenge << 8) + RC[4U];
+        ulong64_t challenge = GET_UINT32(RC, 0U);
+        challenge = (challenge << 8) + RC[4U];
 
-    osp->setAuthRC(RC);
+        osp->setAuthRC(RC);
 
-    m_llaDemandTable[srcId] = challenge;
+        m_llaDemandTable[srcId] = challenge;
 
-    if (m_verbose) {
-        LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, srcId = %u, RC = %X", osp->toString().c_str(), srcId, challenge);
+        if (m_verbose) {
+            LogInfoEx(LOG_RF, P25_TSDU_STR ", %s, srcId = %u, RC = %X", osp->toString().c_str(), srcId, challenge);
+        }
+
+        writeRF_TSDU_AMBT(osp.get(), true);
+    } else {
+        if (m_verbose) {
+            LogInfoEx(LOG_P25, "P25, silencing subscriber and deferring auth demand, rsi = %u", srcId);
+        }
+
+        writeRF_TSDU_ACK_FNE(srcId, TSBKO::IOSP_U_REG, true, true);
+        m_llaDeferredAuthList.push_back(srcId);
     }
-
-    writeRF_TSDU_AMBT(osp.get(), true);
 }
 
 /* Helper to write a call termination packet. */

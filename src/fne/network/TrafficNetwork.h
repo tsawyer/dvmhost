@@ -347,6 +347,8 @@ namespace network
         concurrent::shared_unordered_map<uint32_t, std::vector<uint32_t>> m_ccPeerMap;
         static std::timed_mutex s_keyQueueMutex;
         std::unordered_map<uint32_t, uint16_t> m_peerReplicaKeyQueue;
+        static std::timed_mutex s_llaKeyQueueMutex;
+        std::unordered_map<uint32_t, uint16_t> m_peerReplicaLLAKeyQueue;
 
         fne_lookups::AffiliationLookup* m_globalAff;
 
@@ -836,6 +838,14 @@ namespace network
          * @param keyLength Length of key in bytes.
          */
         void processTEKResponse(p25::kmm::KeyItem* ki, uint8_t algId, uint8_t keyLength);
+
+        /**
+         * @brief Helper to process a FNE KMM LLA response.
+         * @param srcId Source Radio ID for the LLA response.
+         * @param ki Key Item.
+         * @param keyLength Length of key in bytes.
+         */
+        void processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* ki, uint8_t keyLength);
     };
 } // namespace network
 

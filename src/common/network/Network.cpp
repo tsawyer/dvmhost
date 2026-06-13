@@ -82,7 +82,8 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_p25InCallCallback(nullptr),
     m_nxdnInCallCallback(nullptr),
     m_analogInCallCallback(nullptr),
-    m_keyRespCallback(nullptr)
+    m_keyRespCallback(nullptr),
+    m_llaKeyRespCallback(nullptr)
 {
     assert(!address.empty());
     assert(port > 0U);
@@ -1231,6 +1232,47 @@ void Network::clock(uint32_t ms)
                 }
             }
             break;
+
+
+        case NET_FUNC::KEY_LLA_RSP:                                     // LLA Enc. Key Response
+            {
+                if (m_enabled) {
+                    using namespace p25::kmm;
+
+                    std::unique_ptr<KMMFrame> frame = KMMFactory::create(buffer.get() + 11U);
+                    if (frame == nullptr) {
+                        LogWarning(LOG_NET, "PEER %u, undecodable KMM frame from master", m_peerId);
+                        break;
+                    }
+
+                    switch (frame->getMessageId()) {
+                    case P25DEF::KMM_MessageType::MODIFY_KEY_CMD:
+                        {
+                            KMMModifyKey* modifyKey = static_cast<KMMModifyKey*>(frame.get());
+                            if (modifyKey->getAlgId() > 0U) {
+                                KeysetItem ks = modifyKey->getKeysetItem();
+                                if (ks.keys().size() > 0U) {
+                                    // fetch first key (a master response should never really send back more then one key)
+                                    KeyItem ki = ks.keys()[0];
+                                    LogInfoEx(LOG_NET, "PEER %u, master reported LLA enc. key, algId = $%02X, kID = $%04X", m_peerId,
+                                        ks.algId(), ki.kId());
+
+                                    // fire off key response callback if we have one
+                                    if (m_llaKeyRespCallback != nullptr) {
+                                        m_llaKeyRespCallback(modifyKey->getDstLLId(), ki, ks.keyLength());
+                                    }
+                                }
+                            }
+                        }
+                        break;
+
+                    default:
+                        break;
+                    }
+                }
+            }
+            break;
+
         case NET_FUNC::MST_DISC:                                        // Master Disconnect
             {
                 LogError(LOG_NET, "PEER %u master disconnect, remotePeerId = %u", m_peerId, m_remotePeerId);

@@ -467,6 +467,13 @@ namespace network
         bool writeKeyReq(const uint16_t kId, const uint8_t algId, const uint32_t srcId = 0U);
 
         /**
+         * @brief Writes a LLA enc. key request to the network.
+         * @param srcId Source Radio ID.
+         * @returns bool True, if request was sent, otherwise false. 
+         */
+        bool writeLLAKeyReq(const uint32_t srcId);
+
+        /**
          * @brief Writes the local activity log to the network.
          * \code{.unparsed}
          *  Below is the representation of the data layout for the activity log message.
