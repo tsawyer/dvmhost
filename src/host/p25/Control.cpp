@@ -1010,6 +1010,11 @@ void Control::clock()
                     }
                 }
 
+                if (m_netState != RS_NET_IDLE) {
+                    m_voice->resetNet();
+                    m_netState = RS_NET_IDLE;
+                }
+
                 m_netLastDstId = 0U;
                 m_netLastSrcId = 0U;
             }
