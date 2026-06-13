@@ -1276,6 +1276,11 @@ void Control::permittedTG(uint32_t dstId, bool dataPermit)
     if (m_permittedDstId != 0U && dstId == 0U) {
         for (uint8_t i = 0; i < 2; i++)
             writeRF_TDU(true);
+
+        m_networkWatchdog.stop();
+        m_voice->resetNet();
+        m_data->resetReceivedBlocks();
+        m_netState = RS_NET_IDLE;
     }
 
     m_permittedDstId = dstId;

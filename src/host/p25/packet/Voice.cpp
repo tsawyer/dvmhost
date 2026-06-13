@@ -168,6 +168,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 }
 
                 resetNet();
+                m_p25->m_netState = RS_NET_IDLE;
                 if (m_p25->m_network != nullptr)
                     m_p25->m_network->resetP25();
 
@@ -1303,7 +1304,9 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 if (duid == DUID::TDU)
                     writeNet_TDU();
 
+                m_p25->m_networkWatchdog.stop();
                 resetNet();
+                m_p25->m_netState = RS_NET_IDLE;
             }
             break;
 
@@ -1460,6 +1463,7 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
             }
 
             resetNet();
+            m_p25->m_netState = RS_NET_IDLE;
             if (m_p25->m_network != nullptr)
                 m_p25->m_network->resetP25();
 
@@ -1489,6 +1493,17 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
 
 bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DUID::E duid)
 {
+    // safety check: if the network is marked as not idle, but the last network destination ID is 0 *and* the 
+    // network watchdog isn't running, then reset the network state to idle
+    if (m_p25->m_netState != RS_NET_IDLE && m_p25->m_netLastDstId == 0U && !m_p25->m_networkWatchdog.isRunning()) {
+        LogWarning(LOG_NET, "Network state inconsistency detected, resetting network state to idle, netState = %u, netLastDstId = %u", m_p25->m_netState,
+            m_p25->m_netLastDstId);
+        resetNet();
+        m_p25->m_netState = RS_NET_IDLE;
+        if (m_p25->m_network != nullptr)
+            m_p25->m_network->resetP25();
+    }
+
     // don't process network frames if the destination ID's don't match and the RF TG hang timer is running
     if (m_p25->m_rfLastDstId != 0U && dstId != 0U) {
         if (m_p25->m_rfLastDstId != dstId && (m_p25->m_rfTGHang.isRunning() && !m_p25->m_rfTGHang.hasExpired())) {
@@ -1563,6 +1578,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic (Are we in a voting condition?), rfSrcId = %u, rfDstId = %u, netSrcId = %u, netDstId = %u", m_rfLC.getSrcId(), m_rfLC.getDstId(),
                     srcId, dstId);
                 resetNet();
+                m_p25->m_netState = RS_NET_IDLE;
                 if (m_p25->m_network != nullptr)
                     m_p25->m_network->resetP25();
                 return true;
@@ -1571,6 +1587,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic, rfDstId = %u, netDstId = %u", m_rfLC.getDstId(),
                     dstId);
                 resetNet();
+                m_p25->m_netState = RS_NET_IDLE;
                 if (m_p25->m_network != nullptr)
                     m_p25->m_network->resetP25();
                 return true;
