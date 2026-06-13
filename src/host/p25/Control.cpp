@@ -1602,8 +1602,6 @@ void Control::processNetwork()
     lsd.setLSD1(lsd1);
     lsd.setLSD2(lsd2);
 
-    m_networkWatchdog.start();
-
     if (m_debug) {
         Utils::dump(2U, "* !!! P25 Network Frame", data.get(), frameLength);
     }

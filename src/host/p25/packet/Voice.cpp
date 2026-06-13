@@ -1874,6 +1874,7 @@ void Voice::writeNet_LDU1()
             }
         }
 
+        m_p25->m_networkWatchdog.start();
         m_hadVoice = true;
         m_p25->m_netState = RS_NET_AUDIO;
         m_p25->m_netLastDstId = dstId;
@@ -2086,6 +2087,8 @@ void Voice::writeNet_LDU2()
         resetNet();
         return;
     }
+
+    m_p25->m_networkWatchdog.start();
 
     uint8_t mi[MI_LENGTH_BYTES];
     control.getMI(mi);
