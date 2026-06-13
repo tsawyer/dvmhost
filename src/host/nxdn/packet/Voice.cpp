@@ -611,6 +611,9 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
         resetNet();
     }
 
+    if (m_nxdn->m_netState == RS_NET_AUDIO)
+        m_nxdn->m_networkWatchdog.start();
+
     channel::SACCH sacch;
     sacch.decode(data + 2U);
 
@@ -649,6 +652,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
                 m_nxdn->m_netState = RS_NET_IDLE;
                 m_nxdn->m_netMask  = 0x00U;
                 m_nxdn->m_netLC.reset();
+                m_nxdn->m_networkWatchdog.stop();
                 return false;
             }
         }
@@ -661,6 +665,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
                 m_nxdn->m_netLC.reset();
                 m_nxdn->m_netLastDstId = 0U;
                 m_nxdn->m_netLastSrcId = 0U;
+                m_nxdn->m_networkWatchdog.stop();
                 return false;
             }
         } else if (type == MessageType::RTCH_VCALL) {
@@ -891,6 +896,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
             m_rfBits = 1U;
             m_nxdn->m_netTimeout.start();
             m_nxdn->m_netState = RS_NET_AUDIO;
+            m_nxdn->m_networkWatchdog.start();
 
             if (m_verbose) {
                 LogInfoEx(LOG_NET, "NXDN, " NXDN_RTCH_MSG_TYPE_VCALL ", srcId = %u, dstId = %u, group = %u, emerg = %u, encrypt = %u, prio = %u, algo = $%02X, kid = $%04X",

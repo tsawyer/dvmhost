@@ -995,8 +995,6 @@ void Control::processNetwork()
         ::memcpy(data.get(), buffer.get() + 24U, frameLength);
     }
 
-    m_networkWatchdog.start();
-
     if (m_debug) {
         Utils::dump(2U, "* !!! NXDN Network Frame", data.get(), frameLength);
     }

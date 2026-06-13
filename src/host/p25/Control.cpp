@@ -1681,15 +1681,14 @@ void Control::processNetwork()
                     return;
                 }
 
-                // perform grant response logic
-                m_control->writeRF_TSDU_Grant(srcId, dstId, serviceOptions, !unitToUnit, true);
-/*
-                if (!m_control->writeRF_TSDU_Grant(srcId, dstId, serviceOptions, !unitToUnit, true))
-                {
-                    LogError(LOG_NET, P25_TSDU_STR " call rejected, network call not granted, dstId = %u", dstId);
-                    return;
+                if (!m_affiliations->isGranted(dstId)) {
+                    // perform grant response logic
+                    if (m_control->writeRF_TSDU_Grant(srcId, dstId, serviceOptions, !unitToUnit, true)) {
+                        m_netLastSrcId = srcId;
+                        m_netLastDstId = dstId;
+                    }
                 }
-*/
+
                 return;
             }
 
