@@ -400,6 +400,8 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
     LogInfoEx(LOG_NET, P25_PDU_STR ", received block %u, len = %u, totalBlocks = %u",
         currentBlock, blockLength, totalBlocks);
 
+    m_p25->m_networkWatchdog.start();
+
     // store the received block
     uint8_t* blockData = new uint8_t[blockLength];
     ::memcpy(blockData, data + 24U, blockLength);
@@ -416,6 +418,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
                         bool ret = m_netAssembler->disassemble(m_netReceivedBlocks[i], blockLength, true);
                         if (!ret) {
                             m_p25->m_netState = RS_NET_IDLE;
+                            m_p25->m_networkWatchdog.stop();
                             resetReceivedBlocks();
                             return false;
                         }
@@ -427,6 +430,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
                             }
 
                             m_p25->m_netState = RS_NET_IDLE;
+                            m_p25->m_networkWatchdog.stop();
                             resetReceivedBlocks();
                             return false;
                         }
@@ -434,6 +438,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
                         // did we receive a response header?
                         if (m_netAssembler->dataHeader.getFormat() == PDUFormatType::RSP) {
                             m_p25->m_netState = RS_NET_IDLE;
+                            m_p25->m_networkWatchdog.stop();
 
                             if (m_verbose) {
                                 LogInfoEx(LOG_NET, P25_PDU_STR ", FNE ISP, response, fmt = $%02X, rspClass = $%02X, rspType = $%02X, rspStatus = $%02X, llId = %u, srcLlId = %u",
@@ -484,6 +489,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
                     bool ret = m_netAssembler->disassemble(m_netReceivedBlocks[i], blockLength);
                     if (!ret) {
                         m_p25->m_netState = RS_NET_IDLE;
+                        m_p25->m_networkWatchdog.stop();
                         resetReceivedBlocks();
                         return false;
                     }
@@ -541,6 +547,7 @@ bool Data::processNetwork(uint8_t* data, uint32_t len, uint8_t currentBlock, uin
 
                             m_netPduUserDataLength = 0U;
                             m_p25->m_netState = RS_NET_IDLE;
+                            m_p25->m_networkWatchdog.stop();
                             m_p25->m_network->resetP25();
                             resetReceivedBlocks();
                             break;

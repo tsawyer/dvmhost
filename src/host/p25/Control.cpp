@@ -1063,6 +1063,7 @@ void Control::clock()
             m_tailOnIdle = true;
 
             m_voice->resetNet();
+            m_data->resetReceivedBlocks();
 
             m_netTimeout.stop();
         }
