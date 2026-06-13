@@ -1010,11 +1010,6 @@ void Control::clock()
                     }
                 }
 
-                if (m_netState != RS_NET_IDLE) {
-                    m_voice->resetNet();
-                    m_netState = RS_NET_IDLE;
-                }
-
                 m_netLastDstId = 0U;
                 m_netLastSrcId = 0U;
             }
@@ -1646,6 +1641,17 @@ void Control::processNetwork()
                 // demands
                 if (!m_dedicatedControl && (m_rfState != RS_RF_LISTENING || m_netState != RS_NET_IDLE)) {
                     return;
+                }
+
+                // if we're non-dedicated control, and if either of the talkgroup hang timers are running, ignore the grant demand
+                if (!m_dedicatedControl) {
+                    if (m_rfTGHang.isRunning() && !m_rfTGHang.hasExpired()) {
+                        return;
+                    }
+
+                    if (m_netTGHang.isRunning() && !m_netTGHang.hasExpired()) {
+                        return;
+                    }
                 }
 
                 // validate source RID

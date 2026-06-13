@@ -1151,6 +1151,9 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
     if (checkNetTrafficCollision(srcId, dstId, duid))
         return false;
 
+    if (m_p25->m_netState == RS_NET_AUDIO && (duid != DUID::TDU && duid != DUID::TDULC))
+        m_p25->m_networkWatchdog.start();
+
     uint32_t count = 0U;
     switch (duid) {
         case DUID::LDU1:
@@ -1891,7 +1894,6 @@ void Voice::writeNet_LDU1()
             }
         }
 
-        m_p25->m_networkWatchdog.start();
         m_hadVoice = true;
         m_p25->m_netState = RS_NET_AUDIO;
         m_p25->m_netLastDstId = dstId;
@@ -2104,8 +2106,6 @@ void Voice::writeNet_LDU2()
         resetNet();
         return;
     }
-
-    m_p25->m_networkWatchdog.start();
 
     uint8_t mi[MI_LENGTH_BYTES];
     control.getMI(mi);
