@@ -1387,6 +1387,8 @@ bool Network::open()
             m_address.c_str(), m_port, entry.masterAddress.c_str(), entry.masterPort);
         m_address = entry.masterAddress;
         m_port = entry.masterPort;
+
+        LogInfoEx(LOG_NET, "PEER %u trying HA IP %s:%u", m_peerId, m_haIPs[m_currentHAIP].masterAddress.c_str(), m_haIPs[m_currentHAIP].masterPort);
     }
 
     m_timeoutTimer.start();
