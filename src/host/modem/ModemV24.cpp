@@ -413,6 +413,11 @@ void ModemV24::clock(uint32_t ms)
         LogError(LOG_MODEM, "Failed to write to serial port!");
     }
 
+    // if both queues are empty -- unset the Tx flag since the modem won't be transmitting anything
+    if (m_txImmP25Queue.isEmpty() && m_txP25Queue.isEmpty()) {
+        m_tx = false;
+    }
+
     // clear an RX call in progress flag if we're longer than our timeout value
     now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (m_rxCallInProgress && (now - m_rxLastFrameTime > m_callTimeout)) {
@@ -489,8 +494,10 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
     std::lock_guard<std::mutex> lock(m_txP25QueueLock);
 
     // check empty
-    if (queue->isEmpty())
+    if (queue->isEmpty()) {
+        m_tx = false;
         return 0U;
+    }
 
     // get length
     uint8_t length[2U];
@@ -504,6 +511,7 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
     // this ensures we never get in a situation where we have length bytes stuck in the queue by themselves
     if (queue->dataSize() == 2U && len > queue->dataSize()) {
         queue->get(length, 2U); // ensure we pop bytes off
+        m_tx = false;
         return 0U;
     }
 
@@ -554,6 +562,10 @@ int ModemV24::writeSerial(RingBuffer<uint8_t>* queue)
             // only remove an entry once it was written successfully
             DECLARE_UINT8_ARRAY(discard, len + 11U);
             queue->get(discard, len + 11U);
+
+            // bryanb: because m_tx may not be set by the V.24 modem -- we will indicate "Tx" state here based on 
+            // whether we're actually writing data to the modem or not
+            m_tx = true;
         }
 
         return ret;
