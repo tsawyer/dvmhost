@@ -74,6 +74,11 @@ namespace network
          * @brief Map of peer status.
          */
         std::unordered_map<uint32_t, json::object> peerStatus;
+        /**
+         * @brief Map of peer status timers, used to track when peer status entries should be expired and 
+         *  removed from the map.
+         */
+        std::unordered_map<uint32_t, Timer> peerStatusTimers;
 
     protected:
         /**

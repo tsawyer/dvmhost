@@ -310,6 +310,22 @@ void* threadNetworkPump(void* arg)
             if (g_network != nullptr) {
                 g_network->clock(ms);
 
+                // clock peer status timers and remove expired entries from the peer status map
+                g_network->lockPeerStatus();
+                for (auto it = g_network->peerStatusTimers.begin(); it != g_network->peerStatusTimers.end();) {
+                    if (it->second.isRunning() && it->second.hasExpired()) {
+                        uint32_t peerId = it->first;
+                        it = g_network->peerStatusTimers.erase(it);
+                        g_network->peerStatus.erase(peerId);
+                        g_network->peerStatusTimers[peerId].stop();
+                        LogInfoEx(LOG_HOST, "peer status expired, peerId = %u", peerId);
+                    }
+                    else {
+                        ++it;
+                    }
+                }
+                g_network->unlockPeerStatus();
+
                 hrc::hrc_t pktTime = hrc::now();
 
                 uint32_t length = 0U;

@@ -23,6 +23,12 @@ using namespace network;
 #include <streambuf>
 
 // ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+
+const uint32_t PEER_STATUS_EXPIRY = 60000U; // 60 seconds
+
+// ---------------------------------------------------------------------------
 //  Static Class Members
 // ---------------------------------------------------------------------------
 
@@ -38,6 +44,7 @@ PeerNetwork::PeerNetwork(const std::string& address, uint16_t port, uint16_t loc
     bool duplex, bool debug, bool allowActivityTransfer, bool allowDiagnosticTransfer, bool updateLookup, bool saveLookup) :
     Network(address, port, localPort, peerId, password, duplex, debug, true, true, true, true, true, true, allowActivityTransfer, allowDiagnosticTransfer, updateLookup, saveLookup),
     peerStatus(),
+    peerStatusTimers(),
     m_peerReplica(false),
     m_tgidPkt(true, "Peer Replication, TGID List"),
     m_ridPkt(true, "Peer Replication, RID List")
@@ -107,6 +114,7 @@ void PeerNetwork::userPacketHandler(uint32_t peerId, FrameQueue::OpcodePair opco
             uint32_t actualPeerId = obj["peerId"].getDefault<uint32_t>(peerId);
             std::lock_guard<std::mutex> lock(s_peerStatusMutex);
             peerStatus[actualPeerId] = obj;
+            peerStatusTimers[actualPeerId].start(PEER_STATUS_EXPIRY);
         }
         break;
 
