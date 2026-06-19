@@ -110,6 +110,12 @@ extern HOST_SW_API std::string resolveTGID(uint32_t id);
 extern HOST_SW_API bool createPeerNetwork();
 
 /**
+ * @brief Starts the network pump worker thread.
+ * @returns bool True, if the thread was started successfully, otherwise false.
+ */
+extern HOST_SW_API bool startNetworkPumpThread();
+
+/**
  * @brief 
  * @returns PeerNetwork* 
  */

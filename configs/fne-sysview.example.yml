@@ -22,6 +22,9 @@
 # file.
 #
 
+# Flag indicating whether the host will run as a background or foreground task.
+daemon: false
+
 #
 # Logging Configuration (only used in WebSocket mode)
 #

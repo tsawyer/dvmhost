@@ -1053,6 +1053,13 @@ void* threadNetworkPump(void* arg)
     return nullptr;
 }
 
+/* Starts the network pump worker thread. */
+
+bool startNetworkPumpThread()
+{
+    return Thread::runAsThread(nullptr, threadNetworkPump);
+}
+
 /* Helper to pring usage the command line arguments. (And optionally an error.) */
 
 void usage(const char* message, const char* arg)
@@ -1209,9 +1216,19 @@ int main(int argc, char** argv)
         ::fatal("cannot read the configuration file - %s (%s)", g_iniFile.c_str(), e.message());
     }
 
-    /** Network Thread */
-    if (!Thread::runAsThread(nullptr, threadNetworkPump))
-        return EXIT_FAILURE;
+    bool wsDaemonMode = false;
+#if !defined(NO_WEBSOCKETS)
+    if (g_webSocketMode) {
+        bool daemon = g_conf["daemon"].as<bool>(false);
+        wsDaemonMode = daemon && !g_foreground;
+    }
+#endif // !defined(NO_WEBSOCKETS)
+
+    // In websocket daemon mode HostWS forks, so the child must start the network pump.
+    if (!wsDaemonMode) {
+        if (!startNetworkPumpThread())
+            return EXIT_FAILURE;
+    }
 
     finalcut::FApplication::setColorTheme<dvmColorTheme>();
 

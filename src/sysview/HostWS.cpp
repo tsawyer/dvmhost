@@ -226,6 +226,12 @@ int HostWS::run()
     if (!ret)
         return EXIT_FAILURE;
 
+    // In daemon websocket mode, run the network pump in the post-fork child.
+    if (m_daemon) {
+        if (!startNetworkPumpThread())
+            return EXIT_FAILURE;
+    }
+
     yaml::Node fne = g_conf["fne"];
     std::string fneRESTAddress = fne["restAddress"].as<std::string>("127.0.0.1");
     uint16_t fneRESTPort = (uint16_t)fne["restPort"].as<uint32_t>(9990U);
