@@ -312,17 +312,23 @@ void* threadNetworkPump(void* arg)
 
                 // clock peer status timers and remove expired entries from the peer status map
                 g_network->lockPeerStatus();
+                std::vector<uint32_t> expiredPeerIds;
                 for (auto it = g_network->peerStatusTimers.begin(); it != g_network->peerStatusTimers.end();) {
+                    it->second.clock(ms);
                     if (it->second.isRunning() && it->second.hasExpired()) {
                         uint32_t peerId = it->first;
-                        it = g_network->peerStatusTimers.erase(it);
-                        g_network->peerStatus.erase(peerId);
-                        g_network->peerStatusTimers[peerId].stop();
-                        LogInfoEx(LOG_HOST, "peer status expired, peerId = %u", peerId);
+                        it->second.stop();
+                        expiredPeerIds.push_back(peerId);
                     }
                     else {
                         ++it;
                     }
+                }
+
+                // remove expired entries from the peer status map
+                for (uint32_t peerId : expiredPeerIds) {
+                    g_network->peerStatus.erase(peerId);
+                    g_network->peerStatusTimers.erase(peerId);
                 }
                 g_network->unlockPeerStatus();
 

@@ -1368,6 +1368,9 @@ json::object Host::getStatus()
             uint8_t chId = entry.second.chId();
             chData["channelId"].set<uint8_t>(chId);
 
+            uint32_t peerId = m_voiceChPeerId[chNo];
+            chData["peerId"].set<uint32_t>(peerId);
+
             uint32_t dstId = 0U, srcId = 0U;
 
             // fetch affiliations from DMR if we're a DMR CC

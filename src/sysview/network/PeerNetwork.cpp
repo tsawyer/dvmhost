@@ -26,7 +26,7 @@ using namespace network;
 //  Constants
 // ---------------------------------------------------------------------------
 
-const uint32_t PEER_STATUS_EXPIRY = 60000U; // 60 seconds
+const uint32_t PEER_STATUS_EXPIRY = 10U; // 10 seconds
 
 // ---------------------------------------------------------------------------
 //  Static Class Members
