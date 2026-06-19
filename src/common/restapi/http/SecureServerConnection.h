@@ -197,9 +197,12 @@ namespace restapi
                             }
                         }
                         catch(const std::exception& e) { 
-                            ::LogError(LOG_REST, "SecureServerConnection::read(), %s", ec.message().c_str());
+                            ::LogError(LOG_REST, "SecureServerConnection::read(), %s %s", e.what(), ec.message().c_str());
                             m_continue = false;
                             m_contResult = HTTPLexer::INDETERMINATE;
+
+                            m_reply = HTTPPayload::statusPayload(HTTPPayload::INTERNAL_SERVER_ERROR);
+                            write();
                         }
                     }
                     else if (ec != asio::error::operation_aborted) {
