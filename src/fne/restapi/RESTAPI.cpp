@@ -875,8 +875,8 @@ void RESTAPI::restAPI_GetPeerQuery(const HTTPPayload& request, HTTPPayload& repl
 
     json::array peers = json::array();
     if (m_network != nullptr) {
+        m_network->m_peers.shared_lock();
         if (m_network->m_peers.size() > 0) {
-            m_network->m_peers.shared_lock();
             for (auto entry : m_network->m_peers) {
                 uint32_t peerId = entry.first;
                 network::FNEPeerConnection* peer = entry.second;
@@ -889,11 +889,11 @@ void RESTAPI::restAPI_GetPeerQuery(const HTTPPayload& request, HTTPPayload& repl
                     peers.push_back(json::value(peerObj));
                 }
             }
-            m_network->m_peers.shared_unlock();
         }
         else {
             LogError(LOG_REST, "peer query failed, no peers connected to this FNE");
         }
+        m_network->m_peers.shared_unlock();
 
         // report any peers from replica peers
         if (m_network->m_peerReplicaPeers.size() > 0) {
@@ -930,7 +930,9 @@ void RESTAPI::restAPI_GetPeerCount(const HTTPPayload& request, HTTPPayload& repl
 
     json::array peers = json::array();
     if (m_network != nullptr) {
+        m_network->m_peers.shared_lock();
         uint32_t count = m_network->m_peers.size();
+        m_network->m_peers.shared_unlock();
         response["peerCount"].set<uint32_t>(count);
     }
 
@@ -1854,8 +1856,8 @@ void RESTAPI::restAPI_GetStats(const HTTPPayload& request, HTTPPayload& reply, c
     if (m_network != nullptr) {
         // peer statistics (right now this is just a list of connected peers)
         json::array peerStats = json::array();
+        m_network->m_peers.shared_lock();
         if (m_network->m_peers.size() > 0) {
-            m_network->m_peers.shared_lock();
             for (auto entry : m_network->m_peers) {
                 uint32_t peerId = entry.first;
                 network::FNEPeerConnection* peer = entry.second;
@@ -1905,8 +1907,8 @@ void RESTAPI::restAPI_GetStats(const HTTPPayload& request, HTTPPayload& reply, c
                     peerStats.push_back(json::value(peerObj));
                 }
             }
-            m_network->m_peers.shared_unlock();
         }
+        m_network->m_peers.shared_unlock();
         response["peerStats"].set<json::array>(peerStats);
 
         // table load statistics
@@ -2136,6 +2138,7 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
     json::array affs = json::array();
     if (m_network != nullptr) {
         uint32_t totalAffiliations = 0U;
+        m_network->m_peers.shared_lock();
         if (m_network->m_peers.size() > 0) {
             std::vector<uint32_t> peerIds = std::vector<uint32_t>();
 
@@ -2176,6 +2179,7 @@ void RESTAPI::restAPI_GetAffList(const HTTPPayload& request, HTTPPayload& reply,
                 }
             }
         }
+        m_network->m_peers.shared_unlock();
 
         response["totalAffiliations"].set<uint32_t>(totalAffiliations);
     }
