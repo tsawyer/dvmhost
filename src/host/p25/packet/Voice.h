@@ -95,6 +95,7 @@ namespace p25
             lc::LC m_rfLC;
             lc::LC m_rfLastHDU;
             bool m_rfLastHDUValid;
+            bool m_rfLastHDUTGRejected;
             lc::LC m_rfLastLDU1;
             lc::LC m_rfLastLDU2;
             bool m_rfFirstLDU2;
@@ -175,6 +176,20 @@ namespace p25
              * @brief Helper to write a network P25 TDU packet.
              */
             void writeNet_TDU();
+            /**
+             * @brief Determines whether a network voice frame overlaps the active RF voice call.
+             * @param srcId Source ID associated with the network frame.
+             * @param dstId Destination ID associated with the network frame.
+             * @param duid DUID associated with the network frame.
+             * @returns bool True, if the network frame matches the active RF voice call.
+             */
+            bool isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, defines::DUID::E duid) const;
+            /**
+             * @brief Helper to resolve the best-known RF call state for a teardown.
+             * @param[out] control Link control to populate for a teardown.
+             * @returns bool True, if a valid source and destination were resolved.
+             */
+            bool resolveRFTerminatorLC(lc::LC& control) const;
             /**
              * @brief Helper to check for an unflushed LDU1 packet.
              */

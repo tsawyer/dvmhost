@@ -51,6 +51,7 @@ void Voice::resetRF()
     m_rfLC = lc;
     //m_rfLastHDU = lc;
     m_rfLastHDUValid = false;
+    m_rfLastHDUTGRejected = false;
     m_rfLastLDU1 = lc;
     m_rfLastLDU2 = lc;
     m_rfFirstLDU2 = true;
@@ -189,7 +190,9 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
 
             m_rfLastHDU = lc;
-            m_rfLastHDUValid = true;
+            m_rfLastHDUValid = lc.getDstId() != 0U &&
+                acl::AccessControl::validateTGId(lc.getDstId(), m_p25->m_forceAllowTG0);
+            m_rfLastHDUTGRejected = lc.getDstId() != 0U && !m_rfLastHDUValid;
 
             if (m_p25->m_rfState == RS_RF_LISTENING) {
                 if (!m_p25->m_dedicatedControl) {
@@ -226,12 +229,18 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             uint32_t srcId = lc.getSrcId();
             uint32_t dstId = lc.getDstId();
-            if (dstId == 0U && !lc.isStandardMFId() && m_rfLastHDUValid) {
-                dstId = m_rfLastHDU.getDstId();
-            }
-
             bool group = lc.getGroup();
             bool encrypted = lc.getEncrypted();
+            const bool haveTrustedHDUDst = m_rfLastHDUValid && m_rfLastHDU.getDstId() != 0U;
+
+            if (group && m_rfLastHDUTGRejected) {
+                dstId = m_rfLastHDU.getDstId();
+                lc.setDstId(dstId);
+            }
+            else if (dstId == 0U && haveTrustedHDUDst && (group || !lc.isStandardMFId())) {
+                dstId = m_rfLastHDU.getDstId();
+                lc.setDstId(dstId);
+            }
 
             alreadyDecoded = true;
 
@@ -262,7 +271,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             // validate the source RID
             if (!acl::AccessControl::validateSrcId(srcId)) {
                 if (m_lastRejectId == 0U || m_lastRejectId != srcId) {
-                    LogWarning(LOG_RF, P25_HDU_STR " denial, RID rejection, srcId = %u", srcId);
+                    LogWarning(LOG_RF, P25_LDU1_STR " denial, RID rejection, srcId = %u", srcId);
                     if (m_p25->m_enableControl) {
                         m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_REQ_UNIT_NOT_VALID, (group ? TSBKO::IOSP_GRP_VCH : TSBKO::IOSP_UU_VCH), group, true);
                         m_p25->m_control->denialInhibit(srcId);
@@ -279,12 +288,21 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 return false;
             }
 
+            if (group && dstId == 0U && m_p25->m_isModemDFSI && !m_p25->m_forceAllowTG0) {
+                LogWarning(LOG_RF, "P25, DFSI LDU1 with TGID 0 while TG0 remap is disabled, discarding frame");
+
+                m_p25->m_rfLastDstId = 0U;
+                m_p25->m_rfLastSrcId = 0U;
+                m_p25->m_rfTGHang.stop();
+                return false;
+            }
+
             // is this a group or individual operation?
             if (!group) {
                 // validate the target RID
                 if (!acl::AccessControl::validateSrcId(dstId)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, RID rejection, dstId = %u", dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, RID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
                             m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_UNIT_NOT_VALID, TSBKO::IOSP_UU_VCH, false, true);
                         }
@@ -304,7 +322,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 // validate the target ID, if the target is a talkgroup
                 if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, TGID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
                             m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_GROUP_NOT_VALID, TSBKO::IOSP_GRP_VCH, true, true);
                         }
@@ -322,7 +340,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
 
             if (group && dstId == 0U && m_p25->m_forceAllowTG0) {
-                LogWarning(LOG_RF, P25_HDU_STR " TGID 0 (P25 blackhole talkgroup) detected, srcId = %u", srcId);
+                LogWarning(LOG_RF, P25_LDU1_STR " TGID 0 (P25 blackhole talkgroup) detected, srcId = %u", srcId);
                 dstId = 1U; // force destination ID to TGID 1 -- TGID 0 is not allowed in P25, and the network won't properly handle it
                 lc.setDstId(dstId);
             }
@@ -332,7 +350,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             if (group && m_p25->m_enableControl) {
                 if (!m_p25->m_affiliations->isGroupAff(srcId, dstId) && m_p25->m_control->m_verifyAff) {
                     if (m_lastRejectId == 0 || m_lastRejectId != srcId) {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, RID not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, RID not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                         m_p25->m_control->writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_REQ_UNIT_NOT_AUTH, TSBKO::IOSP_GRP_VCH, true, true);
                         m_p25->m_control->writeRF_TSDU_U_Reg_Cmd(srcId);
 
@@ -350,8 +368,9 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // bryanb: due to moronic reasons (mostly our favorite neighborhood OEM...) -- if this case happens, default the RID to something sane
             if (srcId == 0U) {
-                LogInfoEx(LOG_RF, P25_HDU_STR " ** source RID was 0, defaulting source RID, dstId = %u, mfId = $%02X", dstId, lc.getMFId());
+                LogInfoEx(LOG_RF, P25_LDU1_STR " ** source RID was 0, defaulting source RID, dstId = %u, mfId = $%02X", dstId, lc.getMFId());
                 srcId = WUID_FNE;
+                lc.setSrcId(srcId);
             }
 
             // send network grant demand TDU
@@ -363,7 +382,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     if (!group)
                         controlByte |= network::NET_CTRL_U2U;                               // Unit-to-unit Flag
 
-                    LogInfoEx(LOG_RF, P25_HDU_STR " remote grant demand, srcId = %u, dstId = %u", srcId, dstId);
+                    LogInfoEx(LOG_RF, P25_LDU1_STR " remote grant demand, srcId = %u, dstId = %u", srcId, dstId);
                     m_p25->m_network->writeP25TDU(lc, m_rfLSD, controlByte);
                 }
             }
@@ -388,7 +407,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                         if (m_p25->m_legacyGroupReg && group) {
                             if (!m_p25->m_affiliations->isGroupAff(srcId, dstId)) {
                                 if (m_p25->m_control->writeRF_TSDU_Grp_Aff_Rsp(srcId, dstId) != ResponseCode::ACCEPT) {
-                                    LogWarning(LOG_RF, P25_HDU_STR " denial, conventional affiliation required, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                                    LogWarning(LOG_RF, P25_LDU1_STR " denial, conventional affiliation required, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                                     m_p25->m_rfLastDstId = 0U;
                                     m_p25->m_rfLastSrcId = 0U;
                                     m_p25->m_rfTGHang.stop();
@@ -403,7 +422,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
                         }
                     }
                     else {
-                        LogWarning(LOG_RF, P25_HDU_STR " denial, conventional affiliation required, and legacy group grant disabled, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
+                        LogWarning(LOG_RF, P25_LDU1_STR " denial, conventional affiliation required, and legacy group grant disabled, not affiliated to TGID, srcId = %u, dstId = %u", srcId, dstId);
                         m_p25->m_rfLastDstId = 0U;
                         m_p25->m_rfLastSrcId = 0U;
                         m_p25->m_rfTGHang.stop();
@@ -574,6 +593,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
+            m_rfLastHDUTGRejected = false;
         }
 
         if (m_p25->m_rfState == RS_RF_AUDIO) {
@@ -998,6 +1018,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
+            m_rfLastHDUTGRejected = false;
         }
 
         if (m_p25->m_rfState == RS_RF_AUDIO) {
@@ -1073,6 +1094,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
         }
     }
     else if (duid == DUID::TDU || duid == DUID::TDULC) {
+        m_p25->logSleepState("RF_TERMINATOR_RX", false, m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
+
         if (!m_p25->m_enableControl) {
             m_p25->m_affiliations->releaseGrant(m_rfLC.getDstId(), false);
         }
@@ -1082,17 +1105,31 @@ bool Voice::process(uint8_t* data, uint32_t len)
         }
 
         if (duid == DUID::TDU) {
-            if (m_p25->m_immediateCallTerm)
-                m_p25->writeRF_TDU(false);
+            lc::LC termLC = m_rfLC;
+            bool haveTermLC = resolveRFTerminatorLC(termLC);
+            bool repairedTermLC = termLC.getSrcId() != m_rfLC.getSrcId() || termLC.getDstId() != m_rfLC.getDstId();
+
+            if (repairedTermLC) {
+                LogWarning(LOG_RF, P25_TDU_STR ", repairing teardown LC, srcId = %u -> %u, dstId = %u -> %u",
+                    m_rfLC.getSrcId(), termLC.getSrcId(), m_rfLC.getDstId(), termLC.getDstId());
+                m_rfLC = termLC;
+            }
+
+            if (m_p25->m_immediateCallTerm) {
+                m_p25->writeRF_TDU(!haveTermLC);
+            }
             else {
-                if (m_rfLC.getDstId() != 0U && m_rfLC.getSrcId() != 0U) {
-                    m_p25->m_rfCallTermDstId = m_rfLC.getDstId();
-                    m_p25->m_rfCallTermSrcId = m_rfLC.getSrcId();
+                if (haveTermLC) {
+                    m_p25->m_rfCallTermDstId = termLC.getDstId();
+                    m_p25->m_rfCallTermSrcId = termLC.getSrcId();
                     m_p25->m_rfVoiceCallTermTimeout.start();
-                    m_p25->writeRF_TDU(true);
-                } else {
-                    m_p25->writeRF_TDU(false);
                 }
+
+                m_p25->writeRF_TDU(true);
+            }
+
+            if (!haveTermLC) {
+                LogWarning(LOG_RF, P25_TDU_STR ", dropping network call termination without active source/destination context");
             }
 
             m_lastDUID = duid;
@@ -1120,6 +1157,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     float(m_rfFrames) / 5.56F, float(m_rfErrs * 100U) / float(m_rfBits));
             }
 
+            m_p25->logCallEndSummary(false, "RF_TERMINATOR_RX", m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
+
             LogInfoEx(LOG_RF, P25_TDU_STR ", total frames: %d, bits: %d, undecodable LC: %d, errors: %d, BER: %.4f%%",
                 m_rfFrames, m_rfBits, m_rfUndecodableLC, m_rfErrs, float(m_rfErrs * 100U) / float(m_rfBits));
 
@@ -1142,6 +1181,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
         m_inbound = false;
         m_p25->m_rfState = RS_RF_LISTENING;
         m_p25->m_rfLossWatchdog.stop();
+        m_p25->m_rfTimeoutExpiredLogged = false;
+        m_p25->setNetGateBlocked(false, m_rfLC.getSrcId(), m_rfLC.getDstId(), (uint8_t)duid);
         return true;
     }
     else {
@@ -1196,6 +1237,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 if (m_p25->m_dedicatedControl && !m_p25->m_voiceOnControl) {
+                    m_p25->rememberNetworkFrame("NET_LDU1_ADMITTED", srcId, dstId, (uint8_t)duid, true);
                     return true;
                 }
 
@@ -1210,10 +1252,15 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 if (m_p25->m_netState != RS_NET_IDLE) {
                     m_p25->m_netTGHang.start();
+                    m_p25->startNetworkWatchdog();
                     writeNet_LDU1();
                 }
 
                 m_netLastDUID = duid;
+                m_p25->rememberNetworkFrame("NET_LDU1_ADMITTED", srcId, dstId, (uint8_t)duid, true);
+            }
+            else {
+                m_p25->rememberNetworkFrame("NET_LDU1_SHAPE_INVALID", srcId, dstId, (uint8_t)duid, false);
             }
         }
             break;
@@ -1233,6 +1280,7 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
                 }
 
                 if (m_p25->m_dedicatedControl && !m_p25->m_voiceOnControl) {
+                    m_p25->rememberNetworkFrame("NET_LDU2_ADMITTED", srcId, dstId, (uint8_t)duid, true);
                     return true;
                 }
 
@@ -1258,10 +1306,15 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
                 if (m_p25->m_netState != RS_NET_IDLE) {
                     m_p25->m_netTGHang.start();
+                    m_p25->startNetworkWatchdog();
                     writeNet_LDU2();
                 }
 
                 m_netLastDUID = duid;
+                m_p25->rememberNetworkFrame("NET_LDU2_ADMITTED", srcId, dstId, (uint8_t)duid, true);
+            }
+            else {
+                m_p25->rememberNetworkFrame("NET_LDU2_SHAPE_INVALID", srcId, dstId, (uint8_t)duid, false);
             }
         }
             break;
@@ -1284,11 +1337,14 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
 
             // ignore a TDU that doesn't contain our destination ID
             if (control.getDstId() != m_p25->m_netLastDstId) {
+                m_p25->rememberNetworkFrame("NET_TERMINATOR_DST_MISMATCH", control.getSrcId(), control.getDstId(), (uint8_t)duid, false);
                 return false;
             }
 
             // don't process network frames if the RF modem isn't in a listening state
             if (m_p25->m_rfState != RS_RF_LISTENING) {
+                m_p25->rememberNetworkFrame("NET_TERMINATOR_RF_BUSY", control.getSrcId(), control.getDstId(), (uint8_t)duid, false);
+                m_p25->logSleepState("NET_TERMINATOR_DROPPED_RF_BUSY", true, control.getSrcId(), control.getDstId(), (uint8_t)duid);
                 resetNet();
                 return false;
             }
@@ -1304,11 +1360,17 @@ bool Voice::processNetwork(uint8_t* data, uint32_t len, lc::LC& control, data::L
             }
 
             if (m_p25->m_netState != RS_NET_IDLE) {
+                m_p25->logCallEndSummary(true, duid == DUID::TDULC ? "NET_TDULC_RX" : "NET_TDU_RX",
+                    control.getSrcId(), control.getDstId(), (uint8_t)duid);
+
                 if (duid == DUID::TDU)
                     writeNet_TDU();
 
                 resetNet();
             }
+
+            m_p25->rememberNetworkFrame(duid == DUID::TDULC ? "NET_TDULC_ADMITTED" : "NET_TDU_ADMITTED",
+                control.getSrcId(), control.getDstId(), (uint8_t)duid, true);
             break;
 
         default:
@@ -1336,6 +1398,7 @@ Voice::Voice(Control* p25, bool debug, bool verbose) :
     m_rfLC(),
     m_rfLastHDU(),
     m_rfLastHDUValid(false),
+    m_rfLastHDUTGRejected(false),
     m_rfLastLDU1(),
     m_rfLastLDU2(),
     m_rfFirstLDU2(true),
@@ -1418,13 +1481,17 @@ void Voice::writeNetwork(const uint8_t *data, defines::DUID::E duid, defines::Fr
             break;
         case DUID::TDU:
         case DUID::TDULC:
-            if (m_rfLC.getSrcId() == 0U || m_rfLC.getDstId() == 0U) {
-                LogWarning(LOG_NET, "P25, not sending network TDU with invalid call identity, srcId = %u, dstId = %u",
+        {
+            lc::LC termLC = m_rfLC;
+            if (!resolveRFTerminatorLC(termLC)) {
+                LogWarning(LOG_NET, "P25, dropping outbound TDU without active call context, srcId = %u, dstId = %u",
                     m_rfLC.getSrcId(), m_rfLC.getDstId());
                 break;
             }
-            m_p25->m_network->writeP25TDU(m_rfLC, m_rfLSD);
+
+            m_p25->m_network->writeP25TDU(termLC, m_rfLSD);
             break;
+        }
         default:
             LogError(LOG_NET, "P25 unhandled voice DUID, duid = $%02X", duid);
             break;
@@ -1498,9 +1565,19 @@ bool Voice::checkRFTrafficCollision(uint32_t srcId, uint32_t dstId)
 
 bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DUID::E duid)
 {
+    if (m_p25->m_rfState != RS_RF_LISTENING && isSameCallVoiceOverlap(srcId, dstId, duid)) {
+        m_p25->rememberNetworkFrame("NET_DROP_RF_ACTIVE_OVERLAP", srcId, dstId, (uint8_t)duid, false);
+        if (m_debug) {
+            LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "ignoring overlapping network voice for active RF call, srcId = %u, dstId = %u, duid = $%02X",
+                srcId, dstId, duid);
+        }
+        return true;
+    }
+
     // don't process network frames if the destination ID's don't match and the RF TG hang timer is running
     if (m_p25->m_rfLastDstId != 0U && dstId != 0U) {
         if (m_p25->m_rfLastDstId != dstId && (m_p25->m_rfTGHang.isRunning() && !m_p25->m_rfTGHang.hasExpired())) {
+            m_p25->rememberNetworkFrame("NET_DROP_RF_TG_HANG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
             resetNet();
             if (m_p25->m_network != nullptr)
                 m_p25->m_network->resetP25();
@@ -1523,6 +1600,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
     // the destination ID doesn't match the default net idle talkgroup
     if (m_p25->m_defaultNetIdleTalkgroup != 0U && dstId != 0U && !m_p25->m_rfTGHang.isRunning()) {
         if (m_p25->m_defaultNetIdleTalkgroup != dstId && !m_p25->m_affiliations->hasGroupAff(dstId)) {
+            m_p25->rememberNetworkFrame("NET_DROP_IDLE_TG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
             if (!m_p25->m_dedicatedControl) {
                 if (m_p25->m_affiliations->isGranted(dstId)) {
                     m_p25->m_affiliations->releaseGrant(dstId, false);
@@ -1554,6 +1632,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
         // don't process network frames if the destination ID's don't match and the network TG hang timer is running
         if (m_p25->m_netLastDstId != 0U && dstId != 0U && (duid == DUID::LDU1 || duid == DUID::LDU2)) {
             if (m_p25->m_netLastDstId != dstId && (m_p25->m_netTGHang.isRunning() && !m_p25->m_netTGHang.hasExpired())) {
+                m_p25->rememberNetworkFrame("NET_DROP_NET_TG_HANG_MISMATCH", srcId, dstId, (uint8_t)duid, false);
                 if (m_debug) {
                     LogDebugEx(LOG_NET, "Voice::checkNetTrafficCollision()", "dropping frames, because dstId does not match and network TG hang timer is running, netLastDstId = %u, dstId = %u",
                         m_p25->m_netLastDstId, dstId);
@@ -1569,6 +1648,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
         // don't process network frames if the RF modem isn't in a listening state
         if (m_p25->m_rfState != RS_RF_LISTENING) {
             if (m_rfLC.getSrcId() == srcId && m_rfLC.getDstId() == dstId) {
+                m_p25->rememberNetworkFrame("NET_DROP_RF_BUSY_SAMECALL", srcId, dstId, (uint8_t)duid, false);
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic (Are we in a voting condition?), rfSrcId = %u, rfDstId = %u, netSrcId = %u, netDstId = %u", m_rfLC.getSrcId(), m_rfLC.getDstId(),
                     srcId, dstId);
                 resetNet();
@@ -1577,6 +1657,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
                 return true;
             }
             else {
+                m_p25->rememberNetworkFrame("NET_DROP_RF_BUSY_OTHERCALL", srcId, dstId, (uint8_t)duid, false);
                 LogWarning(LOG_NET, "Traffic collision detect, preempting new network traffic to existing RF traffic, rfDstId = %u, netDstId = %u", m_rfLC.getDstId(),
                     dstId);
                 resetNet();
@@ -1589,6 +1670,7 @@ bool Voice::checkNetTrafficCollision(uint32_t srcId, uint32_t dstId, defines::DU
 
     // don't process network frames if this modem isn't authoritative
     if (!m_p25->m_authoritative && m_p25->m_permittedDstId != dstId) {
+        m_p25->rememberNetworkFrame("NET_DROP_DST_NOT_PERMITTED", srcId, dstId, (uint8_t)duid, false);
         if (!g_disableNonAuthoritativeLogging)
             LogWarning(LOG_NET, "[NON-AUTHORITATIVE] Ignoring network traffic, destination not permitted, dstId = %u", dstId);
         resetNet();
@@ -1727,6 +1809,29 @@ void Voice::writeRF_EndOfVoice()
     m_p25->m_control->writeRF_TDULC_ChanRelease(grp, srcId, dstId);
 }
 
+bool Voice::isSameCallVoiceOverlap(uint32_t srcId, uint32_t dstId, defines::DUID::E duid) const
+{
+    if (m_p25->m_rfState != RS_RF_AUDIO) {
+        return false;
+    }
+
+    if (srcId == 0U || dstId == 0U || m_p25->m_rfLastSrcId == 0U || m_p25->m_rfLastDstId == 0U) {
+        return false;
+    }
+
+    switch (duid) {
+        case DUID::TDU:
+        case DUID::TDULC:
+        case DUID::LDU1:
+        case DUID::LDU2:
+            break;
+        default:
+            return false;
+    }
+
+    return srcId == m_p25->m_rfLastSrcId && dstId == m_p25->m_rfLastDstId;
+}
+
 /* Helper to write a network P25 TDU packet. */
 
 void Voice::writeNet_TDU()
@@ -1777,6 +1882,42 @@ void Voice::writeNet_TDU()
         m_p25->m_ccHalted = false;
         m_p25->writeRF_ControlData();
     }
+}
+
+/* Helper to resolve the best-known RF call state for a teardown. */
+
+bool Voice::resolveRFTerminatorLC(lc::LC& control) const
+{
+    const lc::LC* candidates[] = { &m_rfLC, &m_rfLastLDU2, &m_rfLastLDU1, &m_rfLastHDU };
+
+    for (const lc::LC* candidate : candidates) {
+        if (control.getSrcId() == 0U && control.getDstId() == 0U &&
+            (candidate->getSrcId() != 0U || candidate->getDstId() != 0U)) {
+            control = *candidate;
+        }
+
+        if (control.getSrcId() == 0U && candidate->getSrcId() != 0U) {
+            control.setSrcId(candidate->getSrcId());
+        }
+
+        if (control.getDstId() == 0U && candidate->getDstId() != 0U) {
+            control.setDstId(candidate->getDstId());
+        }
+
+        if (control.getSrcId() != 0U && control.getDstId() != 0U) {
+            break;
+        }
+    }
+
+    if (control.getSrcId() == 0U && m_p25->m_rfLastSrcId != 0U) {
+        control.setSrcId(m_p25->m_rfLastSrcId);
+    }
+
+    if (control.getDstId() == 0U && m_p25->m_rfLastDstId != 0U) {
+        control.setDstId(m_p25->m_rfLastDstId);
+    }
+
+    return control.getSrcId() != 0U && control.getDstId() != 0U;
 }
 
 /* Helper to check for an unflushed LDU1 packet. */
@@ -1885,7 +2026,7 @@ void Voice::writeNet_LDU1()
 
         // validate source RID
         if (!acl::AccessControl::validateSrcId(srcId)) {
-            LogWarning(LOG_NET, P25_HDU_STR " denial, RID rejection, srcId = %u", srcId);
+            LogWarning(LOG_NET, P25_LDU1_STR " denial, RID rejection, srcId = %u", srcId);
             return;
         }
 
@@ -1893,14 +2034,14 @@ void Voice::writeNet_LDU1()
         if (!group) {
             // validate the target RID
             if (!acl::AccessControl::validateSrcId(dstId)) {
-                LogWarning(LOG_NET, P25_HDU_STR " denial, RID rejection, dstId = %u", dstId);
+                LogWarning(LOG_NET, P25_LDU1_STR " denial, RID rejection, dstId = %u", dstId);
                 return;
             }
         }
         else {
             // validate the target ID, if the target is a talkgroup
             if (!acl::AccessControl::validateTGId(dstId)) {
-                LogWarning(LOG_NET, P25_HDU_STR " denial, TGID rejection, dstId = %u", dstId);
+                LogWarning(LOG_NET, P25_LDU1_STR " denial, TGID rejection, dstId = %u", dstId);
                 return;
             }
         }
@@ -1918,7 +2059,7 @@ void Voice::writeNet_LDU1()
 
             if (!m_p25->m_affiliations->isGranted(dstId)) {
                 if (!m_p25->m_control->writeRF_TSDU_Grant(srcId, dstId, serviceOptions, group, true)) {
-                    LogError(LOG_NET, P25_HDU_STR " call rejected, network call not granted, dstId = %u", dstId);
+                    LogError(LOG_NET, P25_LDU1_STR " call rejected, network call not granted, dstId = %u", dstId);
 
                     if ((!m_p25->m_networkWatchdog.isRunning() || m_p25->m_networkWatchdog.hasExpired()) &&
                         m_p25->m_netLastDstId != 0U) {
@@ -1992,6 +2133,7 @@ void Voice::writeNet_LDU1()
 
         m_hadVoice = true;
         m_p25->m_netState = RS_NET_AUDIO;
+        m_p25->startNetworkWatchdog();
         m_p25->m_netLastDstId = dstId;
         m_p25->m_netLastSrcId = srcId;
         m_p25->m_netTGHang.start();

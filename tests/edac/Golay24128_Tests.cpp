@@ -19,11 +19,9 @@
 using namespace edac;
 
 /*
-** NOTE: decode23127 relies on getSyndrome23127 which has edge case bugs that can cause
-** infinite loops or incorrect results with certain input patterns. While decode23127 IS used  
-** in production (AMBEFEC for DMR/P25/NXDN audio FEC), comprehensive testing reveals issues.
-** The byte array functions (encode/decode24128) use lookup tables and are reliable.
-** Basic encode23127 tests are included below, but full decode23127 tests are omitted.
+** NOTE: decode23127 operates on the packed 23-bit form used by the voice FEC
+** code paths. The raw 24-bit table value returned by encode23127() includes an
+** extra alignment bit, so direct round-trip tests should shift right by one.
 */
 
 TEST_CASE("Golay24128 encode23127 preserves zero data", "[edac][golay24128]") {
@@ -46,6 +44,13 @@ TEST_CASE("Golay24128 encode23127 produces valid encodings", "[edac][golay24128]
         REQUIRE(encoded != 0x000000U);
         // Encoded value should fit in 24 bits (despite name "23127", encodes to 24 bits)
         REQUIRE((encoded & 0xFF000000U) == 0);
+    }
+}
+
+TEST_CASE("Golay24128 decode23127 round trips packed encoded values", "[edac][golay24128]") {
+    for (uint32_t value = 0U; value < 0x1000U; value++) {
+        uint32_t packed = Golay24128::encode23127(value) >> 1;
+        REQUIRE(Golay24128::decode23127(packed) == value);
     }
 }
 
@@ -138,11 +143,38 @@ TEST_CASE("Golay24128 encode24128 detects uncorrectable errors", "[edac][golay24
     }
 }
 
-/*
-** NOTE: Three-bit error correction test disabled. While Golay(24,12,8) theoretically
-** corrects up to 3 errors, the underlying getSyndrome23127 has edge case bugs that
-** can cause incorrect decoding with certain error patterns.
-*/
+TEST_CASE("Golay24128 encode24128 accepts all correctable <=3-bit errors", "[edac][golay24128]") {
+    const uint32_t testValues[] = {0x000U, 0xA5AU};
+
+    for (auto original : testValues) {
+        uint32_t encoded = Golay24128::encode24128(original);
+
+        for (uint32_t i = 0U; i < 24U; i++) {
+            uint32_t corrupted = encoded ^ (1U << i);
+            uint32_t decoded;
+            bool result = Golay24128::decode24128(corrupted, decoded);
+
+            REQUIRE(result);
+            REQUIRE(decoded == original);
+
+            for (uint32_t j = i + 1U; j < 24U; j++) {
+                corrupted = encoded ^ (1U << i) ^ (1U << j);
+                result = Golay24128::decode24128(corrupted, decoded);
+
+                REQUIRE(result);
+                REQUIRE(decoded == original);
+
+                for (uint32_t k = j + 1U; k < 24U; k++) {
+                    corrupted = encoded ^ (1U << i) ^ (1U << j) ^ (1U << k);
+                    result = Golay24128::decode24128(corrupted, decoded);
+
+                    REQUIRE(result);
+                    REQUIRE(decoded == original);
+                }
+            }
+        }
+    }
+}
 
 TEST_CASE("Golay24128 encode24128 byte array interface works", "[edac][golay24128]") {
     // Test the byte array encode/decode interface
@@ -158,4 +190,3 @@ TEST_CASE("Golay24128 encode24128 byte array interface works", "[edac][golay2412
 
     REQUIRE(::memcmp(decoded, testData, 6U) == 0);
 }
-

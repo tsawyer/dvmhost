@@ -107,3 +107,11 @@ __pycache__/
 *.exe
 *.out
 *.app
+
+# --- OS Specific ---
+.DS_Store
+
+# --- Docker ---
+Dockerfile
+docker-compose.yml
+
