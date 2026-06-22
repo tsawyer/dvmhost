@@ -92,6 +92,9 @@ namespace modem
             pduUserDataOffset(0U),
             pduTotalBlocks(0U),
             errors(0U),
+            maxVoiceFrameErrors(0U),
+            lastLDU1LC(),
+            lastLDU1LCValid(false),
             ldu1Seq(0U),
             ldu2Seq(0U)
         {
@@ -196,6 +199,10 @@ namespace modem
             pduTotalBlocks = 0U;
 
             errors = 0U;
+            maxVoiceFrameErrors = 0U;
+
+            lastLDU1LC = p25::lc::LC();
+            lastLDU1LCValid = false;
 
             ldu1Seq = 0U;
             ldu2Seq = 0U;
@@ -305,6 +312,18 @@ namespace modem
          * @brief Total errors for a given call sequence.
          */
         uint32_t errors;
+        /**
+         * @brief Highest error count reported for one voice frame in the current LDU.
+         */
+        uint32_t maxVoiceFrameErrors;
+        /**
+         * @brief Most recent fully validated LDU1 Link Control for this call.
+         */
+        p25::lc::LC lastLDU1LC;
+        /**
+         * @brief Flag indicating lastLDU1LC is trusted for the current call.
+         */
+        bool lastLDU1LCValid;
         /**
          * @brief Standards-based LDU1 contiguous sequence tracker.
          */
@@ -554,6 +573,11 @@ namespace modem
          */
         void setCallTimeout(uint16_t timeout);
         /**
+         * @brief Sets the P25 voice error threshold used for DFSI recovery decisions.
+         * @param threshold Voice error threshold; MAX_P25_VOICE_ERRORS disables gating.
+         */
+        void setP25SilenceThreshold(uint32_t threshold);
+        /**
          * @brief Sets the P25 NAC.
          * @param nac NAC.
          */
@@ -622,6 +646,8 @@ namespace modem
         uint64_t m_rxLastFrameTime;
         
         uint16_t m_callTimeout;
+
+        uint32_t m_p25SilenceThreshold;
 
         uint16_t m_jitter;
         uint64_t m_lastP25Tx;
@@ -708,6 +734,11 @@ namespace modem
          * @returns bool True if an LDU2 was emitted, otherwise false.
          */
         bool emitRxCallLDU2(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel);
+        /**
+         * @brief Records the error count for one received DFSI voice frame.
+         * @param errors Error count reported for the frame.
+         */
+        void recordRxVoiceErrors(uint32_t errors);
 
         /**
          * @brief Helper to add a V.24 data frame to the P25 Tx queue with the proper timestamp and formatting.

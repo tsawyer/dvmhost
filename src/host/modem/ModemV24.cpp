@@ -92,6 +92,7 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_txLastFrameTime(0U),
     m_rxLastFrameTime(0U),
     m_callTimeout(200U),
+    m_p25SilenceThreshold(P25DEF::DEFAULT_SILENCE_THRESHOLD),
     m_jitter(jitter),
     m_lastP25Tx(0U),
     m_rs(),
@@ -120,6 +121,13 @@ ModemV24::~ModemV24()
 void ModemV24::setCallTimeout(uint16_t timeout)
 {
     m_callTimeout = timeout;
+}
+
+/* Sets the P25 voice error threshold used for DFSI recovery decisions. */
+
+void ModemV24::setP25SilenceThreshold(uint32_t threshold)
+{
+    m_p25SilenceThreshold = threshold;
 }
 
 /* Sets the P25 NAC. */
@@ -732,12 +740,11 @@ bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, 
     }
 
     if (!rsDecoded) {
-        LogWarning(LOG_MODEM, "%s LDU1, discarding frame after RS decode failure", dfsiLabel);
         return false;
     }
 
     if (!control.decodeLC(m_rxCall->LDULC)) {
-        LogWarning(LOG_MODEM, "%s LDU1, discarding frame with invalid corrected LC metadata, mfId = $%02X, lco = $%02X",
+        LogWarning(LOG_MODEM, "%s LDU1, invalid corrected LC metadata, mfId = $%02X, lco = $%02X",
             dfsiLabel, control.getMFId(), control.getLCO());
         return false;
     }
@@ -752,6 +759,18 @@ bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, 
             (control.getEmergency() ? 0x80U : 0x00U) +
             (control.getEncrypted() ? 0x40U : 0x00U) +
             (control.getPriority() & 0x07U);
+    }
+
+    bool trustedIdentity = !control.isStandardMFId() ||
+        (control.getSrcId() != 0U && control.getDstId() != 0U);
+    if (trustedIdentity) {
+        bool establishingTrustedLC = !m_rxCall->lastLDU1LCValid;
+        m_rxCall->lastLDU1LC = control;
+        m_rxCall->lastLDU1LCValid = true;
+        if (establishingTrustedLC) {
+            LogInfoEx(LOG_MODEM, "%s LDU1, established trusted LC for current call, srcId = %u, dstId = %u",
+                dfsiLabel, control.getSrcId(), control.getDstId());
+        }
     }
 
     return true;
@@ -824,6 +843,16 @@ uint8_t ModemV24::updateRxVoiceSequence(DFSIFrameType::E frameType)
     return 0U;
 }
 
+/* Records the error count for one received DFSI voice frame. */
+
+void ModemV24::recordRxVoiceErrors(uint32_t errors)
+{
+    m_rxCall->errors += errors;
+    if (errors > m_rxCall->maxVoiceFrameErrors) {
+        m_rxCall->maxVoiceFrameErrors = errors;
+    }
+}
+
 /* Emits a corrected RX LDU1 from the current DFSI call buffers. */
 
 bool ModemV24::emitRxCallLDU1(uint8_t* buffer, const char* dfsiLabel, const char* exceptDumpLabel)
@@ -833,16 +862,34 @@ bool ModemV24::emitRxCallLDU1(uint8_t* buffer, const char* dfsiLabel, const char
     lc::LC lc = lc::LC();
     bool validMetadata = decodeRxCallLDU1Metadata(lc, dfsiLabel, exceptDumpLabel);
 
-    if (m_rxCall->errors > 0U) {
-        LogWarning(LOG_MODEM, P25_DFSI_LDU1_STR ", %s, errs = %u/1233 (%.1f%%)", dfsiLabel,
-            m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
-        m_rxCall->errors = 0U;
+    uint32_t voiceErrors = m_rxCall->errors;
+    uint32_t maxVoiceFrameErrors = m_rxCall->maxVoiceFrameErrors;
+
+    if (voiceErrors > 0U) {
+        LogWarning(LOG_MODEM, P25_DFSI_LDU1_STR ", %s, errs = %u/1233 (%.1f%%), maxFrameErrs = %u", dfsiLabel,
+            voiceErrors, float(voiceErrors) / 12.33F, maxVoiceFrameErrors);
     }
 
+    m_rxCall->errors = 0U;
+    m_rxCall->maxVoiceFrameErrors = 0U;
     m_rxCall->ldu1Seq = 0U;
 
     if (!validMetadata) {
-        return false;
+        if (!m_rxCall->lastLDU1LCValid) {
+            LogWarning(LOG_MODEM, "%s LDU1, discarding frame after metadata failure; no trusted LC for current call, errs = %u/1233",
+                dfsiLabel, voiceErrors);
+            return false;
+        }
+
+        if (voiceErrors > m_p25SilenceThreshold) {
+            LogWarning(LOG_MODEM, "%s LDU1, discarding frame after metadata failure; voice errors exceed threshold, errs = %u/1233, threshold = %u",
+                dfsiLabel, voiceErrors, m_p25SilenceThreshold);
+            return false;
+        }
+
+        lc = m_rxCall->lastLDU1LC;
+        LogWarning(LOG_MODEM, "%s LDU1, recovered with trusted LC, srcId = %u, dstId = %u, errs = %u/1233 (%.1f%%), maxFrameErrs = %u",
+            dfsiLabel, lc.getSrcId(), lc.getDstId(), voiceErrors, float(voiceErrors) / 12.33F, maxVoiceFrameErrors);
     }
 
     data::LowSpeedData lsd = data::LowSpeedData();
@@ -881,13 +928,15 @@ bool ModemV24::emitRxCallLDU2(uint8_t* buffer, const char* dfsiLabel, const char
 
     lc::LC lc = lc::LC();
     bool validMetadata = decodeRxCallLDU2Metadata(lc, dfsiLabel, exceptDumpLabel);
+    uint32_t maxVoiceFrameErrors = m_rxCall->maxVoiceFrameErrors;
 
     if (m_rxCall->errors > 0U) {
-        LogWarning(LOG_MODEM, P25_DFSI_LDU2_STR ", %s, errs = %u/1233 (%.1f%%)", dfsiLabel,
-            m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
-        m_rxCall->errors = 0U;
+        LogWarning(LOG_MODEM, P25_DFSI_LDU2_STR ", %s, errs = %u/1233 (%.1f%%), maxFrameErrs = %u", dfsiLabel,
+            m_rxCall->errors, float(m_rxCall->errors) / 12.33F, maxVoiceFrameErrors);
     }
 
+    m_rxCall->errors = 0U;
+    m_rxCall->maxVoiceFrameErrors = 0U;
     m_rxCall->ldu2Seq = 0U;
 
     if (!validMetadata) {
@@ -1096,6 +1145,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             ::memcpy(m_rxCall->netLDU1 + 10U, svf.fullRateVoice->imbeData, RAW_IMBE_LENGTH_BYTES);
 
             m_rxCall->errors = 0U;
+            m_rxCall->maxVoiceFrameErrors = 0U;
 
             // process start of stream ICW for the voice call
             uint8_t* icw = svf.startOfStream->getICW();
@@ -1135,7 +1185,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             if (svf.fullRateVoice->getTotalErrors() > 0U) {
                 if (m_debug)
                     ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirV24()", "V.24/DFSI traffic has %u errors in frameType = $%02X", svf.fullRateVoice->getTotalErrors(), svf.fullRateVoice->getFrameType());
-                m_rxCall->errors += svf.fullRateVoice->getTotalErrors();
+                recordRxVoiceErrors(svf.fullRateVoice->getTotalErrors());
             }
 
             if (m_legacyDFSI)
@@ -1151,6 +1201,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             ::memcpy(m_rxCall->netLDU2 + 10U, svf.fullRateVoice->imbeData, RAW_IMBE_LENGTH_BYTES);
 
             m_rxCall->errors = 0U;
+            m_rxCall->maxVoiceFrameErrors = 0U;
 
             // process start of stream ICW for the voice call
             uint8_t* icw = svf.startOfStream->getICW();
@@ -1190,7 +1241,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             if (svf.fullRateVoice->getTotalErrors() > 0U) {
                 if (m_debug)
                     ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirV24()", "V.24/DFSI traffic has %u errors in frameType = $%02X", svf.fullRateVoice->getTotalErrors(), svf.fullRateVoice->getFrameType());
-                m_rxCall->errors += svf.fullRateVoice->getTotalErrors();
+                recordRxVoiceErrors(svf.fullRateVoice->getTotalErrors());
             }
 
             if (m_legacyDFSI)
@@ -1594,7 +1645,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             if (voice.getTotalErrors() > 0U) {
                 if (m_debug)
                     ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirV24()", "V.24/DFSI traffic has %u errors in frameType = $%02X", voice.getTotalErrors(), voice.getFrameType());
-                m_rxCall->errors += voice.getTotalErrors();
+                recordRxVoiceErrors(voice.getTotalErrors());
             }
 
             switch (frameType) {
@@ -2027,7 +2078,7 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
             if (voice.getTotalErrors() > 0U) {
                 if (m_debug)
                     ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirTIA()", "TIA/DFSI traffic has %u errors in frameType = $%02X", voice.getTotalErrors(), voice.getFrameType());
-                m_rxCall->errors += voice.getTotalErrors();
+                recordRxVoiceErrors(voice.getTotalErrors());
             }
 
             dataOffs += voice.getLength();

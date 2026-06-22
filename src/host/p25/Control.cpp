@@ -459,6 +459,12 @@ void Control::setOptions(yaml::Node& conf, bool supervisor, const std::string cw
         LogWarning(LOG_P25, "Silence threshold set to zero, defaulting to %u", MAX_P25_VOICE_ERRORS);
         m_voice->m_silenceThreshold = MAX_P25_VOICE_ERRORS;
     }
+    if (m_isModemDFSI) {
+        modem::ModemV24* modemV24 = dynamic_cast<modem::ModemV24*>(m_modem);
+        if (modemV24 != nullptr) {
+            modemV24->setP25SilenceThreshold(m_voice->m_silenceThreshold);
+        }
+    }
     m_frameLossThreshold = (uint8_t)p25Protocol["frameLossThreshold"].as<uint32_t>(DEFAULT_FRAME_LOSS_THRESHOLD);
     if (m_frameLossThreshold == 0U) {
         m_frameLossThreshold = 1U;
