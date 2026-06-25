@@ -902,8 +902,9 @@ void Network::clock(uint32_t ms)
                                             m_tidLookup->eraseEntry(id, slot);
                                         }
 
-                                        LogInfoEx(LOG_NET, "Activated%s%s TG %u TS %u in TGID table", 
-                                            (nonPreferred) ? " non-preferred" : "", (affiliated) ? " affiliated" : "", id, slot);
+                                        LogInfoEx(LOG_NET, "Activated%s%s TG %u TS %u %s in TGID table", 
+                                            (nonPreferred) ? " non-preferred" : "", (affiliated) ? " affiliated" : "", id, slot,
+                                            (strappedBit) ? "strapped" : (clearBit) ? "clear" : "selectable");
                                         m_tidLookup->addEntry(id, slot, true, affiliated, nonPreferred, strapping);
                                     }
 

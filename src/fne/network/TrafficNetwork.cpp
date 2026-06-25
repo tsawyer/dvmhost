@@ -3077,7 +3077,7 @@ void TrafficNetwork::writeTGIDs(uint32_t peerId, uint32_t streamId, bool sendRep
             }
 
             // set the $10 bit of the slot number to identify if this TG is clear only
-            if (entry.config().strapping() != lookups::TG_STRAPPING_CLEAR) {
+            if (entry.config().strapping() == lookups::TG_STRAPPING_CLEAR) {
                 slotNo |= 0x10U;
             }
 
