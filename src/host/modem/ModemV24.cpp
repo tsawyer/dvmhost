@@ -935,16 +935,17 @@ bool ModemV24::emitRxCallLDU2(uint8_t* buffer, const char* dfsiLabel, const char
             m_rxCall->errors, float(m_rxCall->errors) / 12.33F, maxVoiceFrameErrors);
     }
 
-    m_rxCall->errors = 0U;
-    m_rxCall->maxVoiceFrameErrors = 0U;
-    m_rxCall->ldu2Seq = 0U;
-
     if (!validMetadata) {
         lc.setMI(m_rxCall->MI);
         lc.setAlgId(m_rxCall->algoId);
         lc.setKId(m_rxCall->kId);
-        LogWarning(LOG_MODEM, "%s LDU2, using last known encryption metadata after RS decode failure", dfsiLabel);
+        LogWarning(LOG_MODEM, "%s LDU2, recovered with last known encryption metadata, algId = $%02X, kId = $%04X, errs = %u/1233 (%.1f%%), maxFrameErrs = %u",
+            dfsiLabel, m_rxCall->algoId, m_rxCall->kId, m_rxCall->errors, float(m_rxCall->errors) / 12.33F, maxVoiceFrameErrors);
     }
+
+    m_rxCall->errors = 0U;
+    m_rxCall->maxVoiceFrameErrors = 0U;
+    m_rxCall->ldu2Seq = 0U;
 
     data::LowSpeedData lsd = data::LowSpeedData();
     lsd.setLSD1(m_rxCall->lsd1);
