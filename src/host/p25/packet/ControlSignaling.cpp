@@ -2153,9 +2153,6 @@ bool ControlSignaling::writeRF_TSDU_Grant(uint32_t srcId, uint32_t dstId, uint8_
         return true; // do not generate grant packets for $FFFF (All Call) TGID
     }
 
-    LogDebugEx(LOG_RF, "ControlSignaling::writeRF_TSDU_Grant()", "srcId = %u, dstId = %u, serviceOptions = $%02X, grp = %u, net = %u, skip = %u, chNo = %u",
-        srcId, dstId, serviceOptions, grp, net, skip, chNo);
-
     // are network channel grants disabled?
     if (m_p25->m_disableNetworkGrant) {
         // don't process RF grant if the network isn't in a idle state and the RF destination is the network destination

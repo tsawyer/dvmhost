@@ -3331,7 +3331,7 @@ bool TrafficNetwork::writePeerICC(uint32_t peerId, uint32_t streamId, NET_SUBFUN
                     }
 
                     if (peer.second->isEnabled()) {
-                        LogInfoEx(LOG_MASTER, "PEER %u In-Call Control Request to Upstream, dstId = %u, slot = %u, ssrc = %u, streamId = %u", peerId, dstId, slotNo, ssrc, streamId);
+                        LogInfoEx(LOG_MASTER, "PEER %u In-Call Control Request to Upstream, command = $%02X, dstId = %u, slot = %u, ssrc = %u, streamId = %u", peerId, command, dstId, slotNo, ssrc, streamId);
                         peer.second->writeMaster({ NET_FUNC::INCALL_CTRL, subFunc }, buffer, 15U, RTP_END_OF_CALL_SEQ, streamId, false, 0U, ssrc);
                     }
                 }
@@ -3340,8 +3340,10 @@ bool TrafficNetwork::writePeerICC(uint32_t peerId, uint32_t streamId, NET_SUBFUN
 
         return true;
     }
-    else
+    else {
+        LogInfoEx(LOG_MASTER, "PEER %u In-Call Control Request, command = $%02X, dstId = %u, slot = %u, ssrc = %u, streamId = %u", peerId, command, dstId, slotNo, ssrc, streamId);
         return writePeer(peerId, ssrc, { NET_FUNC::INCALL_CTRL, subFunc }, buffer, 15U, RTP_END_OF_CALL_SEQ, streamId);
+    }
 }
 
 /*

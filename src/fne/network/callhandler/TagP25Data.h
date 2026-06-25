@@ -333,10 +333,11 @@ namespace network
              * @param control Instance of p25::lc::LC.
              * @param duid DUID.
              * @param[in] tsbk Instance of p25::lc::TSBK.
+             * @param frameType Frame Type.
              * @param streamId Stream ID.
              * @returns bool True, if valid, otherwise false.
              */
-            bool validate(uint32_t peerId, p25::lc::LC& control, P25DEF::DUID::E duid, const p25::lc::TSBK* tsbk, uint32_t streamId);
+            bool validate(uint32_t peerId, p25::lc::LC& control, P25DEF::DUID::E duid, const p25::lc::TSBK* tsbk, uint8_t frameType, uint32_t streamId);
 
             /**
              * @brief Helper to write a grant packet.

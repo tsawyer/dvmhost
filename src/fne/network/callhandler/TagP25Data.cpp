@@ -169,8 +169,32 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
         tsbk = lc::tsbk::TSBKFactory::createTSBK(data);
     }
 
+    // decode true LDU LC from the network frame into a DFSI LC class literal
+    dfsi::LC dfsiLC = dfsi::LC(control, lsd);
+    if (duid == DUID::LDU1 || duid == DUID::LDU2) {
+        uint8_t netLDU[9U * 25U];
+        ::memset(netLDU, 0x00U, 9U * 25U);
+
+        uint8_t missing = BaseNetwork::reconstructLDUVectors(buffer + 24U, frameLength, &dfsiLC, duid, netLDU);
+        if (missing > 0U) {
+            LogWarning(LOG_NET, (duid == DUID::LDU1) ? P25_LDU1_STR : P25_LDU2_STR ", missing %u LDU voice frames, srcId = %u, dstId = %u", missing, srcId, dstId);
+        }
+
+        // if its a LDU2 get the crypto state
+        if (duid == DUID::LDU2) {
+            control.setAlgId(dfsiLC.control()->getAlgId());
+            control.setKId(dfsiLC.control()->getKId());
+
+            // copy MI data
+            uint8_t mi[MI_LENGTH_BYTES];
+            ::memset(mi, 0x00U, MI_LENGTH_BYTES);
+            dfsiLC.control()->getMI(mi);
+            control.setMI(mi);
+        }
+    }
+
     // is the stream valid?
-    if (validate(peerId, control, duid, tsbk.get(), streamId)) {
+    if (validate(peerId, control, duid, tsbk.get(), frameType, streamId)) {
         // is this peer ignored?
         if (!isPeerPermitted(peerId, control, duid, streamId, fromUpstream)) {
             return false;
@@ -1531,7 +1555,7 @@ bool TagP25Data::isPeerPermitted(uint32_t peerId, lc::LC& control, DUID::E duid,
 
 /* Helper to validate the P25 call stream. */
 
-bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const p25::lc::TSBK* tsbk, uint32_t streamId)
+bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const p25::lc::TSBK* tsbk, uint8_t frameType, uint32_t streamId)
 {
     // promiscuous hub mode performs no ACL checking and will pass all traffic
     if (g_promiscuousHub)
@@ -1787,9 +1811,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     }
     else {
         // "selectable" strapping doesn't care about encryption state -- anything else does
-        if (tg.config().strapping() != lookups::TG_STRAPPING_SELECTABLE) {
+        if ((tg.config().strapping() != lookups::TG_STRAPPING_SELECTABLE) && (frameType == FrameType::HDU_VALID || duid == DUID::LDU2)) {
             // is the TG strapped but the LC is reporting unencrypted?
             if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
+                LogDebugEx(LOG_P25, "TagP25Data::validate()", "tgId = %u, duid = $%02X, strapping = %u, algId = $%02X", control.getDstId(), (uint8_t)duid, tg.config().strapping(), control.getAlgId());
                 if (control.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
                     // report error event to InfluxDB
                     if (m_network->m_enableInfluxDB) {
@@ -1808,7 +1833,7 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
                         LogError(LOG_P25, INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                     // report In-Call Control to the peer sending traffic
-                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
+                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId(), 0U, true);
                     return false;
                 }
             }
@@ -1833,7 +1858,7 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
                         LogError(LOG_P25, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                     // report In-Call Control to the peer sending traffic
-                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
+                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId(), 0U, true);
                     return false;
                 }
             }
