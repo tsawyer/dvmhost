@@ -408,7 +408,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             LogInfoEx(LOG_RF, "P25 Voice Call, srcId = %u, dstId = %u", srcId, dstId);
 
             uint8_t serviceOptions = (m_rfLC.getEmergency() ? 0x80U : 0x00U) +       // Emergency Flag
-                (m_rfLC.getEncrypted() ? 0x40U : 0x00U) +                            // Encrypted Flag
+                (m_rfLastHDU.getEncrypted() ? 0x40U : 0x00U) +                       // Encrypted Flag
                 (m_rfLC.getPriority() & 0x07U);                                      // Priority
 
             if (m_p25->m_enableControl) {
