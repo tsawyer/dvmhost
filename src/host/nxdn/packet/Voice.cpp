@@ -155,6 +155,23 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
                     return false;
                 }
             }
+
+            // perform encryption strapping check
+            ::lookups::TalkgroupRuleGroupVoice groupVoice = m_nxdn->m_tidLookup->find(dstId);
+            if (!groupVoice.isInvalid()) {
+                if (groupVoice.config().strapping() == ::lookups::TG_STRAPPING_STRAPPED) {
+                    if (lc.getAlgId() == NXDDEF::CIPHER_TYPE_NONE) {
+                        LogWarning(LOG_RF, "NXDN, " NXDN_RTCH_MSG_TYPE_VCALL " denial, TGID enc. strapping rejection, srcId = %u, dstId = %u", srcId, dstId);
+                        ::ActivityLog("NXDN", true, "RF voice rejection from %u to %s%u ", srcId, group ? "TG " : "", dstId);
+
+                        m_nxdn->m_rfLastDstId = 0U;
+                        m_nxdn->m_rfLastSrcId = 0U;
+                        m_nxdn->m_rfTGHang.stop();
+                        m_nxdn->m_rfState = RS_RF_REJECTED;
+                        return false;
+                    }
+                }
+            }
         } else {
             return false;
         }

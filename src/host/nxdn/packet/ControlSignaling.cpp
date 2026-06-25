@@ -501,6 +501,29 @@ bool ControlSignaling::writeRF_Message_Grant(uint32_t srcId, uint32_t dstId, uin
                         return false;
                     }
                 }
+
+                /**
+                 * bryanb: this is disabled -- per the NXDN-TS-1-A spec, there is no reliable way to know if the call
+                 *  is encrypted or not, so we cannot perform this check; because VCALL_REQ does not have a field 
+                 *  to indicate encryption, we cannot know if the call is encrypted or not
+                 */
+                /*
+                // perform encryption strapping check on the voice frame of a call
+                if (grp) {
+                    if (!tid.isInvalid()) {
+                        if (tid.config().strapping() == ::lookups::TG_STRAPPING_STRAPPED) {
+                            if (!encryption) {
+                                LogWarning(LOG_RF, "NXDN, %s denial, TGID enc. strapping rejection, srcId = %u, dstId = %u", rcch->toString().c_str(), srcId, dstId);
+                                writeRF_Message_Deny(0U, srcId, CauseResponse::VD_GRP_NOT_PERM, MessageType::RTCH_VCALL);
+
+                                ::ActivityLog("NXDN", true, "group grant request rejection from %u to TG %u ", srcId, dstId);
+                                m_nxdn->m_rfState = RS_RF_REJECTED;
+                                return false;
+                            }
+                        }
+                    }
+                }
+                */
             }
 
             if (!grp && !m_nxdn->m_ignoreAffiliationCheck) {
@@ -528,7 +551,7 @@ bool ControlSignaling::writeRF_Message_Grant(uint32_t srcId, uint32_t dstId, uin
                         LogWarning(LOG_RF, "NXDN, %s queued, no channels available, dstId = %u", rcch->toString().c_str(), dstId);
                         writeRF_Message_Deny(0U, srcId, CauseResponse::VD_QUE_CHN_RESOURCE_NOT_AVAIL, MessageType::RTCH_VCALL);
 
-                        ::ActivityLog("P25", true, "unit-to-unit grant request from %u to %u queued", srcId, dstId);
+                        ::ActivityLog("NXDN", true, "unit-to-unit grant request from %u to %u queued", srcId, dstId);
                         m_nxdn->m_rfState = RS_RF_REJECTED;
                     }
 

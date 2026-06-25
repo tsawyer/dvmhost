@@ -1785,6 +1785,60 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
         return false;
     }
+    else {
+        // "selectable" strapping doesn't care about encryption state -- anything else does
+        if (tg.config().strapping() != lookups::TG_STRAPPING_SELECTABLE) {
+            // is the TG strapped but the LC is reporting unencrypted?
+            if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
+                if (control.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
+                    // report error event to InfluxDB
+                    if (m_network->m_enableInfluxDB) {
+                        influxdb::QueryBuilder()
+                            .meas("call_error_event")
+                                .tag("peerId", std::to_string(peerId))
+                                .tag("streamId", std::to_string(streamId))
+                                .tag("srcId", std::to_string(control.getSrcId()))
+                                .tag("dstId", std::to_string(control.getDstId()))
+                                    .field("message", std::string(INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR))
+                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+                            .requestAsync(m_network->m_influxServer);
+                    }
+
+                    if (m_network->m_logDenials)
+                        LogError(LOG_P25, INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+
+                    // report In-Call Control to the peer sending traffic
+                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
+                    return false;
+                }
+            }
+
+            // is the TG unstrapped but the LC is reporting encrypted?
+            if (tg.config().strapping() == lookups::TG_STRAPPING_CLEAR) {
+                if (control.getAlgId() != P25DEF::ALGO_UNENCRYPT) {
+                    // report error event to InfluxDB
+                    if (m_network->m_enableInfluxDB) {
+                        influxdb::QueryBuilder()
+                            .meas("call_error_event")
+                                .tag("peerId", std::to_string(peerId))
+                                .tag("streamId", std::to_string(streamId))
+                                .tag("srcId", std::to_string(control.getSrcId()))
+                                .tag("dstId", std::to_string(control.getDstId()))
+                                    .field("message", std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC))
+                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+                            .requestAsync(m_network->m_influxServer);
+                    }
+
+                    if (m_network->m_logDenials)
+                        LogError(LOG_P25, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+
+                    // report In-Call Control to the peer sending traffic
+                    m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
+                    return false;
+                }
+            }
+        }
+    }
 
     // peer always send list takes priority over any following affiliation rules
     bool isAlwaysPeer = false;

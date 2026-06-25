@@ -164,6 +164,8 @@ json::object tgToJson(const TalkgroupRuleGroupVoice& groupVoice)
         config["affiliated"].set<bool>(affiliated);
         bool parrot = groupVoice.config().parrot();
         config["parrot"].set<bool>(parrot);
+        uint8_t strapping = groupVoice.config().strapping();
+        config["strapping"].set<uint8_t>(strapping);
 
         json::array inclusions = json::array();
         std::vector<uint32_t> inclusion = groupVoice.config().inclusion();
@@ -320,10 +322,16 @@ TalkgroupRuleGroupVoice jsonToTG(json::object& req, HTTPPayload& reply)
             return TalkgroupRuleGroupVoice();
         }
 
+        uint8_t strapping = TG_STRAPPING_SELECTABLE;
+        if (configObj["strapping"].is<uint8_t>()) {
+            strapping = configObj["strapping"].get<uint8_t>();
+        }
+
         TalkgroupRuleConfig config = groupVoice.config();
         config.active(configObj["active"].get<bool>());
         config.affiliated(configObj["affiliated"].get<bool>());
         config.parrot(configObj["parrot"].get<bool>());
+        config.strapping(strapping);
 
         if (!configObj["inclusion"].is<json::array>()) {
             errorPayload(reply, "TG configuration \"inclusion\" was not a valid JSON array");

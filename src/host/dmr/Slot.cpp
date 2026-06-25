@@ -5,7 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2015,2016,2017,2018 Jonathan Naylor, G4KLX
- *  Copyright (C) 2017-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2017-2026 Bryan Biedenkapp, N2PLL
  *
  */
 #include "Defines.h"
@@ -551,7 +551,7 @@ void Slot::processInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId)
                 m_rfLastSrcId = 0U;
                 m_rfTGHang.stop();
                 m_rfState = RS_RF_REJECTED;
-                m_reverseChannelCommand = network::NET_ICC::NOP;
+                m_reverseChannelCommand = network::NET_ICC::DMR_RC_CEASE_TRANSMIT;
             }
         }
         break;

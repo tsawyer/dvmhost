@@ -4,7 +4,7 @@
  * GPLv2 Open Source. Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- *  Copyright (C) 2023,2024,2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
  *  Copyright (C) 2024 Patrick McDonnell, W3AXL
  *
  */
@@ -132,7 +132,8 @@ void TalkgroupRulesLookup::clear()
 
 /* Adds a new entry to the lookup table by the specified unique ID. */
 
-void TalkgroupRulesLookup::addEntry(uint32_t id, uint8_t slot, bool enabled, bool affiliated, bool nonPreferred)
+void TalkgroupRulesLookup::addEntry(uint32_t id, uint8_t slot, bool enabled, bool affiliated, bool nonPreferred,
+    uint8_t strapping)
 {
     TalkgroupRuleGroupVoiceSource source;
     TalkgroupRuleConfig config;
@@ -141,6 +142,7 @@ void TalkgroupRulesLookup::addEntry(uint32_t id, uint8_t slot, bool enabled, boo
     config.active(enabled);
     config.affiliated(affiliated);
     config.nonPreferred(nonPreferred);
+    config.strapping(strapping);
 
     __LOCK_TABLE();
 
@@ -161,6 +163,7 @@ void TalkgroupRulesLookup::addEntry(uint32_t id, uint8_t slot, bool enabled, boo
         config.active(enabled);
         config.affiliated(affiliated);
         config.nonPreferred(nonPreferred);
+        config.strapping(strapping);
 
         TalkgroupRuleGroupVoice entry = *it;
         entry.config(config);
@@ -353,6 +356,7 @@ bool TalkgroupRulesLookup::load()
             bool active = groupVoice.config().active();
             bool parrot = groupVoice.config().parrot();
             bool affil = groupVoice.config().affiliated();
+            uint8_t strapping = groupVoice.config().strapping();
 
             uint32_t incCount = groupVoice.config().inclusion().size();
             uint32_t excCount = groupVoice.config().exclusion().size();
@@ -369,7 +373,7 @@ bool TalkgroupRulesLookup::load()
                 ::LogWarning(LOG_HOST, "Talkgroup (%s) is marked as affiliation required and has a defined always send list! Always send peers take rule precedence and defined peers will always receive traffic.", groupName.c_str());
             }
 
-            ::LogInfoEx(LOG_HOST, "Talkgroup NAME: %s SRC_TGID: %u SRC_TS: %u ACTIVE: %u PARROT: %u AFFILIATED: %u INCLUSIONS: %u EXCLUSIONS: %u REWRITES: %u ALWAYS: %u PREFERRED: %u PERMITTED RIDS: %u", groupName.c_str(), tgId, tgSlot, active, parrot, affil, incCount, excCount, rewrCount, alwyCount, prefCount, permRIDCount);
+            ::LogInfoEx(LOG_HOST, "Talkgroup NAME: %s SRC_TGID: %u SRC_TS: %u ACTIVE: %u PARROT: %u AFFILIATED: %u STRAPPING: %u INCLUSIONS: %u EXCLUSIONS: %u REWRITES: %u ALWAYS: %u PREFERRED: %u PERMITTED RIDS: %u", groupName.c_str(), tgId, tgSlot, active, parrot, affil, strapping, incCount, excCount, rewrCount, alwyCount, prefCount, permRIDCount);
         }
     }
 

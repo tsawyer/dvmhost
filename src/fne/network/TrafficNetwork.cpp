@@ -2258,13 +2258,11 @@ void TrafficNetwork::erasePeer(uint32_t peerId)
 {
     bool neighborFNE = false;
     {
-        m_peers.lock();
         auto it = std::find_if(m_peers.begin(), m_peers.end(), [&](PeerMapPair x) { return x.first == peerId; });
         if (it != m_peers.end()) {
             neighborFNE = it->second->peerClass() == PEER_CONN_CLASS_NEIGHBOR;
             m_peers.erase(peerId);
         }
-        m_peers.unlock();
     }
 
     // erase any CC maps for this peer
@@ -3071,6 +3069,16 @@ void TrafficNetwork::writeTGIDs(uint32_t peerId, uint32_t streamId, bool sendRep
             // set the $40 bit of the slot number to identify if this TG is by affiliation or not
             if (entry.config().affiliated()) {
                 slotNo |= 0x40U;
+            }
+
+            // set the $20 bit of the slot number to identify if this TG is strapped or not
+            if (entry.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
+                slotNo |= 0x20U;
+            }
+
+            // set the $10 bit of the slot number to identify if this TG is clear only
+            if (entry.config().strapping() != lookups::TG_STRAPPING_CLEAR) {
+                slotNo |= 0x10U;
             }
 
             tgidList.push_back({ entry.source().tgId(), slotNo });

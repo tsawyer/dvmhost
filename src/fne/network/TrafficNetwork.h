@@ -4,7 +4,7 @@
  * GPLv2 Open Source. Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- *  Copyright (C) 2023-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
  *
  */
 /**
@@ -88,6 +88,8 @@ namespace network
     #define INFLUXDB_ERRSTR_DISABLED_DST_RID "disabled destination RID"
     #define INFLUXDB_ERRSTR_INV_TALKGROUP "illegal/invalid talkgroup"
     #define INFLUXDB_ERRSTR_DISABLED_TALKGROUP "disabled talkgroup"
+    #define INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR "encrypted talkgroup with clear traffic"
+    #define INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC "clear talkgroup with encrypted traffic"
     #define INFLUXDB_ERRSTR_INV_SLOT "invalid slot for talkgroup"
     #define INFLUXDB_ERRSTR_RID_NOT_PERMITTED "RID not permitted for talkgroup"
     #define INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS "illegal/unknown RID attempted access"

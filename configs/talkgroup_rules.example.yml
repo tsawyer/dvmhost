@@ -39,6 +39,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
       inclusion: []
       # List of peer IDs excluded for this talkgroup (peers listed here will be ignored for traffic).
@@ -74,6 +76,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # Flag indicating whether or not this talkgroup is a parrot talkgroup.
       parrot: true
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
@@ -111,6 +115,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # Flag indicating whether or not this talkgroup is a parrot talkgroup.
       parrot: true
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
@@ -154,6 +160,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
       inclusion: []
       # List of peer IDs excluded for this talkgroup (peers listed here will be ignored for traffic).
@@ -189,6 +197,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
       inclusion: []
       # List of peer IDs excluded for this talkgroup (peers listed here will be ignored for traffic).
@@ -224,6 +234,8 @@ groupVoice:
       active: true
       # Flag indicating whether this talkgroup will only repeat with affiliations.
       affiliated: false
+      # Encryption strapping level for this talkgroup. (0 = Selectable, 1 = Strapped, 2 = Clear)
+      strapping: 0
       # List of peer IDs included for this talkgroup (peers listed here will be selected for traffic).
       inclusion: []
       # List of peer IDs excluded for this talkgroup (peers listed here will be ignored for traffic).

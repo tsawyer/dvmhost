@@ -873,6 +873,19 @@ void Network::clock(uint32_t ms)
                                     bool affiliated = (buffer[offs + 3U] & 0x40U) == 0x40U;
                                     bool nonPreferred = (buffer[offs + 3U] & 0x80U) == 0x80U;
 
+                                    // encryption strapping bits
+                                    bool strappedBit = (buffer[offs + 3U] & 0x20U) == 0x20U;
+                                    bool clearBit = (buffer[offs + 3U] & 0x10U) == 0x10U;
+                                    uint8_t strapping = lookups::TG_STRAPPING_SELECTABLE;
+
+                                    if (strappedBit) {
+                                        strapping = lookups::TG_STRAPPING_STRAPPED;
+                                    }
+                                    
+                                    if (clearBit) {
+                                        strapping = lookups::TG_STRAPPING_CLEAR;
+                                    }
+
                                     lookups::TalkgroupRuleGroupVoice tid = m_tidLookup->find(id, slot);
 
                                     // if the TG is marked as non-preferred, and the TGID exists in the local entries
@@ -891,7 +904,7 @@ void Network::clock(uint32_t ms)
 
                                         LogInfoEx(LOG_NET, "Activated%s%s TG %u TS %u in TGID table", 
                                             (nonPreferred) ? " non-preferred" : "", (affiliated) ? " affiliated" : "", id, slot);
-                                        m_tidLookup->addEntry(id, slot, true, affiliated, nonPreferred);
+                                        m_tidLookup->addEntry(id, slot, true, affiliated, nonPreferred, strapping);
                                     }
 
                                     offs += 5U;

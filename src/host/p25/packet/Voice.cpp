@@ -142,6 +142,19 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 }
             }
 
+            // perform encryption strapping check
+            ::lookups::TalkgroupRuleGroupVoice groupVoice = m_p25->m_tidLookup->find(lc.getDstId());
+            if (!groupVoice.isInvalid()) {
+                if (groupVoice.config().strapping() == ::lookups::TG_STRAPPING_STRAPPED) {
+                    if (lc.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
+                        LogWarning(LOG_RF, "P25, " P25_HDU_STR " denial, TGID enc. strapping rejection, dstId = %u", lc.getDstId());
+                        resetRF();
+                        m_p25->m_rfState = RS_RF_LISTENING;
+                        return false;
+                    }
+                }
+            }
+
             // don't process RF frames if this modem isn't authoritative
             if (!m_p25->m_authoritative && m_p25->m_permittedDstId != lc.getDstId()) {
                 if (!g_disableNonAuthoritativeLogging)
@@ -319,6 +332,23 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     m_p25->m_rfTGHang.stop();
                     m_p25->m_rfState = RS_RF_REJECTED;
                     return false;
+                }
+
+                // perform encryption strapping check
+                ::lookups::TalkgroupRuleGroupVoice groupVoice = m_p25->m_tidLookup->find(dstId);
+                if (!groupVoice.isInvalid()) {
+                    if (groupVoice.config().strapping() == ::lookups::TG_STRAPPING_STRAPPED) {
+                        if (!lc.getEncrypted()) {
+                            LogWarning(LOG_RF, "P25, " P25_HDU_STR " denial, TGID enc. strapping rejection, srcId = %u, dstId = %u", srcId, dstId);
+                            ::ActivityLog("P25", true, "RF voice rejection from %u to %s%u ", srcId, group ? "TG " : "", dstId);
+
+                            m_p25->m_rfLastDstId = 0U;
+                            m_p25->m_rfLastSrcId = 0U;
+                            m_p25->m_rfTGHang.stop();
+                            m_p25->m_rfState = RS_RF_REJECTED;
+                            return false;
+                        }
+                    }
                 }
             }
 

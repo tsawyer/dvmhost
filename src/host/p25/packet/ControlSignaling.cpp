@@ -2153,6 +2153,9 @@ bool ControlSignaling::writeRF_TSDU_Grant(uint32_t srcId, uint32_t dstId, uint8_
         return true; // do not generate grant packets for $FFFF (All Call) TGID
     }
 
+    LogDebugEx(LOG_RF, "ControlSignaling::writeRF_TSDU_Grant()", "srcId = %u, dstId = %u, serviceOptions = $%02X, grp = %u, net = %u, skip = %u, chNo = %u",
+        srcId, dstId, serviceOptions, grp, net, skip, chNo);
+
     // are network channel grants disabled?
     if (m_p25->m_disableNetworkGrant) {
         // don't process RF grant if the network isn't in a idle state and the RF destination is the network destination
@@ -2227,6 +2230,23 @@ bool ControlSignaling::writeRF_TSDU_Grant(uint32_t srcId, uint32_t dstId, uint8_
                     if (!m_p25->m_affiliations->hasGroupAff(dstId)) {
                         LogWarning(LOG_NET, P25_TSDU_STR ", TSBKO, IOSP_GRP_VCH (Group Voice Channel Request) ignored, no group affiliations, dstId = %u", dstId);
                         return false;
+                    }
+                }
+            }
+
+            if (grp) {
+                // perform encryption strapping check
+                ::lookups::TalkgroupRuleGroupVoice tid = m_p25->m_tidLookup->find(dstId);
+                if (!tid.isInvalid()) {
+                    if (tid.config().strapping() == ::lookups::TG_STRAPPING_STRAPPED) {
+                        if (!encryption) {
+                            LogWarning(LOG_RF, "P25, " P25_TSDU_STR ", TSBKO, IOSP_GRP_VCH (Group Voice Channel Request) denial, TGID enc. strapping rejection, srcId = %u, dstId = %u", srcId, dstId);
+                            writeRF_TSDU_Deny(srcId, dstId, ReasonCode::DENY_TGT_GROUP_NOT_VALID, TSBKO::IOSP_GRP_VCH, grp, true);
+
+                            ::ActivityLog("P25", true, "group grant request from %u to TG %u denied", srcId, dstId);
+                            m_p25->m_rfState = RS_RF_REJECTED;
+                            return false;
+                        }
                     }
                 }
             }

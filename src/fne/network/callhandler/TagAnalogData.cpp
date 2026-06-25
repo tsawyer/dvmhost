@@ -781,6 +781,30 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
             return false;
         }
+        else {
+            // analog doesn't support strapping, so if the TG is strapped, reject the call
+            if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
+                // report error event to InfluxDB
+                if (m_network->m_enableInfluxDB) {
+                    influxdb::QueryBuilder()
+                        .meas("call_error_event")
+                            .tag("peerId", std::to_string(peerId))
+                            .tag("streamId", std::to_string(streamId))
+                            .tag("srcId", std::to_string(data.getSrcId()))
+                            .tag("dstId", std::to_string(data.getDstId()))
+                                .field("message", std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC))
+                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+                        .requestAsync(m_network->m_influxServer);
+                }
+
+                if (m_network->m_logDenials)
+                    LogError(LOG_ANALOG, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+
+                // report In-Call Control to the peer sending traffic
+                m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
+                return false;
+            }
+        }
 
         // peer always send list takes priority over any following affiliation rules
         bool isAlwaysPeer = false;

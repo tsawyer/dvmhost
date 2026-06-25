@@ -1272,6 +1272,14 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
             return false;
         }
 
+        /*
+        ** bryanb: yes the encryption else condition is missing here -- DMR is a bit of a mess when it comes to 
+        **  handling encryption because AFAIK the TS.102 spec doesn't clearly indicate how to handle encryption; 
+        **  DVM's FNE cannot reliably implement selectable, strapped, clear checking because it won't know reliably 
+        **  if the call is encrypted or not until it receives a VOICE_LC_HEADER or VOICE_PI_HEADER frame, and by that 
+        **  time it'll really be too late to reject the call
+        */
+
         // peer always send list takes priority over any following affiliation rules
         bool isAlwaysPeer = false;
         std::vector<uint32_t> alwaysSend = tg.config().alwaysSend();
