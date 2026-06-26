@@ -50,6 +50,7 @@ iAgreeNotToBeStupid: false
 # Logging Configuration
 #
 #   Logging Levels:
+#     0 - Off/Disabled (No Logging! Beware.)
 #     1 - Debug
 #     2 - Informational
 #     3 - Warning
