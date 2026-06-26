@@ -25,6 +25,7 @@
 #include "common/concurrent/vector.h"
 #include "common/concurrent/unordered_map.h"
 #include "common/lookups/ChannelLookup.h"
+#include "common/StopWatch.h"
 #include "common/Timer.h"
 
 #include <cstdio>
@@ -235,6 +236,13 @@ namespace lookups
          */
         virtual uint32_t getGrantedSrcId(uint32_t dstId);
         /**
+         * @brief Helper to get the current elapsed time for the given destination ID.
+         * @note This is the time since the grant was first granted.
+         * @param dstId Destination Address.
+         * @returns uint32_t Current elapsed time for the channel grant.
+         */
+        uint32_t getGrantCallElapsed(uint32_t dstId);
+        /**
          * @brief Gets the count of granted RF channels.
          * @returns uint8_t Total number of granted RF channels.
          */
@@ -303,6 +311,7 @@ namespace lookups
         concurrent::unordered_map<uint32_t, bool> m_uuGrantedTable;
         concurrent::unordered_map<uint32_t, bool> m_netGrantedTable;
         concurrent::unordered_map<uint32_t, Timer> m_grantTimers;
+        concurrent::unordered_map<uint32_t, StopWatch> m_grantCallTimers;
 
         //                 chNo      srcId     dstId     slot
         std::function<void(uint32_t, uint32_t, uint32_t, uint8_t)> m_releaseGrant;

@@ -1371,7 +1371,7 @@ json::object Host::getStatus()
             uint32_t peerId = m_voiceChPeerId[chNo];
             chData["peerId"].set<uint32_t>(peerId);
 
-            uint32_t dstId = 0U, srcId = 0U;
+            uint32_t dstId = 0U, srcId = 0U, grantElapsedTime = 0U;
 
             // fetch affiliations from DMR if we're a DMR CC
             if (m_dmrTSCCData && m_dmr->affiliations() != nullptr) {
@@ -1382,8 +1382,10 @@ json::object Host::getStatus()
                 }
 
                 dstId = m_dmr->affiliations()->getGrantedDstByCh(chNo);
-                if (dstId > 0U)
+                if (dstId > 0U) {
                     srcId = m_dmr->affiliations()->getGrantedSrcId(dstId);
+                    grantElapsedTime = m_dmr->affiliations()->getGrantCallElapsed(dstId);
+                }
             }
 
             // fetch affiliations from P25 if we're a P25 CC
@@ -1395,8 +1397,10 @@ json::object Host::getStatus()
                 }
 
                 dstId = m_p25->affiliations()->getGrantedDstByCh(chNo);
-                if (dstId > 0U)
+                if (dstId > 0U) {
                     srcId = m_p25->affiliations()->getGrantedSrcId(dstId);
+                    grantElapsedTime = m_p25->affiliations()->getGrantCallElapsed(dstId);
+                }
             }
 
             // fetch affiliations from NXDN if we're a NXDN CC
@@ -1408,12 +1412,15 @@ json::object Host::getStatus()
                 }
 
                 dstId = m_nxdn->affiliations()->getGrantedDstByCh(chNo);
-                if (dstId > 0U)
+                if (dstId > 0U) {
                     srcId = m_nxdn->affiliations()->getGrantedSrcId(dstId);
+                    grantElapsedTime = m_nxdn->affiliations()->getGrantCallElapsed(dstId);
+                }
             }
 
             chData["lastDstId"].set<uint32_t>(dstId);
             chData["lastSrcId"].set<uint32_t>(srcId);
+            chData["grantElapsedTime"].set<uint32_t>(grantElapsedTime);
 
             vcChannels.push_back(json::value(chData));
         }

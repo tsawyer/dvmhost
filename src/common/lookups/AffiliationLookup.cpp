@@ -38,6 +38,7 @@ AffiliationLookup::AffiliationLookup(const std::string name, ChannelLookup* chan
     m_uuGrantedTable(),
     m_netGrantedTable(),
     m_grantTimers(),
+    m_grantCallTimers(),
     m_releaseGrant(nullptr),
     m_unitDereg(nullptr),
     m_name(),
@@ -364,6 +365,8 @@ bool AffiliationLookup::grantCh(uint32_t dstId, uint32_t srcId, uint32_t grantTi
 
     m_grantTimers[dstId] = Timer(1000U, grantTimeout);
     m_grantTimers[dstId].start();
+    m_grantCallTimers[dstId] = StopWatch();
+    m_grantCallTimers[dstId].start();
 
     if (m_verbose) {
         LogInfoEx(LOG_HOST, "%s, granting channel, chNo = %u, dstId = %u, srcId = %u, group = %u",
@@ -452,6 +455,8 @@ bool AffiliationLookup::releaseGrant(uint32_t dstId, bool releaseAll)
         m_grantSrcIdTable.erase(dstId);
         m_uuGrantedTable.erase(dstId);
         m_netGrantedTable.erase(dstId);
+
+        m_grantCallTimers.erase(dstId);
 
         if (m_chLookup != nullptr) {
             m_chLookup->freeRFCh(chNo);
@@ -666,6 +671,32 @@ uint32_t AffiliationLookup::getGrantedSrcId(uint32_t dstId)
             return srcId;
         }
         m_grantSrcIdTable.unlock();
+    }
+
+    return 0U;
+}
+
+/* Helper to get the current elapsed time for the given destination ID. */
+
+uint32_t AffiliationLookup::getGrantCallElapsed(uint32_t dstId)
+{
+    if (dstId == 0U) {
+        return 0U;
+    }
+
+    __spinlock();
+
+    if (isGranted(dstId)) {
+        // lookup dynamic channel grant timer table entry
+        m_grantCallTimers.lock(false);
+        auto it = m_grantCallTimers.find(dstId);
+        if (it != m_grantCallTimers.end()) {
+            uint32_t time = it->second.elapsed();
+
+            m_grantCallTimers.unlock();
+            return time;
+        }
+        m_grantCallTimers.unlock();
     }
 
     return 0U;
