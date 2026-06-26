@@ -2193,8 +2193,9 @@ bool Control::getLLA_AM1_Parameters(uint32_t srcId, uint8_t* rs, uint8_t* crs, u
     } else {
         LogWarning(LOG_P25, "P25, LLA key not found requesting from FNE, rsi = %u", srcId);
         m_network->writeLLAKeyReq(srcId);
-        return false;
     }
+
+    return false;
 }
 
 /* Helper to clear LLA AM1 parameters for a given source ID. */
