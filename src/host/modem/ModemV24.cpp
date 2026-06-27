@@ -761,8 +761,7 @@ bool ModemV24::decodeRxCallLDU1Metadata(lc::LC& control, const char* dfsiLabel, 
             (control.getPriority() & 0x07U);
     }
 
-    bool trustedIdentity = !control.isStandardMFId() ||
-        (control.getSrcId() != 0U && control.getDstId() != 0U);
+    bool trustedIdentity = control.getSrcId() != 0U && control.getDstId() != 0U;
     if (trustedIdentity) {
         bool establishingTrustedLC = !m_rxCall->lastLDU1LCValid;
         m_rxCall->lastLDU1LC = control;
