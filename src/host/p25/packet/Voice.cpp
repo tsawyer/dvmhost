@@ -191,7 +191,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             m_rfLastHDU = lc;
             m_rfLastHDUValid = lc.getDstId() != 0U &&
-                acl::AccessControl::validateTGId(lc.getDstId(), m_p25->m_forceAllowTG0);
+                acl::AccessControl::validateTGId(lc.getDstId());
             m_rfLastHDUTGRejected = lc.getDstId() != 0U && !m_rfLastHDUValid;
 
             if (m_p25->m_rfState == RS_RF_LISTENING) {
@@ -288,8 +288,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 return false;
             }
 
-            if (group && dstId == 0U && m_p25->m_isModemDFSI && !m_p25->m_forceAllowTG0) {
-                LogWarning(LOG_RF, "P25, DFSI LDU1 with TGID 0 while TG0 remap is disabled, discarding frame");
+            if (group && dstId == 0U && m_p25->m_isModemDFSI) {
+                LogWarning(LOG_RF, "P25, DFSI LDU1 with TGID 0, discarding frame");
 
                 m_p25->m_rfLastDstId = 0U;
                 m_p25->m_rfLastSrcId = 0U;
@@ -320,7 +320,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             }
             else {
                 // validate the target ID, if the target is a talkgroup
-                if (!acl::AccessControl::validateTGId(dstId, m_p25->m_forceAllowTG0)) {
+                if (!acl::AccessControl::validateTGId(dstId)) {
                     if (m_lastRejectId == 0 || m_lastRejectId != dstId) {
                         LogWarning(LOG_RF, P25_LDU1_STR " denial, TGID rejection, dstId = %u", dstId);
                         if (m_p25->m_enableControl) {
@@ -337,12 +337,6 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     m_p25->m_rfState = RS_RF_REJECTED;
                     return false;
                 }
-            }
-
-            if (group && dstId == 0U && m_p25->m_forceAllowTG0) {
-                LogWarning(LOG_RF, P25_LDU1_STR " TGID 0 (P25 blackhole talkgroup) detected, srcId = %u", srcId);
-                dstId = 1U; // force destination ID to TGID 1 -- TGID 0 is not allowed in P25, and the network won't properly handle it
-                lc.setDstId(dstId);
             }
 
             // verify the source RID is affiliated to the group TGID; only if control data

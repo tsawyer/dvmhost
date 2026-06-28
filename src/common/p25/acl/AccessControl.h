@@ -54,10 +54,9 @@ namespace p25
             /**
              * @brief Helper to validate a talkgroup ID.
              * @param id Talkgroup ID (TGID).
-             * @param allowZero Flag indicating whether TGID 0 is allowed or not.
              * @returns bool True, if talkgroup ID is valid, otherwise false.
              */
-            static bool validateTGId(uint32_t id, bool allowZero = false);
+            static bool validateTGId(uint32_t id);
 
             /**
              * @brief Helper to determine if a talkgroup ID is non-preferred.

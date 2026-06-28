@@ -137,7 +137,6 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ignoreAffiliationCheck(false),
     m_demandUnitRegForRefusedAff(true),
     m_dfsiFDX(false),
-    m_forceAllowTG0(false),
     m_immediateCallTerm(true),
     m_explicitTDUGrantRelease(true),
     m_disableDenyResponse(false),
@@ -436,11 +435,6 @@ void Control::setOptions(yaml::Node& conf, bool supervisor, const std::string cw
         m_notifyCC = false;
     }
 
-    m_forceAllowTG0 = p25Protocol["forceAllowTG0"].as<bool>(false);
-    if (m_forceAllowTG0) {
-        LogWarning(LOG_P25, "TGID 0 (P25 blackhole talkgroup) will be allowed. This is not recommended, and can cause undesired behavior, it is typically only needed by poorly behaved systems.");
-    }
-
     m_immediateCallTerm = p25Protocol["immediateCallTerm"].as<bool>(true);
     m_explicitTDUGrantRelease = p25Protocol["explicitTDUGrantRelease"].as<bool>(true);
     m_disableDenyResponse = p25Protocol["disableDenyResponse"].as<bool>(false);
@@ -599,10 +593,6 @@ void Control::setOptions(yaml::Node& conf, bool supervisor, const std::string cw
 
         if (m_isModemDFSI && m_dfsiFDX) {
             LogInfo("    DFSI Full Duplex: yes");
-        }
-
-        if (m_forceAllowTG0) {
-            LogInfo("    Force Allow TGID 0: yes");
         }
 
         LogInfo("    Patch Super Group: $%04X", m_control->m_patchSuperGroup);

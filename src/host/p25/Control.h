@@ -315,7 +315,6 @@ namespace p25
         bool m_ignoreAffiliationCheck;
         bool m_demandUnitRegForRefusedAff;
         bool m_dfsiFDX;
-        bool m_forceAllowTG0;
         bool m_immediateCallTerm;
         bool m_explicitTDUGrantRelease;
         bool m_disableDenyResponse;
