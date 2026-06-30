@@ -809,33 +809,21 @@ uint8_t ModemV24::updateRxVoiceSequence(DFSIFrameType::E frameType)
 {
     uint8_t ldu1Seq = getLDU1SequenceIndex(frameType);
     if (ldu1Seq != 0U) {
-        if (ldu1Seq == 1U) {
-            m_rxCall->ldu1Seq = 1U;
-            return 0U;
-        }
-
-        if ((m_rxCall->ldu1Seq + 1U) == ldu1Seq) {
+        if (ldu1Seq == 1U || ldu1Seq > m_rxCall->ldu1Seq) {
             m_rxCall->ldu1Seq = ldu1Seq;
             return (ldu1Seq == 9U) ? 1U : 0U;
         }
 
-        m_rxCall->ldu1Seq = 0U;
         return 0U;
     }
 
     uint8_t ldu2Seq = getLDU2SequenceIndex(frameType);
     if (ldu2Seq != 0U) {
-        if (ldu2Seq == 1U) {
-            m_rxCall->ldu2Seq = 1U;
-            return 0U;
-        }
-
-        if ((m_rxCall->ldu2Seq + 1U) == ldu2Seq) {
+        if (ldu2Seq == 1U || ldu2Seq > m_rxCall->ldu2Seq) {
             m_rxCall->ldu2Seq = ldu2Seq;
             return (ldu2Seq == 9U) ? 2U : 0U;
         }
 
-        m_rxCall->ldu2Seq = 0U;
         return 0U;
     }
 
