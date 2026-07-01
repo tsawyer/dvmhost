@@ -1814,7 +1814,7 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         if ((tg.config().strapping() != lookups::TG_STRAPPING_SELECTABLE) && (frameType == FrameType::HDU_VALID || duid == DUID::LDU2)) {
             // is the TG strapped but the LC is reporting unencrypted?
             if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
-                LogDebugEx(LOG_P25, "TagP25Data::validate()", "tgId = %u, duid = $%02X, strapping = %u, algId = $%02X", control.getDstId(), (uint8_t)duid, tg.config().strapping(), control.getAlgId());
+                //LogDebugEx(LOG_P25, "TagP25Data::validate()", "tgId = %u, duid = $%02X, strapping = %u, algId = $%02X", control.getDstId(), (uint8_t)duid, tg.config().strapping(), control.getAlgId());
                 if (control.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
                     // report error event to InfluxDB
                     if (m_network->m_enableInfluxDB) {
