@@ -82,12 +82,14 @@ P25OTARService::~P25OTARService()
 bool P25OTARService::processDLD(const uint8_t* data, uint32_t len, uint32_t llId, uint8_t n, bool encrypted,
     uint8_t algoId, uint16_t kid, const uint8_t* mi)
 {
+    auto sendNack = [&](uint8_t nackType) {
+        m_packetData->write_PDU_Ack_Response(PDUAckClass::NACK, nackType, n, llId, false);
+    };
+
     uint8_t resolvedAlgoId = algoId;
     uint16_t resolvedKId = kid;
     uint8_t resolvedMI[MI_LENGTH_BYTES];
     ::memset(resolvedMI, 0x00U, MI_LENGTH_BYTES);
-
-    m_packetData->write_PDU_Ack_Response(PDUAckClass::ACK, PDUAckType::ACK, n, llId, false);
 
     if (m_debug)
         Utils::dump(1U, "P25OTARService::processDLD(), KMM Network Message", data, len);
@@ -105,6 +107,7 @@ bool P25OTARService::processDLD(const uint8_t* data, uint32_t len, uint32_t llId
             // legacy fallback for payload-embedded KMM encryption parameters
             if (len < 11U) {
                 LogError(LOG_P25, P25_KMM_STR ", encrypted KMM payload too short, len = %u", len);
+                sendNack(PDUAckType::NACK_ILLEGAL);
                 return false;
             }
 
@@ -119,14 +122,25 @@ bool P25OTARService::processDLD(const uint8_t* data, uint32_t len, uint32_t llId
         kmmPayload = cryptKMM(resolvedAlgoId, resolvedKId, resolvedMI, data, len, false);
         if (kmmPayload == nullptr) {
             LogError(LOG_P25, P25_KMM_STR ", unable to decrypt KMM, algoId = $%02X, kID = $%04X", resolvedAlgoId, resolvedKId);
+            sendNack(PDUAckType::NACK_UNDELIVERABLE);
             return false;
         }
     }
 
+    std::unique_ptr<KMMFrame> frame = KMMFactory::create(kmmPayload.get());
+    if (frame == nullptr) {
+        LogWarning(LOG_P25, P25_KMM_STR ", undecodable KMM packet");
+        sendNack(PDUAckType::NACK_ILLEGAL);
+        return false;
+    }
+
     uint32_t payloadSize = 0U;
     UInt8Array pduUserData = processKMM(kmmPayload.get(), len, llId, false, &payloadSize);
-    if (pduUserData == nullptr)
-        return false;
+    if (pduUserData == nullptr || payloadSize == 0U) {
+        // no OTAR response is required for this message; acknowledge successful processing
+        m_packetData->write_PDU_Ack_Response(PDUAckClass::ACK, PDUAckType::ACK, n, llId, false);
+        return true;
+    }
 
     // handle DLD encrypted KMM frame
     if (encrypted) {
@@ -134,11 +148,13 @@ bool P25OTARService::processDLD(const uint8_t* data, uint32_t len, uint32_t llId
         pduUserData = cryptKMM(resolvedAlgoId, resolvedKId, resolvedMI, pduUserData.get(), payloadSize, true);
         if (pduUserData == nullptr) {
             LogError(LOG_P25, P25_KMM_STR ", unable to encrypt KMM response, algoId = $%02X, kID = $%04X", resolvedAlgoId, resolvedKId);
+            sendNack(PDUAckType::NACK_UNDELIVERABLE);
             return false;
         }
     }
 
     m_packetData->write_PDU_KMM(pduUserData.get(), payloadSize, llId, encrypted, resolvedAlgoId, resolvedKId, resolvedMI);
+    m_packetData->write_PDU_Ack_Response(PDUAckClass::ACK, PDUAckType::ACK, n, llId, false);
     return true;
 }
 
@@ -233,7 +249,6 @@ void P25OTARService::taskNetworkRx(OTARPacketRequest* req)
 
         if (req->length >= 13) {
             // read crypto parameters from KMM header
-            uint8_t mfId = req->buffer[1U];
             uint8_t algoId = req->buffer[2U];
             uint16_t kid = GET_UINT16(req->buffer, 3U);
 
@@ -248,7 +263,7 @@ void P25OTARService::taskNetworkRx(OTARPacketRequest* req)
             ::memset(buffer.get(), 0x00U, req->length - 13U);
             ::memcpy(buffer.get(), req->buffer + 13U, req->length - 13U);
 
-            bool encrypted = (mfId != ALGO_UNENCRYPT);
+            bool encrypted = (algoId != ALGO_UNENCRYPT);
             if (encrypted) {
                 buffer = network->cryptKMM(algoId, kid, mi, buffer.get(), req->length - 13U, false);
                 if (buffer == nullptr) {
