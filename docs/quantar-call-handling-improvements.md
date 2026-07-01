@@ -2,7 +2,7 @@
 
 ## Summary
 
-This work represents roughly six months of DVMHost development and real-world testing on our network of nearly 20 Quantars. The main operational result is greatly improved Quantar call handling: fewer malformed or wedged calls, better recovery from missing or damaged LDU structure, cleaner teardown behavior, and less stale network state carrying into the next call.
+This work represents roughly six months of DVMHost development and real-world testing on our network of nearly 20 Quantars. The main operational result is greatly improved Quantar call handling: fewer malformed or wedged calls, elimination of incorrect srcId and dstId, better recovery from missing or damaged LDU structure, cleaner teardown behavior, and less stale network state carrying into the next call.
 
 One of the central fixes is moving away from the old assumption that counting received voice frames is enough to reconstruct a valid P25 LDU. Counting frames can tell us that nine voice frames arrived, but it cannot prove they were the correct nine frames, in the correct order, for the current LDU. That is a dangerous assumption for Quantar DFSI operation because a dropped, repeated, late, or misordered DFSI voice frame can still make the count look complete while leaving the resulting LDU structurally wrong. The improved receive path uses the DFSI frame identifiers/tags documented in the TIA-102 DFSI material to track the expected LDU1 and LDU2 voice sequence explicitly. In practice, DVMHost now looks for the actual LDU1 voice 1 through 9 and LDU2 voice 10 through 18 sequence instead of simply trusting a running counter.
 
