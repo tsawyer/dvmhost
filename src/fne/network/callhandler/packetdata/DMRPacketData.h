@@ -118,6 +118,7 @@ namespace network
                     bool extendRetry;               //!< Flag indicating whether or not to extend the retry count for this packet.
                 };
                 concurrent::deque<QueuedDataFrame*> m_queuedFrames;
+                uint32_t m_queuedFrameBytes;
 
                 /**
                  * @brief Represents the receive status of a call.

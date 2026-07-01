@@ -966,6 +966,20 @@ bool HostFNE::createVirtualNetworking()
         m_tun->setMTU(DEFAULT_MTU_SIZE);
 
         m_tun->up();
+
+        yaml::Node vtunQdisc = vtunConf["qdisc"];
+        bool qdiscEnable = vtunQdisc["enable"].as<bool>(false);
+        if (qdiscEnable) {
+            std::string qdiscKind = vtunQdisc["kind"].as<std::string>("fq_codel");
+            std::string qdiscArgs = vtunQdisc["args"].as<std::string>("");
+
+            if (m_tun->setQDisc(qdiscKind, qdiscArgs)) {
+                LogInfo("    VTUN qdisc applied (programmatic): %s", qdiscKind.c_str());
+            }
+            else {
+                LogWarning(LOG_HOST, "Failed to apply VTUN qdisc (programmatic): %s", qdiscKind.c_str());
+            }
+        }
     }
 #endif // !defined(_WIN32)
     return true;

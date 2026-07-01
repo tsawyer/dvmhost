@@ -60,6 +60,7 @@ P25PacketData::P25PacketData(TrafficNetwork* network, TagP25Data* tag, bool debu
     m_tag(tag),
     m_assembler(nullptr),
     m_queuedFrames(),
+    m_queuedFrameBytes(0U),
     m_status(),
     m_arpTable(),
     m_readyForNextPkt(),
@@ -94,6 +95,18 @@ P25PacketData::P25PacketData(TrafficNetwork* network, TagP25Data* tag, bool debu
 
 P25PacketData::~P25PacketData()
 {
+    while (m_queuedFrames.size() > 0U) {
+        QueuedDataFrame* frame = m_queuedFrames[0U];
+        m_queuedFrames.pop_front();
+        if (frame != nullptr) {
+            if (frame->userData != nullptr)
+                delete[] frame->userData;
+            if (frame->header != nullptr)
+                delete frame->header;
+            delete frame;
+        }
+    }
+
     if (m_assembler != nullptr)
         delete m_assembler;
 }
@@ -390,6 +403,44 @@ void P25PacketData::processPacketFrame(const uint8_t* data, uint32_t len, bool a
     Utils::dump(1U, "P25, P25PacketData::processPacketFrame(), pduUserData", pduUserData, pduLength);
 //#endif
 
+    if (pduLength > m_network->m_vtunQueueMaxBytes) {
+        LogWarning(LOG_P25, "VTUN queue drop, frame too large for queue cap, frameBytes = %u, capBytes = %u",
+            pduLength, m_network->m_vtunQueueMaxBytes);
+        return;
+    }
+
+    uint32_t droppedFrames = 0U;
+    while (m_queuedFrames.size() >= m_network->m_vtunQueueMaxFrames ||
+           (m_queuedFrameBytes + pduLength) > m_network->m_vtunQueueMaxBytes) {
+        if (m_queuedFrames.size() == 0U) {
+            break;
+        }
+
+        QueuedDataFrame* oldFrame = m_queuedFrames[0U];
+        m_queuedFrames.pop_front();
+        if (oldFrame != nullptr) {
+            if (oldFrame->userDataLen <= m_queuedFrameBytes) {
+                m_queuedFrameBytes -= oldFrame->userDataLen;
+            }
+            else {
+                m_queuedFrameBytes = 0U;
+            }
+
+            if (oldFrame->userData != nullptr)
+                delete[] oldFrame->userData;
+            if (oldFrame->header != nullptr)
+                delete oldFrame->header;
+            delete oldFrame;
+        }
+
+        droppedFrames++;
+    }
+
+    if (droppedFrames > 0U) {
+        LogWarning(LOG_P25, "VTUN queue cap reached, dropped %u oldest frame(s), queuedFrames = %u, queuedBytes = %u",
+            droppedFrames, (uint32_t)m_queuedFrames.size(), m_queuedFrameBytes);
+    }
+
     // queue frame for dispatch
     QueuedDataFrame* qf = new QueuedDataFrame();
     qf->retryCnt = 0U;
@@ -405,6 +456,7 @@ void P25PacketData::processPacketFrame(const uint8_t* data, uint32_t len, bool a
     qf->userDataLen = pduLength;
 
     m_queuedFrames.push_back(qf);
+    m_queuedFrameBytes += pduLength;
 #endif // !defined(_WIN32)
 }
 
@@ -555,6 +607,15 @@ void P25PacketData::clock(uint32_t ms)
 
 pkt_clock_abort:
     m_queuedFrames.pop_front();
+    if (frame != nullptr) {
+        if (frame->userDataLen <= m_queuedFrameBytes) {
+            m_queuedFrameBytes -= frame->userDataLen;
+        }
+        else {
+            m_queuedFrameBytes = 0U;
+        }
+    }
+
     if (processed) {
         if (frame->userData != nullptr)
             delete[] frame->userData;
@@ -564,6 +625,7 @@ pkt_clock_abort:
     } else {
         // requeue packet
         m_queuedFrames.push_back(frame);
+        m_queuedFrameBytes += frame->userDataLen;
     }
 #endif // !defined(_WIN32)
 }

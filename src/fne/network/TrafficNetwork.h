@@ -432,6 +432,9 @@ namespace network
         bool m_dumpPacketData;
         bool m_verbosePacketData;
 
+        uint32_t m_vtunQueueMaxFrames;
+        uint32_t m_vtunQueueMaxBytes;
+
         uint32_t m_sndcpStartAddr;
         uint32_t m_sndcpEndAddr;
 

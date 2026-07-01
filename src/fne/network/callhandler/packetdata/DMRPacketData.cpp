@@ -55,6 +55,7 @@ DMRPacketData::DMRPacketData(TrafficNetwork* network, TagDMRData* tag, bool debu
     m_network(network),
     m_tag(tag),
     m_queuedFrames(),
+    m_queuedFrameBytes(0U),
     m_status(),
     m_arpTable(),
     m_readyForNextPkt(),
@@ -67,7 +68,20 @@ DMRPacketData::DMRPacketData(TrafficNetwork* network, TagDMRData* tag, bool debu
 
 /* Finalizes a instance of the DMRPacketData class. */
 
-DMRPacketData::~DMRPacketData() = default;
+DMRPacketData::~DMRPacketData()
+{
+    while (m_queuedFrames.size() > 0U) {
+        QueuedDataFrame* frame = m_queuedFrames[0U];
+        m_queuedFrames.pop_front();
+        if (frame != nullptr) {
+            if (frame->header != nullptr)
+                delete frame->header;
+            if (frame->userData != nullptr)
+                delete[] frame->userData;
+            delete frame;
+        }
+    }
+}
 
 /* Process a data frame from the network. */
 
@@ -357,6 +371,44 @@ void DMRPacketData::processPacketFrame(const uint8_t* data, uint32_t len, bool a
     DECLARE_UINT8_ARRAY(pduUserData, pduLength);
     ::memcpy(pduUserData, data, pktLen);
 
+    if (pduLength > m_network->m_vtunQueueMaxBytes) {
+        LogWarning(LOG_DMR, "VTUN queue drop, frame too large for queue cap, frameBytes = %u, capBytes = %u",
+            pduLength, m_network->m_vtunQueueMaxBytes);
+        return;
+    }
+
+    uint32_t droppedFrames = 0U;
+    while (m_queuedFrames.size() >= m_network->m_vtunQueueMaxFrames ||
+           (m_queuedFrameBytes + pduLength) > m_network->m_vtunQueueMaxBytes) {
+        if (m_queuedFrames.size() == 0U) {
+            break;
+        }
+
+        QueuedDataFrame* oldFrame = m_queuedFrames[0U];
+        m_queuedFrames.pop_front();
+        if (oldFrame != nullptr) {
+            if (oldFrame->userDataLen <= m_queuedFrameBytes) {
+                m_queuedFrameBytes -= oldFrame->userDataLen;
+            }
+            else {
+                m_queuedFrameBytes = 0U;
+            }
+
+            if (oldFrame->header != nullptr)
+                delete oldFrame->header;
+            if (oldFrame->userData != nullptr)
+                delete[] oldFrame->userData;
+            delete oldFrame;
+        }
+
+        droppedFrames++;
+    }
+
+    if (droppedFrames > 0U) {
+        LogWarning(LOG_DMR, "VTUN queue cap reached, dropped %u oldest frame(s), queuedFrames = %u, queuedBytes = %u",
+            droppedFrames, (uint32_t)m_queuedFrames.size(), m_queuedFrameBytes);
+    }
+
     // queue frame for dispatch
     QueuedDataFrame* qf = new QueuedDataFrame();
     qf->retryCnt = 0U;
@@ -372,6 +424,7 @@ void DMRPacketData::processPacketFrame(const uint8_t* data, uint32_t len, bool a
     qf->userDataLen = pduLength;
 
     m_queuedFrames.push_back(qf);
+    m_queuedFrameBytes += pduLength;
 #endif // !defined(_WIN32)
 }
 
@@ -419,6 +472,12 @@ void DMRPacketData::clock(uint32_t ms)
                     frame->retryCnt++;
                 } else {
                     LogWarning(LOG_DMR, "DMR, failed to resolve ARP for dstId %u", frame->dstId);
+                    if (frame->userDataLen <= m_queuedFrameBytes) {
+                        m_queuedFrameBytes -= frame->userDataLen;
+                    }
+                    else {
+                        m_queuedFrameBytes = 0U;
+                    }
                     delete frame->header;
                     delete[] frame->userData;
                     delete frame;
@@ -427,6 +486,13 @@ void DMRPacketData::clock(uint32_t ms)
             } else {
                 // transmit the PDU frame
                 dispatchUserFrameToFNE(*frame->header, frame->userData);
+
+                if (frame->userDataLen <= m_queuedFrameBytes) {
+                    m_queuedFrameBytes -= frame->userDataLen;
+                }
+                else {
+                    m_queuedFrameBytes = 0U;
+                }
 
                 delete frame->header;
                 delete[] frame->userData;

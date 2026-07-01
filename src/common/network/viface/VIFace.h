@@ -4,7 +4,7 @@
  * GPLv2 Open Source. Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- *  Copyright (C) 2024 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2024,2026 Bryan Biedenkapp, N2PLL
  *
  */
 /**
@@ -216,6 +216,14 @@ namespace network
              * @returns uint32_t The current MTU of the virtual interface.
              */
             uint32_t getMTU() const;
+
+            /**
+             * @brief Applies a root qdisc to the virtual interface using rtnetlink.
+             * @param kind qdisc kind (e.g. fq_codel, cake, tbf).
+             * @param args qdisc argument string (e.g. "limit=1024 target=5ms").
+             * @returns bool True, if qdisc was applied successfully, otherwise false.
+             */
+            bool setQDisc(std::string kind, std::string args = "");
 
         public:
             /** 

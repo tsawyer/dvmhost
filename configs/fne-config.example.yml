@@ -411,6 +411,28 @@ vtun:
     # Broadcast address of the tunnel network interface
     broadcast: 192.168.1.255
 
+    # VTUN ingress queue caps (drop oldest frame on overflow)
+    queue:
+        # Maximum number of queued VTUN frames waiting for air dispatch
+        maxFrames: 128
+        # Maximum total queued VTUN payload bytes
+        maxBytes: 262144
+
+    #
+    # Optional Linux qdisc setup for the VTUN interface.
+    #
+    qdisc:
+        # Enable automatic qdisc apply when VTUN is brought up.
+        enable: false
+        # qdisc kind (e.g. fq_codel, cake, tbf)
+        kind: fq_codel
+        # Optional qdisc args. Currently parsed for fq_codel.
+        # Supported keys: limit, flows, target, interval, ecn,
+        #   quantum, memory_limit, drop_batch_size, ce_threshold.
+        # Example:
+        # args: "limit=1024 flows=1024 target=5ms interval=100ms ecn=1"
+        args: ""
+
     #
     # P25 SNDCP Dynamic IP Allocation
     #

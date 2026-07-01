@@ -151,6 +151,8 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_disablePacketData(false),
     m_dumpPacketData(false),
     m_verbosePacketData(false),
+    m_vtunQueueMaxFrames(128U),
+    m_vtunQueueMaxBytes(262144U),
     m_sndcpStartAddr(__IP_FROM_STR("10.10.1.10")),
     m_sndcpEndAddr(__IP_FROM_STR("10.10.1.254")),
     m_totalActiveCalls(0U),
@@ -305,8 +307,26 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
     // SNDCP IP allocation configuration
     m_sndcpStartAddr = __IP_FROM_STR("10.10.1.10");
     m_sndcpEndAddr = __IP_FROM_STR("10.10.1.254");
+    m_vtunQueueMaxFrames = 128U;
+    m_vtunQueueMaxBytes = 262144U;
     yaml::Node& vtun = conf["vtun"];
     if (vtun.size() > 0U) {
+        yaml::Node& queue = vtun["queue"];
+        if (queue.size() > 0U) {
+            m_vtunQueueMaxFrames = queue["maxFrames"].as<uint32_t>(128U);
+            m_vtunQueueMaxBytes = queue["maxBytes"].as<uint32_t>(262144U);
+
+            if (m_vtunQueueMaxFrames == 0U) {
+                LogWarning(LOG_MASTER, "VTUN queue maxFrames is 0, clamping to 1");
+                m_vtunQueueMaxFrames = 1U;
+            }
+
+            if (m_vtunQueueMaxBytes == 0U) {
+                LogWarning(LOG_MASTER, "VTUN queue maxBytes is 0, clamping to 512");
+                m_vtunQueueMaxBytes = 512U;
+            }
+        }
+
         yaml::Node& sndcp = vtun["sndcp"];
         if (sndcp.size() > 0U) {
             std::string startAddrStr = sndcp["startAddress"].as<std::string>("10.10.1.10");
@@ -364,6 +384,8 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         }
         LogInfo("    Disable Packet Data: %s", m_disablePacketData ? "yes" : "no");
         LogInfo("    Dump Packet Data: %s", m_dumpPacketData ? "yes" : "no");
+        LogInfo("    VTUN Queue Max Frames: %u", m_vtunQueueMaxFrames);
+        LogInfo("    VTUN Queue Max Bytes: %u", m_vtunQueueMaxBytes);
         LogInfo("    Disable P25 ADJ_STS_BCAST to neighbor peers: %s", m_disallowExtAdjStsBcast ? "yes" : "no");
         LogInfo("    Disable P25 Radio Monitor to any peers: %s", m_disallowRadioMonitor ? "yes" : "no");
         LogInfo("    Disable P25 TDULC call termination broadcasts to any peers: %s", m_disallowCallTerm ? "yes" : "no");
