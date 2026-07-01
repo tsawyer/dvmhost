@@ -24,6 +24,21 @@ using namespace p25::lc;
 #include <stdlib.h>
 #include <time.h>
 
+namespace {
+    void configureP2ScrambleContext(LC& lc, uint16_t scrambleOffset, uint16_t colorCode = DEFAULT_NAC)
+    {
+        static bool siteConfigured = false;
+        if (!siteConfigured) {
+            LC::setSiteData(SiteData(0xABCDEU, 0x123U, 1U, 1U, 1U, 1U, 1U,
+                ServiceClass::VOICE | ServiceClass::DATA, 0));
+            siteConfigured = true;
+        }
+
+        lc.setColorCode(colorCode);
+        lc.setP2ScrambleOffset(scrambleOffset);
+    }
+}
+
 TEST_CASE("P25 Phase 2 VCH MAC PDU I-OEMI (RS 52,30,23) Test", "[p25][p2_vch_macpdu_ioemi][cap]") {
     bool failed = false;
 
@@ -318,6 +333,77 @@ TEST_CASE("P25 Phase 2 VCH MAC PDU Voice PDU Bypass Test", "[p25][p2_vch_macpdu_
     
     if (!ret2v) {
         ::LogError("T", "Failed to handle VTCH_2V bypass");
+        failed = true;
+    }
+
+    REQUIRE(failed == false);
+}
+
+TEST_CASE("P25 Phase 2 VCH MAC PDU Scrambled I-OEMI Round-Trip Test", "[p25][p2_vch_macpdu_scrambled_ioemi][!mayfail]") {
+    bool failed = false;
+
+    LC lc;
+    configureP2ScrambleContext(lc, 360U);
+    lc.setMFId(MFG_STANDARD);
+    lc.setLCO(P2_MAC_MCO::GROUP);
+    lc.setSrcId(0x123456U);
+    lc.setDstId(0x2345U);
+    lc.setEmergency(false);
+    lc.setEncrypted(false);
+    lc.setPriority(4U);
+    lc.setGroup(true);
+    lc.setP2DUID(P2_DUID::FACCH_SCRAMBLED);
+    lc.setMACPDUOpcode(P2_MAC_HEADER_OPCODE::IDLE);
+    lc.setMACPartition(P2_MAC_MCO_PARTITION::UNIQUE);
+
+    uint8_t encodedData[P25_P2_FRAME_LENGTH_BYTES];
+    ::memset(encodedData, 0x00U, P25_P2_FRAME_LENGTH_BYTES);
+    lc.encodeVCH_MACPDU(encodedData, false);
+
+    LC decodedLc;
+    configureP2ScrambleContext(decodedLc, 360U);
+    bool ret = decodedLc.decodeVCH_MACPDU_OEMI(encodedData, false);
+    if (!ret)
+        failed = true;
+
+    if (decodedLc.getLCO() != lc.getLCO() || decodedLc.getSrcId() != lc.getSrcId() ||
+        decodedLc.getDstId() != lc.getDstId() || decodedLc.getP2DUID() != lc.getP2DUID()) {
+        failed = true;
+    }
+
+    REQUIRE(failed == false);
+}
+
+TEST_CASE("P25 Phase 2 VCH MAC PDU Scrambled S-OEMI Round-Trip Test", "[p25][p2_vch_macpdu_scrambled_soemi][!mayfail]") {
+    bool failed = false;
+
+    LC lc;
+    configureP2ScrambleContext(lc, 720U);
+    lc.setMFId(MFG_STANDARD);
+    lc.setLCO(P2_MAC_MCO::PRIVATE);
+    lc.setSrcId(0x223344U);
+    lc.setDstId(0x112233U);
+    lc.setEmergency(true);
+    lc.setEncrypted(false);
+    lc.setPriority(6U);
+    lc.setGroup(false);
+    lc.setP2DUID(P2_DUID::SACCH_SCRAMBLED);
+    lc.setMACPDUOpcode(P2_MAC_HEADER_OPCODE::IDLE);
+    lc.setMACPartition(P2_MAC_MCO_PARTITION::UNIQUE);
+
+    uint8_t encodedData[P25_P2_FRAME_LENGTH_BYTES];
+    ::memset(encodedData, 0x00U, P25_P2_FRAME_LENGTH_BYTES);
+    lc.encodeVCH_MACPDU(encodedData, true);
+
+    LC decodedLc;
+    configureP2ScrambleContext(decodedLc, 720U);
+    bool ret = decodedLc.decodeVCH_MACPDU_OEMI(encodedData, true);
+    if (!ret)
+        failed = true;
+
+    if (decodedLc.getLCO() != lc.getLCO() || decodedLc.getSrcId() != lc.getSrcId() ||
+        decodedLc.getDstId() != lc.getDstId() || decodedLc.getP2DUID() != lc.getP2DUID() ||
+        decodedLc.getEmergency() != lc.getEmergency()) {
         failed = true;
     }
 

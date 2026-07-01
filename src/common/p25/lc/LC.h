@@ -134,6 +134,16 @@ namespace p25
              */
             void encodeVCH_MACPDU(uint8_t* data, bool sync);
 
+            /**
+             * @brief Set the Phase 2 scrambler superframe bit offset for the current burst.
+             * @param offset Superframe bit offset in the 4320-bit lane sequence.
+             */
+            void setP2ScrambleOffset(uint16_t offset);
+            /**
+             * @brief Clear the Phase 2 scrambler superframe bit offset override.
+             */
+            void clearP2ScrambleOffset();
+
 
             /**
              * @brief Helper to determine if the MFId is a standard MFId.
@@ -341,6 +351,9 @@ namespace p25
             bool m_encryptOverride;
             bool m_tsbkVendorSkip;
 
+            uint16_t m_p2ScrambleOffset;
+            bool m_p2ScrambleOffsetValid;
+
             uint32_t m_callTimer;
 
             // Encryption data
@@ -400,6 +413,14 @@ namespace p25
              * @param[in] raw 
              */
             void encodeP2_DUIDHamming(uint8_t* data, const uint8_t* raw);
+
+            /**
+             * @brief Apply the Phase 2 TDMA MAC burst scrambler.
+             * @param data Buffer containing the over-the-air burst bits.
+             * @param inbound True for inbound/IEMI, false for outbound/OEMI.
+             * @param sync True when the burst includes sync symbols.
+             */
+            void applyP2Scrambler(uint8_t* data, bool inbound, bool sync);
 
         };
     } // namespace lc

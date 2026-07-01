@@ -28,6 +28,116 @@ using namespace p25::lc;
 #include <cstring>
 
 // ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+
+const uint64_t P25_P2_SCRAMBLER_MASK = ((1ULL << 44U) - 1ULL);
+const uint32_t P25_P2_SCRAMBLER_SUPERFRAME_BITS = 4320U;
+
+// ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Advances the P25 Phase 2 scrambler state by one step.
+ * @param state Current scrambler state.
+ * @returns uint64_t New scrambler state.
+ */
+inline uint64_t p25P2ScramblerStep(uint64_t state)
+{
+    uint64_t feedback = ((state >> 43U) ^ (state >> 39U) ^ (state >> 34U) ^
+        (state >> 28U) ^ (state >> 23U) ^ (state >> 9U)) & 0x01U;
+    return (((state << 1U) & P25_P2_SCRAMBLER_MASK) | feedback);
+}
+
+/**
+ * @brief Gets the output of the P25 Phase 2 scrambler.
+ * @param state Current scrambler state.
+ * @returns bool Scrambler output bit.
+ */
+inline bool p25P2ScramblerOutput(uint64_t state)
+{
+    return ((state >> 43U) & 0x01U) == 0x01U;
+}
+
+/**
+ * @brief Applies a P25 Phase 2 scrambler transform to a state.
+ * @param basis Basis transform to apply.
+ * @param state Current scrambler state.
+ * @returns uint64_t New scrambler state.
+ */
+uint64_t p25P2ApplyTransform(const uint64_t* basis, uint64_t state)
+{
+    uint64_t value = 0U;
+    for (uint8_t bit = 0U; bit < 44U; bit++) {
+        if (((state >> bit) & 0x01U) == 0x01U)
+            value ^= basis[bit];
+    }
+    return value & P25_P2_SCRAMBLER_MASK;
+}
+
+/**
+ * @brief Composes two P25 Phase 2 scrambler transforms.
+ * @param out Output transform.
+ * @param lhs Left-hand side transform.
+ * @param rhs Right-hand side transform.
+ * @returns uint64_t New scrambler state.
+ */
+void p25P2ComposeTransform(uint64_t* out, const uint64_t* lhs, const uint64_t* rhs)
+{
+    for (uint8_t bit = 0U; bit < 44U; bit++)
+        out[bit] = p25P2ApplyTransform(rhs, lhs[bit]);
+}
+
+/**
+ * @brief Advances the P25 Phase 2 scrambler state by a number of cycles.
+ * @param state Current scrambler state.
+ * @param cycles Number of cycles to advance.
+ * @returns uint64_t New scrambler state.
+ */
+uint64_t p25P2AdvanceScrambler(uint64_t state, uint64_t cycles)
+{
+    uint64_t basis[44U];
+    for (uint8_t bit = 0U; bit < 44U; bit++)
+        basis[bit] = p25P2ScramblerStep(1ULL << bit);
+
+    while (cycles != 0U) {
+        if ((cycles & 0x01U) == 0x01U)
+            state = p25P2ApplyTransform(basis, state);
+
+        uint64_t squared[44U];
+        p25P2ComposeTransform(squared, basis, basis);
+        ::memcpy(basis, squared, sizeof(squared));
+        cycles >>= 1U;
+    }
+
+    return state & P25_P2_SCRAMBLER_MASK;
+}
+
+/**
+ * @brief Gets the initial P25 Phase 2 scrambler state for a given network and system ID.
+ * @param netId P25 Network ID.
+ * @param sysId P25 System ID.
+ * @param colorCode P25 Color Code.
+ * @param inbound Flag indicating if the scrambler is for inbound (true) or outbound (false) traffic.
+ * @returns uint64_t Initial scrambler state.
+ */
+uint64_t p25P2InitialScramblerState(uint32_t netId, uint32_t sysId, uint16_t colorCode, bool inbound)
+{
+    uint64_t state = (((uint64_t)P25Utils::netId(netId) & 0xFFFFFU) << 24U) |
+        (((uint64_t)P25Utils::sysId(sysId) & 0x0FFFU) << 12U) |
+        ((uint64_t)colorCode & 0x0FFFU);
+
+    if (state == 0U)
+        state = P25_P2_SCRAMBLER_MASK;
+
+    if (inbound)
+        state = p25P2AdvanceScrambler(state, (1ULL << 43U));
+
+    return state & P25_P2_SCRAMBLER_MASK;
+}
+
+// ---------------------------------------------------------------------------
 //  Static Class Members
 // ---------------------------------------------------------------------------
 
@@ -81,6 +191,8 @@ LC::LC() :
     m_rs(),
     m_encryptOverride(false),
     m_tsbkVendorSkip(false),
+    m_p2ScrambleOffset(0U),
+    m_p2ScrambleOffsetValid(false),
     m_callTimer(0U),
     m_mi(nullptr),
     m_userAlias(nullptr),
@@ -495,7 +607,7 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
     uint32_t lengthBytes = sync ? P25_P2_IEMI_WSYNC_LENGTH_BYTES : P25_P2_IEMI_LENGTH_BYTES;
 
     // decode the Phase 2 DUID
-    uint8_t duid[1U], raw[P25_P2_IEMI_LENGTH_BYTES];  // Use max size for stack allocation
+    uint8_t duid[2U], raw[P25_P2_IEMI_LENGTH_BYTES];  // Use max size for stack allocation
     ::memset(duid, 0x00U, 1U);
     ::memset(raw, 0x00U, lengthBytes);
 
@@ -539,6 +651,15 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
     else {
         ::memset(raw, 0x00U, lengthBytes);
 
+        const uint8_t* source = data;
+        uint8_t burst[P25_P2_FRAME_LENGTH_BYTES];
+        if (m_p2DUID == P2_DUID::FACCH_SCRAMBLED || m_p2DUID == P2_DUID::SACCH_SCRAMBLED) {
+            ::memset(burst, 0x00U, P25_P2_FRAME_LENGTH_BYTES);
+            ::memcpy(burst, data, P25_P2_FRAME_LENGTH_BYTES);
+            applyP2Scrambler(burst, true, sync);
+            source = burst;
+        }
+
         // IEMI with sync: extract data bits (skip 14-bit sync and DUIDs)
         for (uint32_t i = 0U; i < lengthBits; i++) {
             uint32_t n = i + 14U; // Skip 14-bit sync
@@ -549,7 +670,7 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
             if (i >= 204U)
                 n += 2U; // skip DUID 3 after field 3 (36+72+96)
 
-            bool b = READ_BIT(data, n);
+            bool b = READ_BIT(source, n);
             WRITE_BIT(raw, i, b);
         }
 
@@ -587,7 +708,7 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
     assert(data != nullptr);
 
     // decode the Phase 2 DUID
-    uint8_t duid[1U], raw[P25_P2_IEMI_LENGTH_BYTES];
+    uint8_t duid[2U], raw[P25_P2_IEMI_LENGTH_BYTES];
     ::memset(duid, 0x00U, 1U);
     ::memset(raw, 0x00U, P25_P2_IEMI_LENGTH_BYTES);
 
@@ -608,10 +729,21 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
 
     m_p2DUID = duid[0U] >> 4U;
 
+    bool scrambledBurst = (m_p2DUID == P2_DUID::FACCH_SCRAMBLED || m_p2DUID == P2_DUID::SACCH_SCRAMBLED);
+
     if (m_p2DUID == P2_DUID::VTCH_4V || m_p2DUID == P2_DUID::VTCH_2V)
         return true; // don't handle 4V or 2V voice PDUs here -- user code will handle
     else {
         ::memset(raw, 0x00U, P25_P2_IEMI_LENGTH_BYTES);
+
+        const uint8_t* source = data;
+        uint8_t burst[P25_P2_FRAME_LENGTH_BYTES];
+        if (scrambledBurst) {
+            ::memset(burst, 0x00U, P25_P2_FRAME_LENGTH_BYTES);
+            ::memcpy(burst, data, P25_P2_FRAME_LENGTH_BYTES);
+            applyP2Scrambler(burst, false, sync);
+            source = burst;
+        }
 
         if (sync) {
             for (uint32_t i = 0U; i < P25_P2_SOEMI_LENGTH_BITS; i++) {
@@ -623,7 +755,7 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
                 if (i >= 198U)
                     n += 2U; // skip DUID 3
 
-                bool b = READ_BIT(data, n);
+                bool b = READ_BIT(source, n);
                 WRITE_BIT(raw, i, b);
             }
 
@@ -647,6 +779,7 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
 #if DEBUG_P25_MAC_PDU
             Utils::dump(2U, "P25, LC::decodeVCH_MACPDU_OEMI(), MAC PDU", raw, P25_P2_IEMI_LENGTH_BYTES);
 #endif
+
         } else {
             for (uint32_t i = 0U; i < P25_P2_IEMI_LENGTH_BITS; i++) {
                 uint32_t n = i + 2U; // skip DUID 1
@@ -654,8 +787,10 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
                     n += 2U; // skip DUID 2
                 if (i >= 168U)
                     n += 2U; // skip DUID 3
+                if (i >= 240U)
+                    n += 2U; // skip DUID 4
 
-                bool b = READ_BIT(data, n);
+                bool b = READ_BIT(source, n);
                 WRITE_BIT(raw, i, b);
             }
 
@@ -737,6 +872,8 @@ void LC::encodeVCH_MACPDU(uint8_t* data, bool sync)
                     n += 2U; // skip DUID 2
                 if (i >= 168U)
                     n += 2U; // skip DUID 3
+                if (i >= 240U)
+                    n += 2U; // skip DUID 4
 
                 bool b = READ_BIT(raw, i);
                 WRITE_BIT(data, n, b);
@@ -750,11 +887,11 @@ void LC::encodeVCH_MACPDU(uint8_t* data, bool sync)
     }
 
     // encode the Phase 2 DUID
-    uint8_t duid[1U];
-    ::memset(duid, 0x00U, 1U);
+    uint8_t duid[2U];
+    ::memset(duid, 0x00U, 2U);
     duid[0U] = (m_p2DUID & 0x0FU) << 4U;
 
-    ::memset(raw, 0x00U, 1U);
+    ::memset(raw, 0x00U, 2U);
     encodeP2_DUIDHamming(raw, duid);
 
     for (uint8_t i = 0U; i < 8U; i++) {
@@ -769,6 +906,9 @@ void LC::encodeVCH_MACPDU(uint8_t* data, bool sync)
         bool b = READ_BIT(raw, i);
         WRITE_BIT(data, n, b);
     }
+
+    if (m_p2DUID == P2_DUID::FACCH_SCRAMBLED || m_p2DUID == P2_DUID::SACCH_SCRAMBLED)
+        applyP2Scrambler(data, false, sync);
 }
 
 /* Helper to determine if the MFId is a standard MFId. */
@@ -778,6 +918,20 @@ bool LC::isStandardMFId() const
     if ((m_mfId == MFG_STANDARD) || (m_mfId == MFG_STANDARD_ALT))
         return true;
     return false;
+}
+
+/* Set the Phase 2 scrambler superframe bit offset. */
+
+void LC::setP2ScrambleOffset(uint16_t offset)
+{
+    m_p2ScrambleOffset = offset % P25_P2_SCRAMBLER_SUPERFRAME_BITS;
+    m_p2ScrambleOffsetValid = true;
+}
+
+void LC::clearP2ScrambleOffset()
+{
+    m_p2ScrambleOffset = 0U;
+    m_p2ScrambleOffsetValid = false;
 }
 
 /* Decode link control. */
@@ -1378,6 +1532,8 @@ void LC::copy(const LC& data)
     m_macPduOpcode = data.m_macPduOpcode;
     m_macPduOffset = data.m_macPduOffset;
     m_macPartition = data.m_macPartition;
+    m_p2ScrambleOffset = data.m_p2ScrambleOffset;
+    m_p2ScrambleOffsetValid = data.m_p2ScrambleOffsetValid;
 
     m_rsValue = data.m_rsValue;
 
@@ -1591,6 +1747,72 @@ void LC::encodeP2_DUIDHamming(uint8_t* data, const uint8_t* raw)
         for (uint32_t j = 0U; j < 8U; j++) {
             WRITE_BIT(data, n, hamming[j]);
             n++;
+        }
+    }
+}
+
+/* Apply the Phase 2 TDMA MAC burst scrambler. */
+
+void LC::applyP2Scrambler(uint8_t* data, bool inbound, bool sync)
+{
+    assert(data != nullptr);
+
+    if (!m_p2ScrambleOffsetValid) {
+        LogWarning(LOG_P25, "LC::applyP2Scrambler(), scramble offset not set, defaulting to superframe offset 0");
+    }
+
+    uint16_t cursor = 0U;
+    uint8_t fieldCount = 0U;
+    uint16_t fieldLengths[4U] = { 0U, 0U, 0U, 0U };
+    uint16_t interFieldSkips[3U] = { 0U, 0U, 0U };
+
+    if (inbound) {
+        cursor = 14U;
+        fieldCount = 4U;
+        fieldLengths[0U] = 36U;
+        fieldLengths[1U] = 72U;
+        fieldLengths[2U] = 96U;
+        fieldLengths[3U] = 72U;
+        interFieldSkips[0U] = 2U;
+        interFieldSkips[1U] = 2U;
+        interFieldSkips[2U] = 2U;
+    }
+    else if (sync) {
+        cursor = 2U;
+        fieldCount = 4U;
+        fieldLengths[0U] = 72U;
+        fieldLengths[1U] = 62U;
+        fieldLengths[2U] = 64U;
+        fieldLengths[3U] = 72U;
+        interFieldSkips[0U] = 2U;
+        interFieldSkips[1U] = 42U;
+        interFieldSkips[2U] = 2U;
+    }
+    else {
+        cursor = 2U;
+        fieldCount = 4U;
+        fieldLengths[0U] = 72U;
+        fieldLengths[1U] = 96U;
+        fieldLengths[2U] = 72U;
+        fieldLengths[3U] = 72U;
+        interFieldSkips[0U] = 2U;
+        interFieldSkips[1U] = 2U;
+        interFieldSkips[2U] = 2U;
+    }
+
+    uint64_t state = p25P2InitialScramblerState(s_siteData.netId(), s_siteData.sysId(), m_colorCode, inbound);
+    state = p25P2AdvanceScrambler(state, (uint64_t)m_p2ScrambleOffset);
+
+    for (uint8_t field = 0U; field < fieldCount; field++) {
+        for (uint16_t bit = 0U; bit < fieldLengths[field]; bit++, cursor++) {
+            bool scrambledBit = (READ_BIT(data, cursor) != 0U) ^ p25P2ScramblerOutput(state);
+            WRITE_BIT(data, cursor, scrambledBit);
+            state = p25P2ScramblerStep(state);
+        }
+
+        if (field + 1U < fieldCount) {
+            cursor += interFieldSkips[field];
+            state = p25P2AdvanceScrambler(state, interFieldSkips[field]);
         }
     }
 }
