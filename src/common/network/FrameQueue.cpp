@@ -157,8 +157,8 @@ bool FrameQueue::write(const uint8_t* message, uint32_t length, uint32_t streamI
     // bryanb: this is really a developer warning not a end-user warning, there's nothing the end-users can do about
     //  this message
     if (bufferLen > (DATA_PACKET_LENGTH - OVERSIZED_PACKET_WARN)) {
-        LogWarning(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG, func = $%02X, subfunc = $%02X, peerId = %u, address = %s, port = %u", 
-            opcode.first, opcode.second, peerId, udp::Socket::address(addr).c_str(), udp::Socket::port(addr));
+        LogWarning(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG, peerId = %u, func = $%02X, subfunc = $%02X, address = %s, port = %u, bufferLen = %u", 
+            peerId, opcode.first, opcode.second, udp::Socket::address(addr).c_str(), udp::Socket::port(addr), bufferLen);
     }
 
     bool ret = true;
@@ -203,8 +203,8 @@ void FrameQueue::enqueueMessage(udp::BufferQueue* queue, const uint8_t* message,
     // bryanb: this is really a developer warning not a end-user warning, there's nothing the end-users can do about
     //  this message
     if (bufferLen > (DATA_PACKET_LENGTH - OVERSIZED_PACKET_WARN)) {
-        LogWarning(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG, func = $%02X, subfunc = $%02X, peerId = %u, address = %s, port = %u", 
-            opcode.first, opcode.second, peerId, udp::Socket::address(addr).c_str(), udp::Socket::port(addr));
+        LogWarning(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG, peerId = %u, func = $%02X, subfunc = $%02X, address = %s, port = %u, bufferLen = %u", 
+            peerId, opcode.first, opcode.second, udp::Socket::address(addr).c_str(), udp::Socket::port(addr), bufferLen);
     }
 
     udp::UDPDatagram *dgram = new udp::UDPDatagram;
