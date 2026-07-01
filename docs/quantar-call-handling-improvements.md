@@ -1,8 +1,12 @@
-# Consolidated Call Handling Improvements
+# Quantar Call Handling Improvements
 
 ## Summary
 
-The `codex/p25-consolidated` branch brings together DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity.
+This work represents roughly six months of DVMHost development and real-world testing on our network of nearly 20 Quantars. The main operational result is greatly improved Quantar call handling: fewer malformed or wedged calls, better recovery from missing or damaged LDU structure, cleaner teardown behavior, and less stale network state carrying into the next call.
+
+One of the central fixes is moving away from the old assumption that counting received voice frames is enough to reconstruct a valid P25 LDU. Counting frames can tell us that nine voice frames arrived, but it cannot prove they were the correct nine frames, in the correct order, for the current LDU. That is a dangerous assumption for Quantar DFSI operation because a dropped, repeated, late, or misordered DFSI voice frame can still make the count look complete while leaving the resulting LDU structurally wrong. The improved receive path uses the DFSI frame identifiers/tags documented in the TIA-102 DFSI material to track the expected LDU1 and LDU2 voice sequence explicitly. In practice, DVMHost now looks for the actual LDU1 voice 1 through 9 and LDU2 voice 10 through 18 sequence instead of simply trusting a running counter.
+
+These changes and the others mentioned below improve field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network state from wedging subsequent calls. The improvements include DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity.
 
 This document is arranged around the main code areas for developer review. Each section names the important files and functions first, then explains the improvement.
 
@@ -52,9 +56,9 @@ Improvements start in `ModemV24`, because this is where DFSI frames from V.24 se
   Both receive paths now feed errors through `recordRxVoiceErrors()`, store voice slots into `netLDU1` or `netLDU2`, and use `updateRxVoiceSequence()` plus `emitRxCallLDU1()` or `emitRxCallLDU2()` when non-legacy DFSI handling is enabled. This keeps Motorola/V.24 DFSI and TIA DFSI behavior aligned.
 
 - **`updateRxVoiceSequence()` requires contiguous LDU order.**  
-  The helper maps DFSI frame types to LDU1 voice positions 1 through 9 and LDU2 positions 1 through 9. An LDU is emitted only after the expected contiguous sequence arrives. Out-of-order or skipped slots reset the relevant sequence tracker instead of producing a possibly malformed LDU.
+  The helper maps DFSI frame identifiers to LDU1 voice positions 1 through 9 and LDU2 voice positions 10 through 18, following the sequence model described by the TIA-102 DFSI documentation. An LDU is emitted only after the expected contiguous sequence arrives. Out-of-order or skipped slots reset the relevant sequence tracker instead of producing a possibly malformed LDU.
 
-- **Old inline LDU emission was consolidated.**  
+- **Old inline LDU emission was moved into shared helpers.**  
   The previous `n == 9` and `n == 18` emission blocks were replaced by `emitRxCallLDU1()` and `emitRxCallLDU2()`. Those helpers now own metadata decode, error reporting, sequence reset, P25 sync/NID generation, LC/LSD encoding, audio encoding, status bits, and converted-frame storage.
 
 - **`create_TDU()` preserves modem end-of-transmission tags.**  
@@ -62,7 +66,7 @@ Improvements start in `ModemV24`, because this is where DFSI frames from V.24 se
 
 ## DFSI LC and Metadata Recovery
 
-This area is the heart of the consolidated DFSI improvement: keep recoverable calls alive, but do not trust bad identity.
+This area is the heart of the DFSI recovery improvement: keep recoverable calls alive, but do not trust bad identity.
 
 - **`decodeRxCallLDU1Metadata()` validates corrected LDU1 LC before use.**  
   The modem now Reed-Solomon decodes LDU1 LC bytes and then calls `control.decodeLC()` before using source, destination, manufacturer, LCO, or service options. Bad corrected LC is treated as metadata failure.
@@ -149,11 +153,8 @@ FNE changes prevent stale or malformed peer traffic from keeping calls stuck act
 
 These changes are outside the main DFSI modem file, but they materially improve P25/DFSI call handling.
 
-- **`configs/config.example.yml` documents standards-based DFSI handling.**  
-  The example config keeps `legacyDFSI: true` and documents that setting it false enables standards-based DFSI handling. `Host.Config.cpp` reads the setting, logs it, and applies it with `ModemV24::setLegacyDFSI()`.
-
 - **`forceAllowTG0` was removed.**  
-  The old option allowed invalid TGID 0 behavior to be configured around. The consolidated branch removes that knob and relies on `AccessControl::validateTGId()` plus explicit DFSI LDU1 rejection.
+  This option allowed invalid TGID 0 behavior to be configured around. TGID 0 filter now relies on `AccessControl::validateTGId()` plus explicit DFSI LDU1 rejection.
 
 - **The P25 network receive ring preserves long payloads.**  
   `src/common/network/Network.cpp` now writes the full packet payload after the compact two-byte length prefix for P25 frames longer than 254 bytes. `BaseNetwork::readP25()` expects the reconstructed full length, so preserving the full payload prevents ring underflow and corrupt frame reads.
@@ -167,11 +168,6 @@ These changes are outside the main DFSI modem file, but they materially improve 
 - **Better identity hygiene:** non-zero trusted LC requirements, TGID 0 rejection, stricter HDU/LDU validation, and invalid TDU suppression keep bad metadata from becoming call state.
 - **Better lifetime management:** watchdog timing, same-call overlap detection, teardown repair, and FNE stale-stream suppression reduce stuck calls and false collisions.
 - **Better debugging:** admission/rejection reasons, recovery logs, call-end summaries, and max per-frame error counts give developers and operators better evidence when field traffic misbehaves.
-- **Better real-world Quantar operation:** Quantar-class DFSI deployments are sensitive to malformed call structure, missed LDU ordering, and bad teardown state. The consolidated branch improves those field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network/FNE state from wedging subsequent calls.
+- **Better real-world Quantar operation:** Quantar-class DFSI deployments are sensitive to malformed call structure, missed LDU ordering, and bad teardown state. These changes improve those field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network/FNE state from wedging subsequent calls.
 
-In short, the consolidation branch changes P25 call handling from a mostly linear frame-counting path into a state-aware processor with clear recovery boundaries and better diagnostics.
-
-## Notes Found During Review
-
-- The final consolidated tree does not add the large standards PDFs or `.DS_Store` files that appeared in one intermediate history commit. No documentation cleanup is needed in the current branch state for those files.
-- The improvements are connected across layers: modem cached-LC recovery helps damaged inbound DFSI, host NET-to-DFSI recovery protects outbound DFSI structure, and FNE stale-stream cleanup prevents bad network lifetime state from feeding back into hosts.
+In short, this work changes P25 call handling from a mostly linear frame-counting path into a state-aware processor with clear recovery boundaries and better diagnostics.
