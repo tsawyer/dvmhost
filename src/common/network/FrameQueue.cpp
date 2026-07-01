@@ -202,7 +202,8 @@ void FrameQueue::enqueueMessage(udp::BufferQueue* queue, const uint8_t* message,
     // bryanb: this is really a developer warning not a end-user warning, there's nothing the end-users can do about
     //  this message
     if (bufferLen > (DATA_PACKET_LENGTH - OVERSIZED_PACKET_WARN)) {
-        LogDebug(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG");
+        LogWarning(LOG_NET, "FrameQueue::enqueueMessage(), WARN: packet length is possibly oversized, possible data truncation - BUGBUG, address = %s, port = %u", 
+            udp::Socket::address(addr).c_str(), udp::Socket::port(addr));
     }
 
     udp::UDPDatagram *dgram = new udp::UDPDatagram;
