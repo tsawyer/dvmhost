@@ -74,7 +74,7 @@ namespace p25
             virtual uint32_t length() const
             {
                 uint32_t len = KMM_FRAME_LENGTH;
-                if (m_messageNumber > 0U)
+                if (m_hasMessageNumber || m_messageNumber > 0U)
                     len += 2U;
                 if (m_macType == P25DEF::KMM_MAC::ENH_MAC)
                     len += P25DEF::KMM_AES_MAC_LENGTH + 5U;
@@ -154,6 +154,10 @@ namespace p25
              * @brief Message Number.
              */
             DECLARE_PROTECTED_PROPERTY(uint16_t, messageNumber, MessageNumber);
+            /**
+             * @brief Flag indicating whether the Message Number field is present.
+             */
+            DECLARE_PROTECTED_PROPERTY(bool, hasMessageNumber, HasMessageNumber);
 
             /**
              * @brief Destination Logical link ID.

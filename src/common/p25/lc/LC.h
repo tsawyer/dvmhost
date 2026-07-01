@@ -134,6 +134,7 @@ namespace p25
              */
             void encodeVCH_MACPDU(uint8_t* data, bool sync);
 
+
             /**
              * @brief Helper to determine if the MFId is a standard MFId.
              * @returns bool True, if the MFId contained for this LC is standard, otherwise false.
@@ -347,6 +348,7 @@ namespace p25
 
             // User Alias data
             uint8_t* m_userAlias;
+
             bool m_gotUserAliasPartA;
             bool m_gotUserAlias;
 
@@ -398,6 +400,7 @@ namespace p25
              * @param[in] raw 
              */
             void encodeP2_DUIDHamming(uint8_t* data, const uint8_t* raw);
+
         };
     } // namespace lc
 } // namespace p25

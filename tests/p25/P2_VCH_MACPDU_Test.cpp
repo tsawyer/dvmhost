@@ -24,7 +24,7 @@ using namespace p25::lc;
 #include <stdlib.h>
 #include <time.h>
 
-TEST_CASE("P25 Phase 2 VCH MAC PDU I-OEMI (RS 52,30,23) Test", "[p25][p2_vch_macpdu_ioemi]") {
+TEST_CASE("P25 Phase 2 VCH MAC PDU I-OEMI (RS 52,30,23) Test", "[p25][p2_vch_macpdu_ioemi][cap]") {
     bool failed = false;
 
     INFO("P25 Phase 2 VCH MAC PDU I-OEMI RS (52,30,23) FEC Test");
@@ -102,7 +102,7 @@ TEST_CASE("P25 Phase 2 VCH MAC PDU I-OEMI (RS 52,30,23) Test", "[p25][p2_vch_mac
     REQUIRE(failed == false);
 }
 
-TEST_CASE("P25 Phase 2 VCH MAC PDU S-OEMI (RS 45,26,20) Test", "[p25][p2_vch_macpdu_soemi]") {
+TEST_CASE("P25 Phase 2 VCH MAC PDU S-OEMI (RS 45,26,20) Test", "[p25][p2_vch_macpdu_soemi][cap]") {
     bool failed = false;
 
     INFO("P25 Phase 2 VCH MAC PDU S-OEMI RS (45,26,20) FEC Test");
@@ -177,7 +177,7 @@ TEST_CASE("P25 Phase 2 VCH MAC PDU S-OEMI (RS 45,26,20) Test", "[p25][p2_vch_mac
     REQUIRE(failed == false);
 }
 
-TEST_CASE("P25 Phase 2 VCH MAC PDU Round-Trip I-OEMI Test", "[p25][p2_vch_macpdu_roundtrip_ioemi]") {
+TEST_CASE("P25 Phase 2 VCH MAC PDU Round-Trip I-OEMI Test", "[p25][p2_vch_macpdu_roundtrip_ioemi][cap]") {
     bool failed = false;
 
     INFO("P25 Phase 2 VCH MAC PDU I-OEMI Round-Trip Test");
@@ -231,7 +231,7 @@ TEST_CASE("P25 Phase 2 VCH MAC PDU Round-Trip I-OEMI Test", "[p25][p2_vch_macpdu
     REQUIRE(failed == false);
 }
 
-TEST_CASE("P25 Phase 2 VCH MAC PDU Round-Trip S-OEMI Test", "[p25][p2_vch_macpdu_roundtrip_soemi]") {
+TEST_CASE("P25 Phase 2 VCH MAC PDU Round-Trip S-OEMI Test", "[p25][p2_vch_macpdu_roundtrip_soemi][cap]") {
     bool failed = false;
 
     INFO("P25 Phase 2 VCH MAC PDU S-OEMI Round-Trip Test");

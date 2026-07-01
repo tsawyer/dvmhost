@@ -574,16 +574,6 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
         Utils::dump(2U, "P25, LC::decodeVCH_MACPDU_IEMI(), MAC PDU", raw, lengthBytes);
 #endif
 
-        // are we decoding a FACCH with scrambling?
-        if (m_p2DUID == P2_DUID::FACCH_SCRAMBLED) {
-            /* TODO: if scrambled handle scrambling */
-        }
-
-        // are we decoding a SACCH with scrambling?
-        if (m_p2DUID == P2_DUID::SACCH_SCRAMBLED) {
-            /* TODO: if scrambled handle scrambling */
-        }
-
         return decodeMACPDU(raw, P25_P2_IEMI_MAC_LENGTH_BITS);
     }
 
@@ -691,16 +681,6 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
 #endif
         }
 
-        // are we decoding a FACCH with scrambling?
-        if (m_p2DUID == P2_DUID::FACCH_SCRAMBLED) {
-            /* TODO: if scrambled handle scrambling */
-        }
-
-        // are we decoding a SACCH with scrambling?
-        if (m_p2DUID == P2_DUID::SACCH_SCRAMBLED) {
-            /* TODO: if scrambled handle scrambling */
-        }
-
         return decodeMACPDU(raw, sync ? P25_P2_SOEMI_MAC_LENGTH_BITS : P25_P2_IOEMI_MAC_LENGTH_BITS);
     }
 
@@ -743,6 +723,7 @@ void LC::encodeVCH_MACPDU(uint8_t* data, bool sync)
                 bool b = READ_BIT(raw, i);
                 WRITE_BIT(data, n, b);
             }
+
         } else {
             // encode RS (52,30,23) FEC
             m_rs.encode523023(raw);
@@ -760,6 +741,7 @@ void LC::encodeVCH_MACPDU(uint8_t* data, bool sync)
                 bool b = READ_BIT(raw, i);
                 WRITE_BIT(data, n, b);
             }
+
         }
     }
 

@@ -454,6 +454,8 @@ UInt8Array P25Crypto::cryptAES_KMM_CBC(const uint8_t* macKey, const uint8_t* msg
 UInt8Array P25Crypto::cryptAES_KMM_CMAC_KDF(const uint8_t* kek, const uint8_t* msg, uint16_t msgLen, bool hasMN)
 {
 #if defined(ENABLE_SSL)
+    (void)msgLen;
+
     //                       O      T      A      R             M      A      C
     uint8_t label[8U] = { 0x4FU, 0x54U, 0x41U, 0x52U, 0x20U, 0x4DU, 0x41U, 0x43U };
 
@@ -469,15 +471,22 @@ UInt8Array P25Crypto::cryptAES_KMM_CMAC_KDF(const uint8_t* kek, const uint8_t* m
         contextLen = 10U;
     }
 
-    /** DEBUG REMOVEME */
-    Utils::dump(2U, "KEK", kek, MAX_ENC_KEY_LENGTH_BYTES);
-    Utils::dump(2U, "Label", label, 8U);
-    Utils::dump(2U, "Context", context, contextLen);
-    /** DEBUG REMOVEME */
-
     size_t len;
     uint8_t tempBuf[TEMP_BUFFER_LEN];
     ::memset(tempBuf, 0x00U, TEMP_BUFFER_LEN);
+
+    // AACA-D Sec 13.5.2.2.2 SP800-108 counter-mode KDF:
+    //   PRF input = i || Label || 0x00 || Context || L
+    uint8_t kdfInput[1U + 8U + 1U + 12U + 2U];
+    uint8_t inputOffset = 0U;
+    kdfInput[inputOffset++] = 0x01U;                       // i
+    ::memcpy(kdfInput + inputOffset, label, 8U);
+    inputOffset += 8U;
+    kdfInput[inputOffset++] = 0x00U;                       // separator
+    ::memcpy(kdfInput + inputOffset, context, contextLen);
+    inputOffset += contextLen;
+    kdfInput[inputOffset++] = 0x01U;                       // L = 256 bits
+    kdfInput[inputOffset++] = 0x00U;
 
     ERR_load_crypto_strings();
 
@@ -488,49 +497,64 @@ UInt8Array P25Crypto::cryptAES_KMM_CMAC_KDF(const uint8_t* kek, const uint8_t* m
         return nullptr;
     }
 
-    // load the KDF algorithm
-    EVP_KDF* kdf = EVP_KDF_fetch(NULL, "KBKDF", NULL);
-    if (!kdf) {
-        LogError(LOG_P25, "EVP_KDF_fetch(), failed to load OpenSSL KDF algorithm: %s", ERR_error_string(ERR_get_error(), NULL));
+    // fetch the HMAC implementation for SP800-108 PRF
+    EVP_MAC* hmac = EVP_MAC_fetch(libCtx, "HMAC", NULL);
+    if (!hmac) {
+        LogError(LOG_P25, "EVP_MAC_fetch(), failed to fetch OpenSSL HMAC: %s", ERR_error_string(ERR_get_error(), NULL));
         OSSL_LIB_CTX_free(libCtx);
         return nullptr;
     }
 
-    // create a context for the MAC operation
-    EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
+    // create a context for the HMAC operation
+    EVP_MAC_CTX* ctx = EVP_MAC_CTX_new(hmac);
     if (!ctx) {
-        LogError(LOG_P25, "EVP_KDF_CTX_new(), failed to create a OpenSSL KDF context: %s", ERR_error_string(ERR_get_error(), NULL));
-        EVP_KDF_free(kdf);
+        LogError(LOG_P25, "EVP_MAC_CTX_new(), failed to create OpenSSL HMAC context: %s", ERR_error_string(ERR_get_error(), NULL));
+        EVP_MAC_free(hmac);
         OSSL_LIB_CTX_free(libCtx);
         return nullptr;
     }
 
-    // set the cipher to AES-256-CBC and initialize the MAC operation
+    // Initialize HMAC-SHA-256 keyed by TEK (K_IN)
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_MAC, "HMAC", 0),
-        OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, "SHA-256", 0),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, (void*)kek, MAX_ENC_KEY_LENGTH_BYTES),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, (void*)label, 8U),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO, (void*)context, contextLen),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, "SHA256", 0),
         OSSL_PARAM_END
     };
 
-    // derive MAC key
-    if (EVP_KDF_derive(ctx, tempBuf, MAX_ENC_KEY_LENGTH_BYTES, params) <= 0) {
-        LogError(LOG_P25, "EVP_KDF_derive(), failed to derive MAC key: %s", ERR_error_string(ERR_get_error(), NULL));
-        EVP_KDF_CTX_free(ctx);
-        EVP_KDF_free(kdf);
+    if (!EVP_MAC_init(ctx, kek, MAX_ENC_KEY_LENGTH_BYTES, params)) {
+        LogError(LOG_P25, "EVP_MAC_init(), failed to initialize HMAC-SHA-256: %s", ERR_error_string(ERR_get_error(), NULL));
+        EVP_MAC_CTX_free(ctx);
+        EVP_MAC_free(hmac);
         OSSL_LIB_CTX_free(libCtx);
         return nullptr;
     }
 
-    EVP_KDF_CTX_free(ctx);
-    EVP_KDF_free(kdf);
-    OSSL_LIB_CTX_free(libCtx);
+    if (!EVP_MAC_update(ctx, kdfInput, inputOffset)) {
+        LogError(LOG_P25, "EVP_MAC_update(), failed to update HMAC input: %s", ERR_error_string(ERR_get_error(), NULL));
+        EVP_MAC_CTX_free(ctx);
+        EVP_MAC_free(hmac);
+        OSSL_LIB_CTX_free(libCtx);
+        return nullptr;
+    }
 
-    /** DEBUG REMOVEME */
-    Utils::dump(2U, "tempBuf", tempBuf, 128U);
-    /** DEBUG REMOVEME */
+    if (!EVP_MAC_final(ctx, tempBuf, &len, TEMP_BUFFER_LEN)) {
+        LogError(LOG_P25, "EVP_MAC_final(), failed to finalize HMAC output: %s", ERR_error_string(ERR_get_error(), NULL));
+        EVP_MAC_CTX_free(ctx);
+        EVP_MAC_free(hmac);
+        OSSL_LIB_CTX_free(libCtx);
+        return nullptr;
+    }
+
+    if (len < MAX_ENC_KEY_LENGTH_BYTES) {
+        LogError(LOG_P25, "EVP_MAC_final(), invalid HMAC output length for CMAC KDF: %zu", len);
+        EVP_MAC_CTX_free(ctx);
+        EVP_MAC_free(hmac);
+        OSSL_LIB_CTX_free(libCtx);
+        return nullptr;
+    }
+
+    EVP_MAC_CTX_free(ctx);
+    EVP_MAC_free(hmac);
+    OSSL_LIB_CTX_free(libCtx);
 
     UInt8Array wrappedKey = std::unique_ptr<uint8_t[]>(new uint8_t[MAX_ENC_KEY_LENGTH_BYTES]);
     ::memset(wrappedKey.get(), 0x00U, MAX_ENC_KEY_LENGTH_BYTES);

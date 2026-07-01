@@ -42,6 +42,7 @@ KMMFrame::KMMFrame() :
     m_macKId(0U),
     m_macFormat(0U),
     m_messageNumber(0U),
+    m_hasMessageNumber(false),
     m_dstLlId(0U),
     m_srcLlId(0U),
     m_complete(true),
@@ -109,7 +110,7 @@ void KMMFrame::generateMAC(uint8_t* kek, uint8_t* data)
             case KMM_MAC_FORMAT_CMAC:
                 {
                     // generate intermediate derived key
-                    UInt8Array macKey = crypto.cryptAES_KMM_CMAC_KDF(kek, data, m_messageFullLength, m_messageNumber > 0U);
+                    UInt8Array macKey = crypto.cryptAES_KMM_CMAC_KDF(kek, data, m_messageFullLength, m_hasMessageNumber);
 
                     // generate MAC
                     UInt8Array mac = crypto.cryptAES_KMM_CMAC(macKey.get(), data, m_messageFullLength);
@@ -158,6 +159,7 @@ bool KMMFrame::decodeHeader(const uint8_t* data)
 
     m_respKind = (data[3U] >> 6U) & 0x03U;                                          // Response Kind
     bool hasMN = ((data[3U] >> 4U) & 0x03U) == 0x02U;                               // Message Number Flag
+    m_hasMessageNumber = hasMN;
     m_macType = (data[3U] >> 2U) & 0x03U;                                           // MAC Type
 
     bool done = (data[3U] & 0x01U) == 0x01U;                                        // Done Flag
@@ -169,6 +171,8 @@ bool KMMFrame::decodeHeader(const uint8_t* data)
     m_dstLlId = GET_UINT24(data, 4U);                                               // Destination RSI
     m_srcLlId = GET_UINT24(data, 7U);                                               // Source RSI
 
+    m_bodyOffset = 0U;
+    m_messageNumber = 0U;
     if (hasMN) {
         m_bodyOffset = 2U;
         m_messageNumber = GET_UINT16(data, 10U);                                    // Message Number
@@ -222,15 +226,19 @@ void KMMFrame::encodeHeader(uint8_t* data)
     SET_UINT16(m_messageLength, data, 1U);                                          // Message Length
     m_messageFullLength = m_messageLength + 3U;
 
+    bool hasMN = m_hasMessageNumber || (m_messageNumber > 0U);
+    m_hasMessageNumber = hasMN;
+
     data[3U] = ((m_respKind & 0x03U) << 6U) +                                       // Response Kind
-        ((m_messageNumber > 0U) ? 0x20U : 0x00U) +                                  // Message Number Flag
+        (hasMN ? 0x20U : 0x00U) +                                                    // Message Number Flag
         ((m_macType & 0x03U) << 2U) +                                               // MAC Type
         ((!m_complete) ? 0x01U : 0x00U);                                            // Done Flag
 
     SET_UINT24(m_dstLlId, data, 4U);                                                // Destination RSI
     SET_UINT24(m_srcLlId, data, 7U);                                                // Source RSI
 
-    if (m_messageNumber > 0U) {
+    m_bodyOffset = 0U;
+    if (hasMN) {
         SET_UINT16(m_messageNumber, data, 10U);                                     // Message Number
         m_bodyOffset = 2U;
     }
@@ -273,6 +281,7 @@ void KMMFrame::copy(const KMMFrame& data)
     m_complete = data.m_complete;
 
     m_messageNumber = data.m_messageNumber;
+    m_hasMessageNumber = data.m_hasMessageNumber;
     m_macAlgId = data.m_macAlgId;
     m_macKId = data.m_macKId;
     m_macType = data.m_macType;

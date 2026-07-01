@@ -23,7 +23,7 @@ using namespace p25::kmm;
 #include <stdlib.h>
 #include <time.h>
 
-TEST_CASE("KMM ReKey Command CBC Test", "[p25][kmm_cbc]") {
+TEST_CASE("KMM ReKey Command CBC Test", "[p25][kmm_cbc][cap]") {
     bool failed = false;
 
     INFO("P25 KMM ReKey Test");
