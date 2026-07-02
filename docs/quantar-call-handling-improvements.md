@@ -4,7 +4,7 @@
 
 This work represents roughly six months of DVMHost development and real-world testing on our network of nearly 20 Quantars. The main operational result is greatly improved Quantar call handling: fewer malformed or wedged calls, elimination of incorrect srcId and dstId, better recovery from missing or damaged LDU structure, cleaner teardown behavior, and less stale network state carrying into the next call.
 
-One of the central fixes is moving away from the old assumption that counting received voice frames is enough to reconstruct a valid P25 LDU. Counting frames can tell us that nine voice frames arrived, but it cannot prove they were the correct nine frames, in the correct order, for the current LDU. That is a dangerous assumption for Quantar DFSI operation because a dropped, repeated, late, or misordered DFSI voice frame can still make the count look complete while leaving the resulting LDU structurally wrong. The improved receive path uses the DFSI frame identifiers/tags documented in the TIA-102 DFSI material to track the expected LDU1 and LDU2 voice sequence explicitly. In practice, DVMHost now looks for the actual LDU1 voice 1 through 9 and LDU2 voice 10 through 18 sequence instead of simply trusting a running counter.
+One of the central fixes is moving away from the old assumption that counting received voice frames is enough to reconstruct a valid P25 LDU. Counting frames can tell us that nine voice frames arrived, but it cannot prove they were the correct frame types for the current LDU. That is a dangerous assumption for Quantar DFSI operation because a dropped, repeated, late, or misordered DFSI voice frame can still make the count look complete while leaving the resulting LDU structurally wrong. The improved receive path uses the DFSI frame identifiers/tags documented in the TIA-102 DFSI material to track LDU1 and LDU2 progress explicitly. In practice, DVMHost can recognize LDU1 voice 1 through 9 and LDU2 voice 10 through 18 by their DFSI frame identifiers instead of relying only on a running counter.
 
 These changes and the others mentioned below improve field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network state from wedging subsequent calls. The improvements include DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity.
 
@@ -37,10 +37,10 @@ The map below points to the main implementation areas behind the call-handling i
 - Files: `src/fne/network/callhandler/TagP25Data.cpp`, `src/fne/network/callhandler/TagP25Data.h`
 - Key code: `resetMatchingCallStream()`, `suppressCallStream()`, `isSuppressedCallStream()`, `processFrame()`
 
-### Supporting config, validation, and network receive
+### Supporting validation and network receive
 
-- Files: `configs/config.example.yml`, `src/host/Host.Config.cpp`, `src/common/network/Network.cpp`, `src/common/network/BaseNetwork.cpp`, `src/common/edac/Golay24128.cpp`, `tests/edac/Golay24128_Tests.cpp`, `src/common/p25/acl/AccessControl.cpp`
-- Key code: `legacyDFSI`, `setLegacyDFSI()`, `readP25()`, `decode24128()`, `validateTGId()`
+- Files: `src/common/network/Network.cpp`, `src/common/network/BaseNetwork.cpp`, `src/common/edac/Golay24128.cpp`, `tests/edac/Golay24128_Tests.cpp`, `src/common/p25/acl/AccessControl.cpp`
+- Key code: `readP25()`, `decode24128()`, `validateTGId()`
 
 ## Modem DFSI Receive Path
 
@@ -49,14 +49,14 @@ Improvements start in `ModemV24`, because this is where DFSI frames from V.24 se
 - **`DFSICallData` now carries recovery state.**  
   `src/host/modem/ModemV24.h` adds call-local fields for `maxVoiceFrameErrors`, `lastLDU1LC`, `lastLDU1LCValid`, `ldu1Seq`, and `ldu2Seq`. These fields let the modem distinguish a clean decode, a recoverable metadata failure, and an LDU that should be discarded.
 
-- **`legacyDFSI` keeps the old behavior available.**  
-  `m_legacyDFSI` defaults to true in `ModemV24`, is exposed through `setLegacyDFSI()`, and is wired from `Host.Config.cpp`. In legacy mode the old counter-based receive behavior remains available. In non-legacy mode, the modem uses standards-based sequencing and recovery helpers.
+- **The old counter-based DFSI receive trigger was replaced.**  
+  The modem no longer treats a raw count of received voice frames as enough to prove that an LDU is structurally valid. DFSI voice frame identifiers now drive LDU1/LDU2 progress, which directly addresses the Quantar failure mode described in the Summary.
 
 - **`convertToAirV24()` and `convertToAirTIA()` share the same recovery model.**  
-  Both receive paths now feed errors through `recordRxVoiceErrors()`, store voice slots into `netLDU1` or `netLDU2`, and use `updateRxVoiceSequence()` plus `emitRxCallLDU1()` or `emitRxCallLDU2()` when non-legacy DFSI handling is enabled. This keeps Motorola/V.24 DFSI and TIA DFSI behavior aligned.
+  Both receive paths now feed errors through `recordRxVoiceErrors()`, store voice slots into `netLDU1` or `netLDU2`, and use `updateRxVoiceSequence()` plus `emitRxCallLDU1()` or `emitRxCallLDU2()`. This keeps Motorola/V.24 DFSI and TIA DFSI behavior aligned.
 
-- **`updateRxVoiceSequence()` requires contiguous LDU order.**  
-  The helper maps DFSI frame identifiers to LDU1 voice positions 1 through 9 and LDU2 voice positions 10 through 18, following the sequence model described by the TIA-102 DFSI documentation. An LDU is emitted only after the expected contiguous sequence arrives. Out-of-order or skipped slots reset the relevant sequence tracker instead of producing a possibly malformed LDU.
+- **`updateRxVoiceSequence()` tracks LDU progress by DFSI frame identifier.**  
+  The helper maps DFSI frame identifiers to LDU1 voice positions 1 through 9 and LDU2 voice positions 10 through 18, following the sequence model described by the TIA-102 DFSI documentation. This lets the receive path recognize the LDU boundary from the actual DFSI voice-frame tag. The current logic tolerates skipped subframes by advancing on later valid frame identifiers, rather than depending only on a raw count of received voice frames.
 
 - **Old inline LDU emission was moved into shared helpers.**  
   The previous `n == 9` and `n == 18` emission blocks were replaced by `emitRxCallLDU1()` and `emitRxCallLDU2()`. Those helpers now own metadata decode, error reporting, sequence reset, P25 sync/NID generation, LC/LSD encoding, audio encoding, status bits, and converted-frame storage.
