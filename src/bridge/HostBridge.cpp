@@ -2630,7 +2630,7 @@ void HostBridge::resetWithNullAudio(uint8_t* data, bool encrypted)
     }
 }
 
-/* */
+/* Helper to send silence audio frames. */
 
 void HostBridge::padSilenceAudio(uint32_t srcId, uint32_t dstId)
 {

@@ -207,8 +207,8 @@ namespace p25
                 ~FullRateVoice();
 
                 /**
-                 * @brief 
-                 * @returns uint8_t 
+                 * @brief Gets the length of the full rate voice frame.
+                 * @returns uint8_t Length of the full rate voice frame.
                  */
                 uint8_t getLength();
 

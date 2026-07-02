@@ -1327,7 +1327,7 @@ bool Voice::checkNetTrafficCollision(uint32_t dstId)
     return false;
 }
 
-/* */
+/* Logs the GPS position for a given source ID. */
 
 void Voice::logGPSPosition(const uint32_t srcId, const uint8_t* data)
 {

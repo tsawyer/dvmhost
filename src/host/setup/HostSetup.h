@@ -325,7 +325,7 @@ protected:
     bool writeFlash();
 
     /**
-     * @brief 
+     * @brief Reboots the modem into ST bootloader mode.
      */
     void writeBootload();
 

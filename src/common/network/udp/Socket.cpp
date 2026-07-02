@@ -812,7 +812,7 @@ std::string Socket::getLocalAddress()
 #endif // defined(_WIN32)
 }
 
-/* */
+/* Helper to match two socket addresses based on the specified match type. */
 
 bool Socket::match(const sockaddr_storage& addr1, const sockaddr_storage& addr2, IPMATCHTYPE type)
 {

@@ -74,7 +74,8 @@ namespace p25
                 ~MotFullRateVoice();
 
                 /**
-                 * @brief 
+                 * @brief Gets the size of the full rate voice frame.
+                 * @returns uint32_t Size of the full rate voice frame.
                  */
                 uint32_t size();
                 /**

@@ -57,39 +57,40 @@ namespace edac
         bool* m_deInterData;
 
         /**
-         * @brief 
-         * @param in
+         * @brief Helper to extract the raw binary data from the input.
+         * @param in Input data to extract.
          */
         void decodeExtractBinary(const uint8_t* in);
         /**
-         * @brief 
+         * @brief Helper to perform error checking and correction on the deinterleaved data.
          */
         void decodeErrorCheck();
         /**
-         * @brief 
+         * @brief Helper to deinterleave the raw binary data.
          */
         void decodeDeInterleave();
         /**
-         * @brief 
-         * @param data 
+         * @brief Helper to extract the decoded data from the deinterleaved data.
+         * @param data Output data to extract.
          */
         void decodeExtractData(uint8_t* data) const;
 
         /**
-         * @brief 
+         * @brief Helper to encode the input data into the deinterleaved data.
+         * @param in Input data to encode.
          */
         void encodeExtractData(const uint8_t* in) const;
         /**
-         * @brief 
+         * @brief Helper to interleave the deinterleaved data into the raw binary data.
          */
         void encodeInterleave();
         /**
-         * @brief 
+         * @brief Helper to perform error checking and correction on the deinterleaved data.
          */
         void encodeErrorCheck();
         /**
-         * @brief 
-         * @param data 
+         * @brief Helper to extract the raw binary data from the deinterleaved data.
+         * @param data Output data to extract.
          */
         void encodeExtractBinary(uint8_t* data);
     };

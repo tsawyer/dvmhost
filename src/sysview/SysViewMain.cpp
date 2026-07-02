@@ -263,7 +263,7 @@ bool createPeerNetwork()
     return true;
 }
 
-/* */
+/* Gets the current network instance. */
 
 network::PeerNetwork* getNetwork()
 {

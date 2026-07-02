@@ -445,7 +445,7 @@ int HostWS::run()
     return EXIT_SUCCESS;
 }
 
-/* */
+/* Sends a JSON object to all connected WebSocket clients. */
 
 void HostWS::send(json::object obj)
 {

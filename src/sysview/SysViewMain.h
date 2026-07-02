@@ -116,8 +116,8 @@ extern HOST_SW_API bool createPeerNetwork();
 extern HOST_SW_API bool startNetworkPumpThread();
 
 /**
- * @brief 
- * @returns PeerNetwork* 
+ * @brief Gets the current network instance.
+ * @returns PeerNetwork* Instance of the current network.
  */
 extern HOST_SW_API network::PeerNetwork* getNetwork();
 

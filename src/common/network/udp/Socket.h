@@ -300,7 +300,7 @@ namespace network
             static std::string getLocalAddress();
 
             /**
-             * @brief 
+             * @brief Helper to match two socket addresses based on the specified match type.
              * @param addr1 Instance of sockaddr_storage socket address structure.
              * @param addr2 Instance of sockaddr_storage socket address structure.
              * @param type IPMATCHTYPE.

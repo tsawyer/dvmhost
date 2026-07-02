@@ -67,7 +67,7 @@ FullRateVoice::~FullRateVoice()
         delete[] additionalData;
 }
 
-/* */
+/* Gets the length of the full rate voice frame. */
 
 uint8_t FullRateVoice::getLength()
 {

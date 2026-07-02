@@ -2086,7 +2086,7 @@ bool HostSetup::writeFlash()
     return true;
 }
 
-/* */
+/* Reboots the modem into ST bootloader mode. */
 
 void HostSetup::writeBootload()
 {

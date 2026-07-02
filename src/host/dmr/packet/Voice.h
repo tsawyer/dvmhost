@@ -127,7 +127,7 @@ namespace dmr
             bool checkNetTrafficCollision(uint32_t dstId);
 
             /**
-             * @brief Log GPS information.
+             * @brief Logs the GPS position for a given source ID.
              * @param srcId Source radio ID.
              * @param[in] data Buffer containing GPS data.
              */

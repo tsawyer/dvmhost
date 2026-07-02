@@ -819,7 +819,7 @@ void P25Crypto::clearKey()
 //  Private Class Members
 // ---------------------------------------------------------------------------
 
-/* */
+/* Helper to step the linear feedback shift register (LFSR). */
 
 uint64_t P25Crypto::stepLFSR(uint64_t& lfsr)
 {

@@ -55,7 +55,7 @@ bool RESTClient::s_debug = false;
 //  Global Functions
 // ---------------------------------------------------------------------------
 
-/* */
+/* Parses the JSON response body from the HTTP response. */
 
 bool parseResponseBody(const HTTPPayload& response, json::object& obj)
 {

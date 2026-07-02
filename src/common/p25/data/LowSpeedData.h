@@ -71,8 +71,9 @@ namespace p25
 
         private:
             /**
-             * @brief 
-             * @param in 
+             * @brief Helper to encode a single byte using the CCS parity table.
+             * @param in Byte to encode.
+             * @returns uint8_t Encoded byte.
              */
             uint8_t encode(const uint8_t in) const;
         };

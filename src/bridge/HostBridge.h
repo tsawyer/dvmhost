@@ -552,8 +552,8 @@ private:
 
     /**
      * @brief Helper to send silence audio frames.
-     * @param srcId
-     * @param dstId
+     * @param srcId Source ID.
+     * @param dstId Destination ID.
      */
     void padSilenceAudio(uint32_t srcId, uint32_t dstId);
 

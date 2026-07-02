@@ -218,9 +218,10 @@ namespace p25
             std::mt19937 m_random;
 
             /**
-             * @brief 
-             * @param lfsr 
-             * @return uint64_t
+             * @brief Helper to step the linear feedback shift register (LFSR).
+             * @note This uses the polynomial: x^64 + x^62 + x^46 + x^38 + x^27 + x^15 + 1
+             * @param lfsr Linear feedback shift register value.
+             * @return uint64_t The next LFSR value.
              */
             uint64_t stepLFSR(uint64_t& lfsr);
             /**

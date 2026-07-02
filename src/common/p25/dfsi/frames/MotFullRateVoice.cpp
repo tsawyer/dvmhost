@@ -67,7 +67,7 @@ MotFullRateVoice::~MotFullRateVoice()
         delete[] additionalData;
 }
 
-/* */
+/* Gets the size of the full rate voice frame. */
 
 uint32_t MotFullRateVoice::size()
 {
