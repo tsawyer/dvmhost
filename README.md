@@ -229,6 +229,13 @@ There is another file that is attributed to the FNE that an example is not provi
 
 Most parameters within the `fne-config.example.yml` should be set to reasonable defaults for simply just starting up a FNE, the only parameters in the configuration that *must* be reviewed before starting up an instance are proper file paths for the ACL and other files used by the FNE.
 
+When configuring networking for dvmfne it is important to understand the dvmfne utilizes 2 primary ports even though the configuration specifies one, the configuration specified port is the traffic/base port, however
+there is a second port that is calculated from the traffic/base port and that is the metadata port. Both ports are required for proper operation of dvmfne. The metadata port is always the traffic/base port number plus 1.
+
+Example Ports:
+- 62031 - Traffic/Base Port
+- 62032 - Metadata Port
+
 There is no other real configuration for a `dvmfne` instance other then setting the appropriate parameters within the configuration files.
 
 ## dvmbridge Configuration
