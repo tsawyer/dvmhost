@@ -48,6 +48,7 @@ TagP25Data::TagP25Data(TrafficNetwork* network, bool debug) :
     m_lastParrotDstId(0U),
     m_status(),
     m_statusPVCall(),
+    m_rejectedCallStreams(),
     m_packetData(nullptr),
     m_debug(debug)
 {
@@ -320,6 +321,11 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                 LogInfoEx(LOG_MASTER, CALL_END_LOG);
                         }
 
+                        // clear any rejected call streams for this TG
+                        m_rejectedCallStreams.lock(false);
+                        m_rejectedCallStreams[dstId].clear();
+                        m_rejectedCallStreams.unlock();
+
                         if (!tg.config().parrot()) {
                             m_network->m_totalActiveCalls--;
                             if (m_network->m_totalActiveCalls < 0)
@@ -435,10 +441,20 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                         m_status[dstId].srcId = srcId;
                                         m_status[dstId].ssrc = ssrc;
                                         m_status.unlock();
+
+                                        // because the call stream source has reset, clear any rejected call streams for 
+                                        // this TG to allow the new source to transmit
+                                        m_rejectedCallStreams.lock(false);
+                                        m_rejectedCallStreams[dstId].clear();
+                                        m_rejectedCallStreams.unlock();
                                     }
                                     else {
                                         LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Call Collision, peer = %u, ssrc = %u, sysId = $%03X, netId = $%05X, srcId = %u, dstId = %u, streamId = %u, rxPeer = %u, rxSrcId = %u, rxDstId = %u, rxStreamId = %u, fromUpstream = %u",
                                             peerId, ssrc, sysId, netId, srcId, dstId, streamId, status.peerId, status.srcId, status.dstId, status.streamId, fromUpstream);
+
+                                        m_rejectedCallStreams.lock(false);
+                                        m_rejectedCallStreams[dstId].push_back(streamId);
+                                        m_rejectedCallStreams.unlock();
 
                                         m_network->m_totalCallCollisions++;
 
@@ -495,6 +511,11 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                     m_status[dstId].ssrc = ssrc;
                     m_status[dstId].activeCall = true;
                     m_status.unlock();
+
+                    // clear any rejected call streams for this TG
+                    m_rejectedCallStreams.lock(false);
+                    m_rejectedCallStreams[dstId].clear();
+                    m_rejectedCallStreams.unlock();
 
                     if (!tg.config().parrot()) {
                         m_network->m_totalCallsProcessed++;
@@ -1644,6 +1665,34 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         if (duid == DUID::TDU || duid == DUID::TDULC)
             return true;
     }
+
+    // is the call stream rejected?
+    m_rejectedCallStreams.lock(false);
+    std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[control.getDstId()];
+    if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
+        // report error event to InfluxDB
+        if (m_network->m_enableInfluxDB) {
+            influxdb::QueryBuilder()
+                .meas("call_error_event")
+                    .tag("peerId", std::to_string(peerId))
+                    .tag("streamId", std::to_string(streamId))
+                    .tag("srcId", std::to_string(control.getSrcId()))
+                    .tag("dstId", std::to_string(control.getDstId()))
+                        .field("message", std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED))
+                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+                .requestAsync(m_network->m_influxServer);
+        }
+
+        if (m_network->m_logDenials)
+            LogError(LOG_P25, INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+
+        m_rejectedCallStreams.unlock();
+
+        // report In-Call Control to the peer sending traffic
+        m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
+        return false;
+    }
+    m_rejectedCallStreams.unlock();
 
     // validate private call in-progress
     bool privateCallInProgress = false;

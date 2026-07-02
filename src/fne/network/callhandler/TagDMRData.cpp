@@ -48,6 +48,7 @@ TagDMRData::TagDMRData(TrafficNetwork* network, bool debug) :
     m_lastParrotDstId(0U),
     m_status(),
     m_statusPVCall(),
+    m_rejectedCallStreams(),
     m_debug(debug)
 {
     assert(network != nullptr);
@@ -213,6 +214,11 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                         LogInfoEx(LOG_MASTER, CALL_END_LOG);
                 }
 
+                // clear any rejected call streams for this TG
+                m_rejectedCallStreams.lock(false);
+                m_rejectedCallStreams[dstId].clear();
+                m_rejectedCallStreams.unlock();
+
                 if (!tg.config().parrot()) {
                     m_network->m_totalActiveCalls--;
                     if (m_network->m_totalActiveCalls < 0)
@@ -329,9 +335,19 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                     m_status[dstId].srcId = srcId;
                                     m_status[dstId].ssrc = ssrc;
                                     m_status.unlock();
+
+                                    // because the call stream source has reset, clear any rejected call streams for 
+                                    // this TG to allow the new source to transmit
+                                    m_rejectedCallStreams.lock(false);
+                                    m_rejectedCallStreams[dstId].clear();
+                                    m_rejectedCallStreams.unlock();
                                 } else {
                                     LogWarning((fromUpstream) ? LOG_PEER : LOG_MASTER, "DMR, Call Collision, peer = %u, ssrc = %u, srcId = %u, dstId = %u, slotNo = %u, streamId = %u, rxPeer = %u, rxSrcId = %u, rxDstId = %u, rxSlotNo = %u, rxStreamId = %u, fromUpstream = %u",
                                         peerId, ssrc, srcId, dstId, slotNo, streamId, status.peerId, status.srcId, status.dstId, status.slotNo, status.streamId, fromUpstream);
+
+                                    m_rejectedCallStreams.lock(false);
+                                    m_rejectedCallStreams[dstId].push_back(streamId);
+                                    m_rejectedCallStreams.unlock();
 
                                     m_network->m_totalCallCollisions++;
 
@@ -390,6 +406,11 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                 m_status[dstId].ssrc = ssrc;
                 m_status[dstId].activeCall = true;
                 m_status.unlock();
+
+                // clear any rejected call streams for this TG
+                m_rejectedCallStreams.lock(false);
+                m_rejectedCallStreams[dstId].clear();
+                m_rejectedCallStreams.unlock();
 
                 if (!tg.config().parrot()) {
                     m_network->m_totalCallsProcessed++;
@@ -1191,6 +1212,35 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
 
         return true;
     }
+
+    // is the call stream rejected?
+    m_rejectedCallStreams.lock(false);
+    std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[data.getDstId()];
+    if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
+        // report error event to InfluxDB
+        if (m_network->m_enableInfluxDB) {
+            influxdb::QueryBuilder()
+                .meas("call_error_event")
+                    .tag("peerId", std::to_string(peerId))
+                    .tag("streamId", std::to_string(streamId))
+                    .tag("srcId", std::to_string(data.getSrcId()))
+                    .tag("dstId", std::to_string(data.getDstId()))
+                        .field("message", std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED))
+                        .field("slot", std::to_string(data.getSlotNo()))
+                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+                .requestAsync(m_network->m_influxServer);
+        }
+
+        if (m_network->m_logDenials)
+            LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+
+        m_rejectedCallStreams.unlock();
+
+        // report In-Call Control to the peer sending traffic
+        m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
+        return false;
+    }
+    m_rejectedCallStreams.unlock();
 
     // is this a private call?
     if (data.getFLCO() == FLCO::PRIVATE) {
