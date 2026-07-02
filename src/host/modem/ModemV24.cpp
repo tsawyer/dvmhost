@@ -97,7 +97,6 @@ ModemV24::ModemV24(port::IModemPort* port, bool duplex, uint32_t p25QueueSize, u
     m_lastP25Tx(0U),
     m_rs(),
     m_useTIAFormat(false),
-    m_legacyDFSI(true),
     m_txP25QueueLock()
 {
     m_v24Connected = false; // defaulted to false for V.24 modems
@@ -143,13 +142,6 @@ void ModemV24::setP25NAC(uint32_t nac)
 void ModemV24::setTIAFormat(bool set)
 {
     m_useTIAFormat = set;
-}
-
-/* Helper to set the legacy DFSI handling flag. */
-
-void ModemV24::setLegacyDFSI(bool set)
-{
-    m_legacyDFSI = set;
 }
 
 /* Opens connection to the air interface modem. */
@@ -1004,7 +996,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     if (m_debug) {
                         ::LogDebugEx(LOG_MODEM, "ModemV24::convertToAirV24()", "V.24 RX, ICW, opcode = $%02X, type = $%02X", start.getOpcode(), start.getArgument1());
                     }
-                    if (m_legacyDFSI || hasCallIdentity) {
+                    if (hasCallIdentity) {
                         // generate a TDU
                         create_TDU(buffer);
                         storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BYTES + 2U);
@@ -1176,10 +1168,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 recordRxVoiceErrors(svf.fullRateVoice->getTotalErrors());
             }
 
-            if (m_legacyDFSI)
-                m_rxCall->n++;
-            else
-                rxVoiceFrameSeen = true;
+            rxVoiceFrameSeen = true;
         }
         break;
         case DFSIFrameType::LDU2_VOICE10:
@@ -1232,10 +1221,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 recordRxVoiceErrors(svf.fullRateVoice->getTotalErrors());
             }
 
-            if (m_legacyDFSI)
-                m_rxCall->n++;
-            else
-                rxVoiceFrameSeen = true;
+            rxVoiceFrameSeen = true;
         }
         break;
 
@@ -1840,24 +1826,12 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     break;
             }
 
-            if (m_legacyDFSI)
-                m_rxCall->n++;
-            else
-                rxVoiceFrameSeen = true;
+            rxVoiceFrameSeen = true;
         }
         break;
     }
 
-    if (m_legacyDFSI) {
-        if (m_rxCall->n == 9U) {
-            emitRxCallLDU1(buffer, "V.24/DFSI", "Modem, V.24 LDU1 RS excepted with input data");
-        }
-        else if (m_rxCall->n == 18U) {
-            emitRxCallLDU2(buffer, "V.24/DFSI", "Modem, V.24 LDU2 RS excepted with input data");
-            m_rxCall->n = 0U;
-        }
-    }
-    else if (rxVoiceFrameSeen) {
+    if (rxVoiceFrameSeen) {
         uint8_t ready = updateRxVoiceSequence(frameType);
         if (ready == 1U) {
             emitRxCallLDU1(buffer, "V.24/DFSI", "Modem, V.24 LDU1 RS excepted with input data");
@@ -1925,7 +1899,7 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
         {
             dataOffs += 1U;
 
-            if (m_legacyDFSI || m_rxCall->srcId != 0U || m_rxCall->dstId != 0U) {
+            if (m_rxCall->srcId != 0U || m_rxCall->dstId != 0U) {
                 // generate Sync
                 Sync::addP25Sync(buffer + 2U);
 
@@ -2296,22 +2270,11 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 break;
             }
 
-            if (m_legacyDFSI) {
-                m_rxCall->n++;
-                if (m_rxCall->n == 9U) {
-                    emitRxCallLDU1(buffer, "TIA/DFSI", "Modem, TIA LDU1, RS excepted with input data");
-                }
-                else if (m_rxCall->n == 18U) {
-                    emitRxCallLDU2(buffer, "TIA/DFSI", "Modem, TIA LDU2, RS excepted with input data");
-                    m_rxCall->n = 0U;
-                }
-            } else {
-                uint8_t ready = updateRxVoiceSequence(frameType);
-                if (ready == 1U) {
-                    emitRxCallLDU1(buffer, "TIA/DFSI", "Modem, TIA LDU1, RS excepted with input data");
-                } else if (ready == 2U) {
-                    emitRxCallLDU2(buffer, "TIA/DFSI", "Modem, TIA LDU2, RS excepted with input data");
-                }
+            uint8_t ready = updateRxVoiceSequence(frameType);
+            if (ready == 1U) {
+                emitRxCallLDU1(buffer, "TIA/DFSI", "Modem, TIA LDU1, RS excepted with input data");
+            } else if (ready == 2U) {
+                emitRxCallLDU2(buffer, "TIA/DFSI", "Modem, TIA LDU2, RS excepted with input data");
             }
         }
         break;

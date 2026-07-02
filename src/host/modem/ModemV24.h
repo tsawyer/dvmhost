@@ -83,7 +83,6 @@ namespace modem
             VHDR2(nullptr),
             LDULC(nullptr),
             seqNo(0U),
-            n(0U),
             netLDU1(nullptr),
             netLDU2(nullptr),
             pduUserData(nullptr),
@@ -186,7 +185,6 @@ namespace modem
             if (netLDU2 != nullptr)
                 ::memset(netLDU2, 0x00U, 9U * 25U);
 
-            n = 0U;
             seqNo = 0U;
 
             if (pduUserData != nullptr)
@@ -272,11 +270,6 @@ namespace modem
          * @brief Sequence Number.
          */
         uint32_t seqNo;
-        /**
-         * @brief 
-         */
-        uint8_t n;
-
         /**
          * @brief LDU1 Buffer.
          */
@@ -588,11 +581,6 @@ namespace modem
          * @param set 
          */
         void setTIAFormat(bool set);
-        /**
-         * @brief Helper to set the legacy DFSI handling flag.
-         * @param set
-         */
-        void setLegacyDFSI(bool set);
 
         /**
          * @brief Opens connection to the air interface modem.
@@ -655,7 +643,6 @@ namespace modem
         edac::RS634717 m_rs;
 
         bool m_useTIAFormat;
-        bool m_legacyDFSI;
 
         std::mutex m_txP25QueueLock;
 

@@ -677,8 +677,6 @@ system:
             initiator: false
             # Flag indicating DFSI frames should be formatted in TIA-102 standard instead of serial standard format.
             dfsiTIAMode: false
-            # Flag indicating legacy DFSI handling is used. When false, standards-based DFSI handling is used.
-            legacyDFSI: true
 
         # Sets received the signal offset from DC.
         rxDCOffset: 0 # Valid values between -128 and 128
