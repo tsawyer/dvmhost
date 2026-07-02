@@ -8,9 +8,9 @@ One of the central fixes is moving away from the old assumption that counting re
 
 These changes and the others mentioned below improve field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network state from wedging subsequent calls. The improvements include DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity.
 
-This document is arranged around the main code areas for developer review. Each section names the important files and functions first, then explains the improvement.
-
 ## Developer Map
+
+The map below points to the main implementation areas behind the call-handling improvements. Each area lists the files and functions most useful for review.
 
 ### DFSI modem receive and conversion
 
@@ -106,7 +106,7 @@ The host voice packet layer is where network P25 calls are admitted, repaired, c
   `isSameCallVoiceOverlap()` identifies network voice that overlaps the active RF call for the same source/destination rather than treating it as a different collision. This policy belongs in `Voice.cpp`, where the DUID and active voice state are available.
 
 - **TGID 0 is rejected in DFSI group LDU1 handling.**  
-  `Voice::process()` rejects DFSI group LDU1 frames with destination TGID 0. This pairs with removal of the old `forceAllowTG0` configuration path and prevents blackhole talkgroup traffic from becoming valid call state.
+  `Voice::process()` rejects DFSI group LDU1 frames with destination TGID 0. The old `forceAllowTG0` configuration path was removed, and TGID 0 filtering now relies on `AccessControl::validateTGId()` plus explicit DFSI LDU1 rejection. This prevents blackhole talkgroup traffic from becoming valid call state.
 
 - **Late-entry DFSI calls can start from valid LDU1.**  
   For DFSI/V.24, HDU destination data can be unreliable or absent. The voice path avoids treating a bad HDU destination as authoritative and lets the first valid LDU1 establish the talkgroup when needed.
@@ -149,25 +149,12 @@ FNE changes prevent stale or malformed peer traffic from keeping calls stuck act
 - **Call termination authority is checked.**  
   `processFrame()` validates that `LC_CALL_TERM` comes from the peer that owns the active call. This prevents unrelated peers from ending or corrupting another stream's call state.
 
-## Supporting Fixes and Validation
+## Network Transport and Decode Guardrails
 
-These changes are outside the main DFSI modem file, but they materially improve P25/DFSI call handling.
-
-- **`forceAllowTG0` was removed.**  
-  This option allowed invalid TGID 0 behavior to be configured around. TGID 0 filter now relies on `AccessControl::validateTGId()` plus explicit DFSI LDU1 rejection.
+These changes protect call handling before frames reach the higher-level voice and DFSI recovery paths. They reduce the chance that corrupt transport state or bad protected fields will be accepted as valid P25 call data.
 
 - **The P25 network receive ring preserves long payloads.**  
   `src/common/network/Network.cpp` now writes the full packet payload after the compact two-byte length prefix for P25 frames longer than 254 bytes. `BaseNetwork::readP25()` expects the reconstructed full length, so preserving the full payload prevents ring underflow and corrupt frame reads.
 
 - **Golay(24,12,8) decode validity was tightened and tested.**  
   `Golay24128::decode24128()` now reports validity more accurately, and `tests/edac/Golay24128_Tests.cpp` covers zero data, all-ones data, normal patterns, correctable errors, uncorrectable errors, and byte-array behavior. This supports DFSI/P25 paths that depend on Golay-protected voice header and signaling fields.
-
-## Net Effect
-
-- **Better reconstruction:** standards-based DFSI sequencing, null-slot filling, cached LC recovery, and encryption fallback keep recoverable calls moving.
-- **Better identity hygiene:** non-zero trusted LC requirements, TGID 0 rejection, stricter HDU/LDU validation, and invalid TDU suppression keep bad metadata from becoming call state.
-- **Better lifetime management:** watchdog timing, same-call overlap detection, teardown repair, and FNE stale-stream suppression reduce stuck calls and false collisions.
-- **Better debugging:** admission/rejection reasons, recovery logs, call-end summaries, and max per-frame error counts give developers and operators better evidence when field traffic misbehaves.
-- **Better real-world Quantar operation:** Quantar-class DFSI deployments are sensitive to malformed call structure, missed LDU ordering, and bad teardown state. These changes improve those field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network/FNE state from wedging subsequent calls.
-
-In short, this work changes P25 call handling from a mostly linear frame-counting path into a state-aware processor with clear recovery boundaries and better diagnostics.
