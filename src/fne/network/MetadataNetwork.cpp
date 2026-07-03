@@ -135,7 +135,7 @@ bool MetadataNetwork::open()
     // reinitialize the frame queue
     if (m_frameQueue != nullptr) {
         delete m_frameQueue;
-        m_frameQueue = new FrameQueue(m_socket, m_peerId, m_debug);
+        m_frameQueue = new FrameQueue(m_socket, m_peerId, false);
     }
 
     bool ret = m_socket->open();

@@ -779,7 +779,7 @@ bool TrafficNetwork::open()
     // reinitialize the frame queue
     if (m_frameQueue != nullptr) {
         delete m_frameQueue;
-        m_frameQueue = new FrameQueue(m_socket, m_peerId, m_debug);
+        m_frameQueue = new FrameQueue(m_socket, m_peerId, false);
     }
 
     bool ret = m_socket->open();
@@ -3118,7 +3118,7 @@ void TrafficNetwork::writeTGIDs(uint32_t peerId, uint32_t streamId, bool sendRep
         if (m_debug) {
             std::string peerIdentity = resolvePeerIdentity(peerId);
             LogDebug(LOG_MASTER, "PEER %u (%s) activating TGID %u TS %u", peerId, peerIdentity.c_str(),
-                tg.first, tg.second);
+                tg.first, tg.second & 0x03U);
         }
         SET_UINT32(tg.first, payload, offs);
         payload[offs + 4U] = tg.second;
