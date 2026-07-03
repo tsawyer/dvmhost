@@ -1,12 +1,14 @@
 # Quantar Call Handling Improvements
 
+AI WARNING: This document was in part generated using AI assistance. As such, there is the possibility of some error or inconsistency.
+
 ## Summary
 
 This work represents roughly six months of DVMHost development and real-world testing on our network of nearly 20 Quantars. The main operational result is greatly improved Quantar call handling: fewer malformed or wedged calls, elimination of incorrect srcId and dstId, better recovery from missing or damaged LDU structure, cleaner teardown behavior, and less stale network state carrying into the next call.
 
 One of the central fixes is moving away from the old assumption that counting received voice frames is enough to reconstruct a valid P25 LDU. Counting frames can tell us that nine voice frames arrived, but it cannot prove they were the correct frame types for the current LDU. That is a dangerous assumption for Quantar DFSI operation because a dropped, repeated, late, or misordered DFSI voice frame can still make the count look complete while leaving the resulting LDU structurally wrong. The improved receive path uses the DFSI frame identifiers/tags documented in the TIA-102 DFSI material to track LDU1 and LDU2 progress explicitly. In practice, DVMHost can recognize LDU1 voice 1 through 9 and LDU2 voice 10 through 18 by their DFSI frame identifiers instead of relying only on a running counter.
 
-These changes and the others mentioned below improve field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network state from wedging subsequent calls. The improvements include DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity.
+These changes and the others mentioned below improve field conditions by preserving valid audio slots, filling short structural gaps with null audio, repairing recoverable LC metadata, and preventing stale network state from wedging subsequent calls. The improvements include DFSI receive cleanup, P25 link-control hardening, network-to-DFSI recovery, stale stream cleanup, call teardown fixes, and follow-up recovery changes. The result is a more defensive P25 call path that can recover from realistic field damage while staying stricter about invalid call identity. The call-handling improvements are noticeable in day-to-day DVM network usage. Incorrect user IDs and talkgroups no longer appear during calls, and marginal signals are handled more gracefully instead of corrupting call state or leaving later calls wedged.
 
 ## Developer Map
 
@@ -158,3 +160,7 @@ These changes protect call handling before frames reach the higher-level voice a
 
 - **Golay(24,12,8) decode validity was tightened and tested.**  
   Golay(24,12,8) protects compact P25 signaling fields by carrying 12 bits of data in a 24-bit codeword capable of correcting up to three bit errors. The bug fixed here was in decode-validity reporting: some bad protected data could appear usable. `Golay24128::decode24128()` now reports decode validity more accurately, and focused coverage was added in `tests/edac/Golay24128_Tests.cpp` for zero data, all-ones data, normal patterns, correctable errors, uncorrectable errors, and byte-array behavior. This supports DFSI/P25 paths that depend on Golay-protected voice header and signaling fields. Test coverage was checked with the P25 test set; all P25 tests pass except `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`, and those same two tests also fail on master.
+
+## AI Assistance
+
+This document and the related code were developed with assistance from Codex. This document was mostly human-written and has been reviewed carefully for accuracy. The code has received human review within the author’s expertise and available equipment. Given the size and complexity of this work, developer peer review and continued field validation are recommended. Of course, this work is for non-commercial amateur radio use only.
