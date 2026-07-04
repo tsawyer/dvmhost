@@ -1,6 +1,6 @@
 # Quantar Call Handling Improvements
 
-AI WARNING: This document was in part generated using AI assistance. As such, there is the possibility of some error or inconsistency.
+This document and the related code were developed with assistance from Codex. This document was mostly human-written and has been reviewed carefully for accuracy. The code has received human review within the author’s expertise and available equipment. Given the size and complexity of this work, developer peer review and continued field validation are recommended. Of course, this work is for non-commercial amateur radio use only.
 
 ## Summary
 
@@ -164,7 +164,3 @@ These changes protect call handling before frames reach the higher-level voice a
 
 - **Golay(24,12,8) decode validity was tightened and tested.**  
   Golay(24,12,8) protects compact P25 signaling fields by carrying 12 bits of data in a 24-bit codeword capable of correcting up to three bit errors. The bug fixed here was in decode-validity reporting: some bad protected data could appear usable. `Golay24128::decode24128()` now reports decode validity more accurately, and focused coverage was added in `tests/edac/Golay24128_Tests.cpp` for zero data, all-ones data, normal patterns, correctable errors, uncorrectable errors, and byte-array behavior. This supports DFSI/P25 paths that depend on Golay-protected voice header and signaling fields. The new Golay(24,12,8) tests pass, and the P25 test set was checked successfully except for `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`; those same two tests also fail on master.
-
-## AI Assistance
-
-This document and the related code were developed with assistance from Codex. This document was mostly human-written and has been reviewed carefully for accuracy. The code has received human review within the author’s expertise and available equipment. Given the size and complexity of this work, developer peer review and continued field validation are recommended. Of course, this work is for non-commercial amateur radio use only.
