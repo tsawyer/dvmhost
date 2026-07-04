@@ -40,8 +40,8 @@ Validation note: The P25 test set passes including the added Golay(24,12,8) deco
 
 ### FNE stale stream and teardown handling
 
-- Files: `src/fne/network/callhandler/TagP25Data.cpp`, `src/fne/network/callhandler/TagP25Data.h`
-- Key code: `resetMatchingCallStream()`, `suppressCallStream()`, `isSuppressedCallStream()`, `processFrame()`
+- Files: `src/fne/network/callhandler/TagP25Data.cpp`, `src/fne/network/callhandler/TagP25Data.h`, `src/common/network/AdaptiveJitterBuffer.cpp`, `src/fne/network/FNEPeerConnection.cpp`, `src/fne/network/TrafficNetwork.cpp`
+- Key code: `resetMatchingCallStream()`, `suppressCallStream()`, `isSuppressedCallStream()`, `processFrame()`, `AdaptiveJitterBuffer::processFrame()`, `AdaptiveJitterBuffer::checkTimeouts()`
 
 ### Supporting validation and network receive
 
@@ -154,6 +154,9 @@ FNE changes prevent stale or malformed peer traffic from keeping calls stuck act
 
 - **Call termination authority is checked.**  
   `processFrame()` validates that `LC_CALL_TERM` comes from the peer that owns the active call. This prevents unrelated peers from ending or corrupting another stream's call state.
+
+- **The FNE adaptive jitter buffer delivery path was fixed and instrumented.**  
+  The jitter buffer protects peer network delivery when RTP packets arrive late or out of order. `AdaptiveJitterBuffer` and the FNE peer connection path now handle delayed delivery and cleanup more reliably, and telemetry was added so reordered, late, duplicate, overflow, timeout, and stream-reset behavior can be seen during field review.
 
 ## Network Transport and Decode Guardrails
 
