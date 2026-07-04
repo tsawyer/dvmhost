@@ -1,6 +1,6 @@
 # Quantar Call Handling Improvements
 
-This document and the related code were developed with assistance from Codex. This document was mostly human-written and has been reviewed carefully for accuracy. The code has received human review within the author’s expertise and available equipment. Given the size and complexity of this work, developer peer review and continued field validation are recommended. Of course, this work is for non-commercial amateur radio use only.
+This document and the related code were developed with AI assistance from Codex. This document was mostly human-written and has been reviewed carefully for accuracy. The code has received human review within the author’s expertise and available equipment. Given the size and complexity of this work, developer peer review and continued field validation are recommended. Of course, this work is for non-commercial amateur radio use only.
 
 ## Summary
 
