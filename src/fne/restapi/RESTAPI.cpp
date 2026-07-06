@@ -651,6 +651,13 @@ void RESTAPI::initializeEndpoints()
     m_dispatcher.match(FNE_PUT_PEER_RESET).put(REST_API_BIND(RESTAPI::restAPI_PutPeerReset, this));
     m_dispatcher.match(FNE_PUT_PEER_RESET_CONN).put(REST_API_BIND(RESTAPI::restAPI_PutPeerResetConn, this));
 
+    m_dispatcher.match(FNE_GET_PEER_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetPeerList, this));
+    m_dispatcher.match(FNE_PUT_PEER_ADD).put(REST_API_BIND(RESTAPI::restAPI_PutPeerAdd, this));
+    m_dispatcher.match(FNE_PUT_PEER_DELETE).put(REST_API_BIND(RESTAPI::restAPI_PutPeerDelete, this));
+    m_dispatcher.match(FNE_GET_PEER_COMMIT).get(REST_API_BIND(RESTAPI::restAPI_GetPeerCommit, this));
+    m_dispatcher.match(FNE_PUT_PEER_NAK_PEERID).put(REST_API_BIND(RESTAPI::restAPI_PutPeerNAKByPeerId, this));
+    m_dispatcher.match(FNE_PUT_PEER_NAK_ADDRESS).put(REST_API_BIND(RESTAPI::restAPI_PutPeerNAKByAddress, this));
+
     m_dispatcher.match(FNE_GET_RID_QUERY).get(REST_API_BIND(RESTAPI::restAPI_GetRIDQuery, this));
     m_dispatcher.match(FNE_PUT_RID_ADD).put(REST_API_BIND(RESTAPI::restAPI_PutRIDAdd, this));
     m_dispatcher.match(FNE_PUT_RID_DELETE).put(REST_API_BIND(RESTAPI::restAPI_PutRIDDelete, this));
@@ -660,13 +667,6 @@ void RESTAPI::initializeEndpoints()
     m_dispatcher.match(FNE_PUT_TGID_ADD).put(REST_API_BIND(RESTAPI::restAPI_PutTGAdd, this));
     m_dispatcher.match(FNE_PUT_TGID_DELETE).put(REST_API_BIND(RESTAPI::restAPI_PutTGDelete, this));
     m_dispatcher.match(FNE_GET_TGID_COMMIT).get(REST_API_BIND(RESTAPI::restAPI_GetTGCommit, this));
-
-    m_dispatcher.match(FNE_GET_PEER_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetPeerList, this));
-    m_dispatcher.match(FNE_PUT_PEER_ADD).put(REST_API_BIND(RESTAPI::restAPI_PutPeerAdd, this));
-    m_dispatcher.match(FNE_PUT_PEER_DELETE).put(REST_API_BIND(RESTAPI::restAPI_PutPeerDelete, this));
-    m_dispatcher.match(FNE_GET_PEER_COMMIT).get(REST_API_BIND(RESTAPI::restAPI_GetPeerCommit, this));
-    m_dispatcher.match(FNE_PUT_PEER_NAK_PEERID).put(REST_API_BIND(RESTAPI::restAPI_PutPeerNAKByPeerId, this));
-    m_dispatcher.match(FNE_PUT_PEER_NAK_ADDRESS).put(REST_API_BIND(RESTAPI::restAPI_PutPeerNAKByAddress, this));
 
     m_dispatcher.match(FNE_GET_ADJ_MAP_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetAdjMapList, this));
     m_dispatcher.match(FNE_PUT_ADJ_MAP_ADD).put(REST_API_BIND(RESTAPI::restAPI_PutAdjMapAdd, this));
@@ -870,6 +870,10 @@ void RESTAPI::restAPI_GetStatus(const HTTPPayload& request, HTTPPayload& reply, 
     reply.payload(response);
 }
 
+/*
+** Peer Operations
+*/
+
 /* REST API endpoint; implements get peer query request. */
 
 void RESTAPI::restAPI_GetPeerQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
@@ -1010,330 +1014,6 @@ void RESTAPI::restAPI_PutPeerResetConn(const HTTPPayload& request, HTTPPayload& 
             }
         }
     }
-}
-
-/* REST API endpoint; implements get radio ID query request. */
-
-void RESTAPI::restAPI_GetRIDQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object response = json::object();
-    setResponseDefaultStatus(response);
-
-    json::array rids = json::array();
-    if (m_ridLookup != nullptr) {
-        if (m_ridLookup->table().size() > 0) {
-            for (auto entry : m_ridLookup->table()) {
-                json::object ridObj = json::object();
-
-                uint32_t rid = entry.first;
-                ridObj["id"].set<uint32_t>(rid);
-                bool enabled = entry.second.radioEnabled();
-                ridObj["enabled"].set<bool>(enabled);
-                std::string alias = entry.second.radioAlias();
-                ridObj["alias"].set<std::string>(alias);
-                bool canRequestKeys = entry.second.canRequestKeys();
-                ridObj["canRequestKeys"].set<bool>(canRequestKeys);
-                bool canRekey = entry.second.canRekey();
-                ridObj["canRekey"].set<bool>(canRekey);
-                json::array allowedKIds = json::array();
-                std::vector<uint16_t> kIds = entry.second.allowedKIds();
-                for (uint16_t kId : kIds) {
-                    allowedKIds.push_back(json::value((double)kId));
-                }
-                ridObj["allowedKIds"].set<json::array>(allowedKIds);
-
-                rids.push_back(json::value(ridObj));
-            }
-        }
-    }
-
-    response["rids"].set<json::array>(rids);
-    reply.payload(response);
-}
-
-/* REST API endpoint; implements put radio ID add request. */
-
-void RESTAPI::restAPI_PutRIDAdd(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object req = json::object();
-    if (!parseRequestBody(request, reply, req)) {
-        return;
-    }
-
-    errorPayload(reply, "OK", HTTPPayload::OK);
-
-    if (!req["rid"].is<uint32_t>()) {
-        errorPayload(reply, "rid was not a valid integer");
-        return;
-    }
-
-    uint32_t rid = req["rid"].get<uint32_t>();
-
-    if (!req["enabled"].is<bool>()) {
-        errorPayload(reply, "enabled was not a valid boolean");
-        return;
-    }
-
-    bool enabled = req["enabled"].get<bool>();
-
-    std::string alias = "";
-    // Check if we were provided an alias in the request
-    if (req.find("alias") != req.end()) {
-        alias = req["alias"].get<std::string>();
-    }
-
-    bool canRequestKeys = false;
-    if (req.find("canRequestKeys") != req.end()) {
-        if (!req["canRequestKeys"].is<bool>()) {
-            errorPayload(reply, "canRequestKeys was not a valid boolean");
-            return;
-        }
-
-        canRequestKeys = req["canRequestKeys"].get<bool>();
-    }
-
-    bool canRekey = false;
-    if (req.find("canRekey") != req.end()) {
-        if (!req["canRekey"].is<bool>()) {
-            errorPayload(reply, "canRekey was not a valid boolean");
-            return;
-        }
-
-        canRekey = req["canRekey"].get<bool>();
-    }
-
-    std::vector<uint16_t> allowedKIds;
-    if (req.find("allowedKIds") != req.end()) {
-        if (!req["allowedKIds"].is<json::array>()) {
-            errorPayload(reply, "allowedKIds was not a valid JSON array");
-            return;
-        }
-
-        json::array kIdArray = req["allowedKIds"].get<json::array>();
-        for (auto entry : kIdArray) {
-            if (!entry.is<uint32_t>()) {
-                errorPayload(reply, "allowedKIds entry was not a valid number");
-                return;
-            }
-
-            uint32_t value = entry.get<uint32_t>();
-            if (value > 0xFFFFU) {
-                errorPayload(reply, "allowedKIds entry exceeded 16-bit key id range");
-                return;
-            }
-
-            allowedKIds.push_back((uint16_t)value);
-        }
-    }
-
-    LogInfoEx(LOG_REST, "request to add RID ACL, rid = %u", rid);
-
-    // The addEntry function will automatically update an existing entry, so no need to check for an exisitng one here
-    m_ridLookup->addEntry(rid, enabled, alias, "", canRequestKeys, canRekey, allowedKIds);
-/*    
-    if (m_network != nullptr) {
-        m_network->m_forceListUpdate = true;
-    }
-*/    
-}
-
-/* REST API endpoint; implements put radio ID delete request. */
-
-void RESTAPI::restAPI_PutRIDDelete(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object req = json::object();
-    if (!parseRequestBody(request, reply, req)) {
-        return;
-    }
-
-    errorPayload(reply, "OK", HTTPPayload::OK);
-
-    if (!req["rid"].is<uint32_t>()) {
-        errorPayload(reply, "rid was not a valid integer");
-        return;
-    }
-
-    uint32_t rid = req["rid"].get<uint32_t>();
-
-    RadioId radioId = m_ridLookup->find(rid);
-    if (radioId.radioDefault()) {
-        errorPayload(reply, "failed to find specified RID to delete");
-        return;
-    }
-
-    LogInfoEx(LOG_REST, "request to delete RID ACL, rid = %u", rid);
-
-    m_ridLookup->eraseEntry(rid);
-/*    
-    if (m_network != nullptr) {
-        m_network->m_forceListUpdate = true;
-    }
-*/    
-}
-
-/* REST API endpoint; implements put radio ID commit request. */
-
-void RESTAPI::restAPI_GetRIDCommit(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object response = json::object();
-    setResponseDefaultStatus(response);
-
-    LogInfoEx(LOG_REST, "request to commit and save RID ACLs");
-    m_ridLookup->commit();
-
-    reply.payload(response);
-}
-
-/* REST API endpoint; implements get talkgroup ID query request. */
-
-void RESTAPI::restAPI_GetTGQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object response = json::object();
-    setResponseDefaultStatus(response);
-
-    json::array tgs = json::array();
-    if (m_tidLookup != nullptr) {
-        if (m_tidLookup->groupVoice().size() > 0) {
-            for (auto entry : m_tidLookup->groupVoice()) {
-                json::object tg = tgToJson(entry);
-                tgs.push_back(json::value(tg));
-            }
-        }
-    }
-
-    response["tgs"].set<json::array>(tgs);
-    reply.payload(response);
-}
-
-/* REST API endpoint; implements put talkgroup ID add request. */
-
-void RESTAPI::restAPI_PutTGAdd(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object req = json::object();
-    if (!parseRequestBody(request, reply, req)) {
-        return;
-    }
-
-    errorPayload(reply, "OK", HTTPPayload::OK);
-
-    TalkgroupRuleGroupVoice groupVoice = jsonToTG(req, reply);
-    if (groupVoice.isInvalid()) {
-        ::LogError(LOG_REST, "Unable to parse TG JSON from REST TgAdd");
-        return;
-    }
-
-    std::string groupName = groupVoice.name();
-    uint32_t tgId = groupVoice.source().tgId();
-    uint8_t tgSlot = groupVoice.source().tgSlot();
-    bool active = groupVoice.config().active();
-    bool parrot = groupVoice.config().parrot();
-
-    uint32_t incCount = groupVoice.config().inclusion().size();
-    uint32_t excCount = groupVoice.config().exclusion().size();
-    uint32_t rewrCount = groupVoice.config().rewrite().size();
-    uint32_t prefCount = groupVoice.config().preferred().size();
-
-    if (incCount > 0 && excCount > 0) {
-        ::LogWarning(LOG_REST, "Talkgroup (%s) defines both inclusions and exclusions! Inclusions take precedence and exclusions will be ignored.", groupName.c_str());
-    }
-
-    ::LogInfoEx(LOG_REST, "request to add TGID ACL");
-    ::LogInfoEx(LOG_REST, "Talkgroup NAME: %s SRC_TGID: %u SRC_TS: %u ACTIVE: %u PARROT: %u INCLUSIONS: %u EXCLUSIONS: %u REWRITES: %u PREFERRED: %u", groupName.c_str(), tgId, tgSlot, active, parrot, incCount, excCount, rewrCount, prefCount);
-
-    m_tidLookup->addEntry(groupVoice);
-/*    
-    if (m_network != nullptr) {
-        m_network->m_forceListUpdate = true;
-    }
-*/    
-}
-
-/* REST API endpoint; implements put talkgroup ID delete request. */
-
-void RESTAPI::restAPI_PutTGDelete(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object req = json::object();
-    if (!parseRequestBody(request, reply, req)) {
-        return;
-    }
-
-    errorPayload(reply, "OK", HTTPPayload::OK);
-
-    // validate state is a string within the JSON blob
-    if (!req["tgid"].is<uint32_t>()) {
-        errorPayload(reply, "tgid was not a valid integer");
-        return;
-    }
-
-    // Validate slot
-    if (!req["slot"].is<uint8_t>()) {
-        errorPayload(reply, "slot was not a valid char");
-    }
-
-    uint32_t tgid = req["tgid"].get<uint32_t>();
-    uint8_t slot = req["slot"].get<uint8_t>();
-
-    TalkgroupRuleGroupVoice groupVoice = m_tidLookup->find(tgid, slot);
-    if (groupVoice.isInvalid()) {
-        errorPayload(reply, "failed to find specified TGID to delete");
-        return;
-    }
-
-    ::LogInfoEx(LOG_REST, "request to delete TGID ACL, tgid = %u, slot = %u", tgid, slot);
-    m_tidLookup->eraseEntry(groupVoice.source().tgId(), groupVoice.source().tgSlot());
-/*    
-    if (m_network != nullptr) {
-        m_network->m_forceListUpdate = true;
-    }
-*/    
-}
-
-/* REST API endpoint; implements put talkgroup ID commit request. */
-
-void RESTAPI::restAPI_GetTGCommit(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
-{
-    if (!validateAuth(request, reply)) {
-        return;
-    }
-
-    json::object response = json::object();
-    setResponseDefaultStatus(response);
-
-    LogInfoEx(LOG_REST, "request to commit and save TGID ACLs");
-    if(!m_tidLookup->commit()) {
-        errorPayload(reply, "failed to write new TGID file");
-        return;
-    }
-
-    reply.payload(response);
 }
 
 /* REST API endpoint; implements get peer list query request. */
@@ -1627,6 +1307,342 @@ void RESTAPI::restAPI_PutPeerNAKByAddress(const HTTPPayload& request, HTTPPayloa
     m_network->writePeerNAK(peerId, tag.c_str(), (NET_CONN_NAK_REASON)reasonCode, addr, addrLen);
 }
 
+/*
+** Radio ID Operations
+*/
+
+/* REST API endpoint; implements get radio ID query request. */
+
+void RESTAPI::restAPI_GetRIDQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    json::array rids = json::array();
+    if (m_ridLookup != nullptr) {
+        if (m_ridLookup->table().size() > 0) {
+            for (auto entry : m_ridLookup->table()) {
+                json::object ridObj = json::object();
+
+                uint32_t rid = entry.first;
+                ridObj["id"].set<uint32_t>(rid);
+                bool enabled = entry.second.radioEnabled();
+                ridObj["enabled"].set<bool>(enabled);
+                std::string alias = entry.second.radioAlias();
+                ridObj["alias"].set<std::string>(alias);
+                bool canRequestKeys = entry.second.canRequestKeys();
+                ridObj["canRequestKeys"].set<bool>(canRequestKeys);
+                bool canRekey = entry.second.canRekey();
+                ridObj["canRekey"].set<bool>(canRekey);
+                json::array allowedKIds = json::array();
+                std::vector<uint16_t> kIds = entry.second.allowedKIds();
+                for (uint16_t kId : kIds) {
+                    allowedKIds.push_back(json::value((double)kId));
+                }
+                ridObj["allowedKIds"].set<json::array>(allowedKIds);
+
+                rids.push_back(json::value(ridObj));
+            }
+        }
+    }
+
+    response["rids"].set<json::array>(rids);
+    reply.payload(response);
+}
+
+/* REST API endpoint; implements put radio ID add request. */
+
+void RESTAPI::restAPI_PutRIDAdd(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object req = json::object();
+    if (!parseRequestBody(request, reply, req)) {
+        return;
+    }
+
+    errorPayload(reply, "OK", HTTPPayload::OK);
+
+    if (!req["rid"].is<uint32_t>()) {
+        errorPayload(reply, "rid was not a valid integer");
+        return;
+    }
+
+    uint32_t rid = req["rid"].get<uint32_t>();
+
+    if (!req["enabled"].is<bool>()) {
+        errorPayload(reply, "enabled was not a valid boolean");
+        return;
+    }
+
+    bool enabled = req["enabled"].get<bool>();
+
+    std::string alias = "";
+    // Check if we were provided an alias in the request
+    if (req.find("alias") != req.end()) {
+        alias = req["alias"].get<std::string>();
+    }
+
+    bool canRequestKeys = false;
+    if (req.find("canRequestKeys") != req.end()) {
+        if (!req["canRequestKeys"].is<bool>()) {
+            errorPayload(reply, "canRequestKeys was not a valid boolean");
+            return;
+        }
+
+        canRequestKeys = req["canRequestKeys"].get<bool>();
+    }
+
+    bool canRekey = false;
+    if (req.find("canRekey") != req.end()) {
+        if (!req["canRekey"].is<bool>()) {
+            errorPayload(reply, "canRekey was not a valid boolean");
+            return;
+        }
+
+        canRekey = req["canRekey"].get<bool>();
+    }
+
+    std::vector<uint16_t> allowedKIds;
+    if (req.find("allowedKIds") != req.end()) {
+        if (!req["allowedKIds"].is<json::array>()) {
+            errorPayload(reply, "allowedKIds was not a valid JSON array");
+            return;
+        }
+
+        json::array kIdArray = req["allowedKIds"].get<json::array>();
+        for (auto entry : kIdArray) {
+            if (!entry.is<uint32_t>()) {
+                errorPayload(reply, "allowedKIds entry was not a valid number");
+                return;
+            }
+
+            uint32_t value = entry.get<uint32_t>();
+            if (value > 0xFFFFU) {
+                errorPayload(reply, "allowedKIds entry exceeded 16-bit key id range");
+                return;
+            }
+
+            allowedKIds.push_back((uint16_t)value);
+        }
+    }
+
+    LogInfoEx(LOG_REST, "request to add RID ACL, rid = %u", rid);
+
+    // The addEntry function will automatically update an existing entry, so no need to check for an exisitng one here
+    m_ridLookup->addEntry(rid, enabled, alias, "", canRequestKeys, canRekey, allowedKIds);
+/*    
+    if (m_network != nullptr) {
+        m_network->m_forceListUpdate = true;
+    }
+*/    
+}
+
+/* REST API endpoint; implements put radio ID delete request. */
+
+void RESTAPI::restAPI_PutRIDDelete(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object req = json::object();
+    if (!parseRequestBody(request, reply, req)) {
+        return;
+    }
+
+    errorPayload(reply, "OK", HTTPPayload::OK);
+
+    if (!req["rid"].is<uint32_t>()) {
+        errorPayload(reply, "rid was not a valid integer");
+        return;
+    }
+
+    uint32_t rid = req["rid"].get<uint32_t>();
+
+    RadioId radioId = m_ridLookup->find(rid);
+    if (radioId.radioDefault()) {
+        errorPayload(reply, "failed to find specified RID to delete");
+        return;
+    }
+
+    LogInfoEx(LOG_REST, "request to delete RID ACL, rid = %u", rid);
+
+    m_ridLookup->eraseEntry(rid);
+/*    
+    if (m_network != nullptr) {
+        m_network->m_forceListUpdate = true;
+    }
+*/    
+}
+
+/* REST API endpoint; implements put radio ID commit request. */
+
+void RESTAPI::restAPI_GetRIDCommit(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    LogInfoEx(LOG_REST, "request to commit and save RID ACLs");
+    m_ridLookup->commit();
+
+    reply.payload(response);
+}
+
+/*
+** Talkgroup Operations
+*/
+
+/* REST API endpoint; implements get talkgroup ID query request. */
+
+void RESTAPI::restAPI_GetTGQuery(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    json::array tgs = json::array();
+    if (m_tidLookup != nullptr) {
+        if (m_tidLookup->groupVoice().size() > 0) {
+            for (auto entry : m_tidLookup->groupVoice()) {
+                json::object tg = tgToJson(entry);
+                tgs.push_back(json::value(tg));
+            }
+        }
+    }
+
+    response["tgs"].set<json::array>(tgs);
+    reply.payload(response);
+}
+
+/* REST API endpoint; implements put talkgroup ID add request. */
+
+void RESTAPI::restAPI_PutTGAdd(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object req = json::object();
+    if (!parseRequestBody(request, reply, req)) {
+        return;
+    }
+
+    errorPayload(reply, "OK", HTTPPayload::OK);
+
+    TalkgroupRuleGroupVoice groupVoice = jsonToTG(req, reply);
+    if (groupVoice.isInvalid()) {
+        ::LogError(LOG_REST, "Unable to parse TG JSON from REST TgAdd");
+        return;
+    }
+
+    std::string groupName = groupVoice.name();
+    uint32_t tgId = groupVoice.source().tgId();
+    uint8_t tgSlot = groupVoice.source().tgSlot();
+    bool active = groupVoice.config().active();
+    bool parrot = groupVoice.config().parrot();
+
+    uint32_t incCount = groupVoice.config().inclusion().size();
+    uint32_t excCount = groupVoice.config().exclusion().size();
+    uint32_t rewrCount = groupVoice.config().rewrite().size();
+    uint32_t prefCount = groupVoice.config().preferred().size();
+
+    if (incCount > 0 && excCount > 0) {
+        ::LogWarning(LOG_REST, "Talkgroup (%s) defines both inclusions and exclusions! Inclusions take precedence and exclusions will be ignored.", groupName.c_str());
+    }
+
+    ::LogInfoEx(LOG_REST, "request to add TGID ACL");
+    ::LogInfoEx(LOG_REST, "Talkgroup NAME: %s SRC_TGID: %u SRC_TS: %u ACTIVE: %u PARROT: %u INCLUSIONS: %u EXCLUSIONS: %u REWRITES: %u PREFERRED: %u", groupName.c_str(), tgId, tgSlot, active, parrot, incCount, excCount, rewrCount, prefCount);
+
+    m_tidLookup->addEntry(groupVoice);
+/*    
+    if (m_network != nullptr) {
+        m_network->m_forceListUpdate = true;
+    }
+*/    
+}
+
+/* REST API endpoint; implements put talkgroup ID delete request. */
+
+void RESTAPI::restAPI_PutTGDelete(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object req = json::object();
+    if (!parseRequestBody(request, reply, req)) {
+        return;
+    }
+
+    errorPayload(reply, "OK", HTTPPayload::OK);
+
+    // validate state is a string within the JSON blob
+    if (!req["tgid"].is<uint32_t>()) {
+        errorPayload(reply, "tgid was not a valid integer");
+        return;
+    }
+
+    // Validate slot
+    if (!req["slot"].is<uint8_t>()) {
+        errorPayload(reply, "slot was not a valid char");
+    }
+
+    uint32_t tgid = req["tgid"].get<uint32_t>();
+    uint8_t slot = req["slot"].get<uint8_t>();
+
+    TalkgroupRuleGroupVoice groupVoice = m_tidLookup->find(tgid, slot);
+    if (groupVoice.isInvalid()) {
+        errorPayload(reply, "failed to find specified TGID to delete");
+        return;
+    }
+
+    ::LogInfoEx(LOG_REST, "request to delete TGID ACL, tgid = %u, slot = %u", tgid, slot);
+    m_tidLookup->eraseEntry(groupVoice.source().tgId(), groupVoice.source().tgSlot());
+/*    
+    if (m_network != nullptr) {
+        m_network->m_forceListUpdate = true;
+    }
+*/    
+}
+
+/* REST API endpoint; implements put talkgroup ID commit request. */
+
+void RESTAPI::restAPI_GetTGCommit(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    LogInfoEx(LOG_REST, "request to commit and save TGID ACLs");
+    if(!m_tidLookup->commit()) {
+        errorPayload(reply, "failed to write new TGID file");
+        return;
+    }
+
+    reply.payload(response);
+}
+
+/*
+** Adjacent Site Map Operations
+*/
+
 /* REST API endpoint; implements get adjacent site map query request. */
 
 void RESTAPI::restAPI_GetAdjMapList(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
@@ -1758,6 +1774,10 @@ void RESTAPI::restAPI_GetAdjMapCommit(const HTTPPayload& request, HTTPPayload& r
 
     reply.payload(response);
 }
+
+/*
+** Refresh and Statistics/Metadata Operations
+*/
 
 /* */
 

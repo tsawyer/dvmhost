@@ -169,6 +169,10 @@ private:
      * @param match HTTP request matcher.
      */
     void restAPI_GetStatus(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+    /*
+    ** Peer Operations
+    */
     
     /**
      * @brief REST API endpoint; implements get peer query request.
@@ -198,64 +202,6 @@ private:
      * @param match HTTP request matcher.
      */
     void restAPI_PutPeerResetConn(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-
-    /**
-     * @brief REST API endpoint; implements get radio ID query request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_GetRIDQuery(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put radio ID add request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_PutRIDAdd(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put radio ID delete request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_PutRIDDelete(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put radio ID commit request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_GetRIDCommit(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-
-    /**
-     * @brief REST API endpoint; implements get talkgroup ID query request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_GetTGQuery(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put talkgroup ID add request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_PutTGAdd(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put talkgroup ID delete request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_PutTGDelete(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
-    /**
-     * @brief REST API endpoint; implements put talkgroup ID commit request.
-     * @param request HTTP request.
-     * @param reply HTTP reply.
-     * @param match HTTP request matcher.
-     */
-    void restAPI_GetTGCommit(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
 
     /**
      * @brief REST API endpoint; implements get peer list query request.
@@ -300,6 +246,76 @@ private:
      */
     void restAPI_PutPeerNAKByAddress(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
 
+    /*
+    ** Radio ID Operations
+    */
+
+    /**
+     * @brief REST API endpoint; implements get radio ID query request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_GetRIDQuery(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put radio ID add request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_PutRIDAdd(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put radio ID delete request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_PutRIDDelete(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put radio ID commit request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_GetRIDCommit(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+    /*
+    ** Talkgroup ID Operations
+    */
+
+    /**
+     * @brief REST API endpoint; implements get talkgroup ID query request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_GetTGQuery(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put talkgroup ID add request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_PutTGAdd(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put talkgroup ID delete request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_PutTGDelete(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+    /**
+     * @brief REST API endpoint; implements put talkgroup ID commit request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_GetTGCommit(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+    /*
+    ** Adjacent Site Map Operations
+    */
+
     /**
      * @brief REST API endpoint; implements get adjacent site map list query request.
      * @param request HTTP request.
@@ -328,6 +344,10 @@ private:
      * @param match HTTP request matcher.
      */
     void restAPI_GetAdjMapCommit(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+    /*
+    ** Refresh and Statistics/Metadata Operations
+    */
 
     /**
      * @brief 
