@@ -1,7 +1,7 @@
 # DVM Network Stack Technical Documentation
 
-**Version:** 1.1  
-**Date:** May 8, 2026  
+**Version:** 1.2  
+**Date:** July 8, 2026  
 **Author:** AI Assistant (updated based on current source code analysis)
 
 AI WARNING: This document was mainly generated using AI assistance. As such, there is the possibility of some error or inconsistency.
@@ -183,7 +183,7 @@ TrafficNetwork (Extends BaseNetwork)
 | Class | dvmhost | dvmbridge | dvmpatch | dvmfne |
 |-------|---------|-----------|----------|--------------------|
 | BaseNetwork | ✓ | ✓ | ✓ | ✓ |
-| Network | ✓ | ✓ | ✓ | ✗ |
+| Network | ✓ | ✓ | ✓ | ✓ (via `PeerNetwork`) |
 | TrafficNetwork | ✗ | ✗ | ✗ | ✓ |
 | MetadataNetwork | ✗ | ✗ | ✗ | ✓ |
 | PeerNetwork | ✗ | ✗ | ✗ | ✓ |
@@ -197,8 +197,8 @@ TrafficNetwork (Extends BaseNetwork)
 
 The `BaseNetwork` class provides core networking functionality shared by both peer and master implementations:
 
-- **Ring Buffers**: Fixed-size circular buffers (4KB each) for DMR, P25, NXDN, and analog receive data
-- **Protocol Writers**: Methods for writing DMR, P25 LDU1/LDU2, NXDN, and analog frames
+- **Ring Buffers**: Fixed-size circular buffers (4098 bytes each) for DMR, P25, P25 Phase 2, NXDN, and analog receive data
+- **Protocol Writers**: Methods for writing DMR, P25 LDU1/LDU2/TDU/TSDU/TDULC, P25 Phase 2, NXDN, and analog frames
 - **Message Builders**: Functions to construct protocol-specific network messages
 - **Grant Management**: Grant request and encryption key request handling
 - **Announcements**: Unit registration, group affiliation, and peer status announcements
@@ -214,12 +214,14 @@ protected:
     // Ring buffers for protocol data
     RingBuffer m_rxDMRData;         // DMR receive buffer (4KB)
     RingBuffer m_rxP25Data;         // P25 receive buffer (4KB)
+    RingBuffer m_rxP25P2Data;       // P25 Phase 2 receive buffer (4KB)
     RingBuffer m_rxNXDNData;        // NXDN receive buffer (4KB)
     RingBuffer m_rxAnalogData;      // Analog receive buffer (4KB)
     
     // Stream identifiers
     uint32_t* m_dmrStreamId;        // DMR stream IDs (2 slots)
     uint32_t m_p25StreamId;         // P25 stream ID
+    uint32_t* m_p25P2StreamId;      // P25 Phase 2 stream IDs (2 slots)
     uint32_t m_nxdnStreamId;        // NXDN stream ID
     uint32_t m_analogStreamId;      // Analog stream ID
 };
@@ -230,7 +232,7 @@ protected:
 The `Network` class implements peer-side functionality for connecting to FNE masters:
 
 - **Connection State Machine**: Login, authorization, configuration, and running states
-- **Authentication**: SHA256-based challenge-response authentication
+- **Authentication**: SHA256 digest authentication using FNE-provided per-login salt and shared password
 - **Heartbeat**: Regular ping/pong messages to maintain connection
 - **Metadata Exchange**: Peer configuration and status reporting
 - **High Availability**: Support for multiple master addresses with failover
@@ -537,13 +539,14 @@ Byte Offset | Field              | Size    | Description
 ```
 FE 04 A3 5C 00 00 00 00 12 34 56 78 00 00 4E 20 00 00 00 21
 │  │  │  │  │  │  │  │  │        │  │        │  │        │
-│  │  │  │  │  │  │  │  │        │  └────────┴─ Peer ID: 0x00004E20 (20000)
-│  │  │  │  │  │  │  │  └────────┴──────────── Stream ID: 0x12345678
-│  │  │  │  │  │  └──┴─────────────────────── Reserved (0x0000)
-│  │  │  │  └──┴────────────────────────────── Function: 0x00, SubFunc: 0x00
-│  │  └──┴───────────────────────────────────── CRC-16: 0xA35C
-│  └─────────────────────────────────────────── Extension Length: 4 (words)
-└────────────────────────────────────────────── Payload Type: 0xFE
+│  │  │  │  │  │  │  │  │        │  │        │  └────────┴─ Payload Length: 0x00000021 (33)
+│  │  │  │  │  │  │  │  │        │  └────────┴───────────── Peer ID: 0x00004E20 (20000)
+│  │  │  │  │  │  │  │  └────────┴───────────────────────── Stream ID: 0x12345678
+│  │  │  │  │  │  └──┴───────────────────────────────────── Reserved (0x0000)
+│  │  │  │  └──┴─────────────────────────────────────────── Function: 0x00, SubFunc: 0x00
+│  │  └──┴───────────────────────────────────────────────── CRC-16: 0xA35C
+│  └─────────────────────────────────────────────────────── Extension Length: 4 (words)
+└────────────────────────────────────────────────────────── Payload Type: 0xFE
 ```
 
 **Encoding Example:**
@@ -639,6 +642,10 @@ The DVM protocol uses a two-level opcode system for message routing and handling
 | 0x7D | KEY_RSP | Encryption key response |
 | 0x7E | ACK | Acknowledgment |
 | 0x7F | NAK | Negative acknowledgment |
+| 0x80 | KEY_LLA_REQ | Encryption key LLA request |
+| 0x81 | KEY_LLA_RSP | Encryption key LLA response |
+| 0x8E | KEYS_INVENTORY | Encryption key inventory transfer |
+| 0x8F | KEYS_UPDATE | Encryption key container update |
 | 0x90 | TRANSFER | Activity/diagnostic/status transfer |
 | 0x91 | ANNOUNCE | Affiliation/registration announcements |
 | 0x92 | REPL | FNE replication (peer/TG/RID lists) |
@@ -650,7 +657,7 @@ When an FNE master sends a NAK (Negative Acknowledgment), it includes a 16-bit r
 
 **NAK Message Format:**
 ```
-Peer ID (4 bytes) + Reserved (4 bytes) + Reason Code (2 bytes)
+Reserved (6 bytes) + Peer ID (4 bytes) + Reason Code (2 bytes)
 ```
 
 **Reason Code Enumeration:**
@@ -724,6 +731,7 @@ Peer ID (4 bytes) + Reserved (4 bytes) + Reason Code (2 bytes)
 | 0x02 | ANNC_SUBFUNC_UNIT_DEREG | Unit deregistration |
 | 0x03 | ANNC_SUBFUNC_GRP_UNAFFIL | Group unaffiliation |
 | 0x90 | ANNC_SUBFUNC_AFFILS | Complete affiliation update |
+| 0x91 | ANNC_SUBFUNC_UNIT_REGS | Complete unit registration update |
 | 0x9A | ANNC_SUBFUNC_SITE_VC | Site voice channel list |
 
 #### Replication Sub-Functions (REPL)
@@ -735,6 +743,13 @@ Peer ID (4 bytes) + Reserved (4 bytes) + Reason Code (2 bytes)
 | 0x02 | REPL_PEER_LIST | Peer configuration list |
 | 0xA2 | REPL_ACT_PEER_LIST | Active peer list |
 | 0xA3 | REPL_HA_PARAMS | HA configuration parameters |
+
+#### Network Tree Sub-Functions (NET_TREE)
+
+| Code | Name | Purpose |
+|------|------|---------|
+| 0x00 | NET_TREE_LIST | Spanning-tree topology list transfer |
+| 0x01 | NET_TREE_DISC | Spanning-tree disconnect notification |
 
 #### In-Call Control (INCALL_CTRL)
 
@@ -752,7 +767,7 @@ Peer ID (4 bytes) + Reserved (4 bytes) + Reason Code (2 bytes)
 The peer connection follows a state machine:
 
 ```
-NET_STAT_INVALID
+NET_STAT_WAITING_CONNECT
     ↓
 NET_STAT_WAITING_LOGIN (send RPTL)
     ↓
@@ -768,17 +783,17 @@ NET_STAT_RUNNING (operational)
 **Step 1: Login Request (RPTL)**
 
 Peer sends login request with:
+- Repeater login tag (`"RPTL"`)
 - Peer ID
-- Random salt value
 
 ```cpp
 bool Network::writeLogin() {
     uint8_t buffer[8U];
-    ::memcpy(buffer + 0U, m_salt, sizeof(uint32_t));
+    ::memcpy(buffer + 0U, TAG_REPEATER_LOGIN, 4U);
     SET_UINT32(m_peerId, buffer, 4U);
     
     return writeMaster({ NET_FUNC::RPTL, NET_SUBFUNC::NOP }, 
-                       buffer, 8U, m_pktSeq, m_loginStreamId);
+                       buffer, 8U, pktSeq(true), m_loginStreamId);
 }
 ```
 
@@ -790,41 +805,42 @@ bool Network::writeLogin() {
 RPTL Payload (8 bytes):
 Byte Offset | Field              | Size    | Description
 ------------|--------------------|---------|---------------------------------
-0-3         | Salt               | 4 bytes | Random value (big-endian)
+0-3         | TAG_REPEATER_LOGIN | 4 bytes | ASCII "RPTL"
 4-7         | Peer ID            | 4 bytes | Peer identifier (big-endian)
 ```
 
 **Example RPTL Payload (hexadecimal):**
 ```
-A1 B2 C3 D4 00 00 4E 20
+52 50 54 4C 00 00 4E 20
 │        │  │        │
 │        │  └────────┴─ Peer ID: 0x00004E20 (20000)
-└────────┴──────────── Salt: 0xA1B2C3D4
+└────────┴──────────── TAG: "RPTL"
 ```
 
-**Step 2: Authorization Challenge (RPTK)**
+After receiving `RPTL`, the FNE generates a random 32-bit salt and returns it in the `ACK` payload extension bytes. The peer stores that salt (`m_salt`) and uses it for the digest in Step 2.
 
-Peer responds to master's challenge with SHA256 hash:
+**Step 2: Authorization Digest (RPTK)**
+
+Peer responds with SHA256 digest of `salt || password`:
 
 ```cpp
 bool Network::writeAuthorisation() {
-    uint8_t buffer[40U];
-    
-    // Combine peer salt and master challenge
-    uint8_t hash[50U];
-    ::memcpy(hash, m_salt, sizeof(uint32_t));
-    ::memcpy(hash + sizeof(uint32_t), m_password.c_str(), m_password.size());
-    
-    // Calculate SHA256
+    size_t size = m_password.size();
+    uint8_t* in = new uint8_t[size + sizeof(uint32_t)];
+    ::memcpy(in, m_salt, sizeof(uint32_t));
+    for (size_t i = 0U; i < size; i++)
+        in[i + sizeof(uint32_t)] = m_password.at(i);
+
+    uint8_t out[40U];
+    ::memcpy(out + 0U, TAG_REPEATER_AUTH, 4U);
+    SET_UINT32(m_peerId, out, 4U);
+
     edac::SHA256 sha256;
-    sha256.buffer(hash, 40U, hash);
-    
-    // Send response
-    ::memcpy(buffer, hash, 32U);
-    SET_UINT32(m_peerId, buffer, 32U);
-    
+    sha256.buffer(in, (uint32_t)(size + sizeof(uint32_t)), out + 8U);
+    delete[] in;
+
     return writeMaster({ NET_FUNC::RPTK, NET_SUBFUNC::NOP }, 
-                       buffer, 40U, m_pktSeq, m_loginStreamId);
+                       out, 40U, pktSeq(), m_loginStreamId);
 }
 ```
 
@@ -836,18 +852,17 @@ bool Network::writeAuthorisation() {
 RPTK Payload (40 bytes):
 Byte Offset | Field              | Size    | Description
 ------------|--------------------|---------|---------------------------------
-0-31        | SHA256 Hash        | 32 bytes| SHA256(salt + password + challenge)
-32-35       | Peer ID            | 4 bytes | Peer identifier (big-endian)
-36-39       | Reserved           | 4 bytes | Padding (0x00)
+0-3         | TAG_REPEATER_AUTH  | 4 bytes | ASCII "RPTK"
+4-7         | Peer ID            | 4 bytes | Peer identifier (big-endian)
+8-39        | SHA256 Hash        | 32 bytes| SHA256(salt + password)
 ```
 
 **Example RPTK Payload (hexadecimal):**
 ```
-2F 9A 8B ... [32 bytes of SHA256 hash] ... 00 00 4E 20 00 00 00 00
-│                                          │        │  │        │
-│                                          │        │  └────────┴─ Reserved
-│                                          └────────┴──────────── Peer ID: 20000
-└──────────────────────────────────────────────────────────────── SHA256 Hash
+52 50 54 4B 00 00 4E 20 [32 bytes SHA256(salt||password)]
+│        │  │        │
+│        │  └────────┴─ Peer ID: 20000
+└────────┴──────────── TAG: "RPTK"
 ```
 
 **Step 3: Configuration Exchange (RPTC)**
@@ -863,44 +878,62 @@ bool Network::writeConfig() {
     config["rxFrequency"].set<uint32_t>(m_metadata->rxFrequency);
     config["txFrequency"].set<uint32_t>(m_metadata->txFrequency);
     
-    // Protocol support
-    config["dmr"].set<bool>(m_dmrEnabled);
-    config["p25"].set<bool>(m_p25Enabled);
-    config["nxdn"].set<bool>(m_nxdnEnabled);
-    config["analog"].set<bool>(m_analogEnabled);
-    
-    // Location
-    config["latitude"].set<float>(m_metadata->latitude);
-    config["longitude"].set<float>(m_metadata->longitude);
+    json::object sysInfo = json::object();
+    sysInfo["latitude"].set<float>(m_metadata->latitude);
+    sysInfo["longitude"].set<float>(m_metadata->longitude);
+    sysInfo["height"].set<int>(m_metadata->height);
+    sysInfo["location"].set<std::string>(m_metadata->location);
+    config["info"].set<json::object>(sysInfo);
+
+    json::object channel = json::object();
+    channel["txPower"].set<uint32_t>(m_metadata->power);
+    channel["txOffsetMhz"].set<float>(m_metadata->txOffsetMhz);
+    channel["chBandwidthKhz"].set<float>(m_metadata->chBandwidthKhz);
+    channel["channelId"].set<uint8_t>(m_metadata->channelId);
+    channel["channelNo"].set<uint32_t>(m_metadata->channelNo);
+    config["channel"].set<json::object>(channel);
+
+    json::object rcon = json::object();
+    rcon["password"].set<std::string>(m_metadata->restApiPassword);
+    rcon["port"].set<uint16_t>(m_metadata->restApiPort);
+    config["rcon"].set<json::object>(rcon);
+
+    config["peerClass"].set<uint32_t>(PEER_CONN_CLASS_STANDARD);
+    config["conventionalPeer"].set<bool>(m_metadata->isConventional);
+    config["software"].set<std::string>(std::string(__NETVER__));
     
     // Serialize to JSON string
     std::string json = json::object(config).serialize();
+
+    DECLARE_CHAR_ARRAY(buffer, json.length() + 9U);
+    ::memcpy(buffer + 0U, TAG_REPEATER_CONFIG, 4U);
+    ::snprintf(buffer + 8U, json.length() + 1U, "%s", json.c_str());
     
     return writeMaster({ NET_FUNC::RPTC, NET_SUBFUNC::NOP },
-                       (uint8_t*)json.c_str(), json.length(), 
-                       m_pktSeq, m_loginStreamId);
+                       (uint8_t*)buffer, json.length() + 8U,
+                       RTP_END_OF_CALL_SEQ, m_loginStreamId);
 }
 ```
 
 **Raw RPTC Message Structure:**
 
 ```
-[RTP Header: 12 bytes] + [FNE Header: 20 bytes] + [TAG: 4 bytes] + [Peer ID: 4 bytes] + [JSON: variable]
+[RTP Header: 12 bytes] + [FNE Header: 20 bytes] + [TAG: 4 bytes] + [Reserved: 4 bytes] + [JSON: variable]
 
 RPTC Payload:
 Byte Offset | Field              | Size      | Description
 ------------|--------------------|-----------|-----------------------------
 0-3         | TAG_REPEATER_CONFIG| 4 bytes   | ASCII "RPTC"
-4-7         | Peer ID            | 4 bytes   | Peer identifier (big-endian)
+4-7         | Reserved           | 4 bytes   | Reserved (zero-initialized)
 8+          | JSON Configuration | Variable  | UTF-8 JSON string
 ```
 
 **Example RPTC Payload (partial hexadecimal + ASCII):**
 ```
-52 50 54 43 00 00 4E 20 7B 22 69 64 65 6E 74 69 74 79 22 3A 22 4B 42 ...
+52 50 54 43 00 00 00 00 7B 22 69 64 65 6E 74 69 74 79 22 3A 22 4B 42 ...
 │  │  │  │  │        │  │  
 │  │  │  │  │        │  └─ JSON starts: {"identity":"KB...
-│  │  │  │  └────────┴─── Peer ID: 0x00004E20 (20000)
+│  │  │  │  └────────┴─── Reserved: 0x00000000
 └──┴──┴──┴───────────── TAG: "RPTC"
 ```
 
@@ -910,7 +943,7 @@ The RPTC configuration uses a nested JSON structure with three main object group
 
 ```json
 {
-  "identity": "string",           // Peer identity/callsign (required)
+  "identity": "string",          // Peer identity/callsign (required)
   "rxFrequency": 0,              // RX frequency in Hz (required)
   "txFrequency": 0,              // TX frequency in Hz (required)
   
@@ -918,12 +951,7 @@ The RPTC configuration uses a nested JSON structure with three main object group
     "latitude": 0.0,             // Latitude in decimal degrees
     "longitude": 0.0,            // Longitude in decimal degrees
     "height": 0,                 // Antenna height in meters
-    "location": "string",        // Location description
-    "power": 0,                  // Transmit power in watts
-    "class": 0,                  // Site class designation
-    "band": 0,                   // Operating frequency band
-    "slot": 0,                   // TDMA slot assignment (DMR)
-    "colorCode": 0               // Color code for DMR systems
+    "location": "string"         // Location description
   },
   
   "channel": {                   // Channel configuration object (required)
@@ -939,12 +967,9 @@ The RPTC configuration uses a nested JSON structure with three main object group
     "port": 0                    // REST API port
   },
  
-  "peerClass": 2,               // Canonical peer connection class enum
-  
-  "externalPeer": false,         // Legacy compatibility flag for neighbor peers
+  "peerClass": 2,                // Canonical peer connection class enum
+
   "conventionalPeer": false,     // Conventional (non-trunked) mode (optional)
-  "sysView": false,              // Legacy compatibility flag for SysView peers
-  "consolePeer": false,          // Reporting flag for console peers
   "software": "string"           // Software identifier (optional)
 }
 ```
@@ -970,12 +995,7 @@ The RPTC configuration uses a nested JSON structure with three main object group
     "latitude": 39.9526,
     "longitude": -75.1652,
     "height": 30,
-    "location": "Philadelphia, PA",
-    "power": 50,
-    "class": 1,
-    "band": 1,
-    "slot": 1,
-    "colorCode": 1
+    "location": "Philadelphia, PA"
   },
   
   "channel": {
@@ -992,11 +1012,8 @@ The RPTC configuration uses a nested JSON structure with three main object group
   },
  
   "peerClass": 2,
-  
-  "externalPeer": false,
+
   "conventionalPeer": false,
-  "sysView": false,
-  "consolePeer": false,
   "software": "DVMHOST_R04A00"
 }
 ```
@@ -1006,22 +1023,14 @@ The RPTC configuration uses a nested JSON structure with three main object group
 **Top-Level Fields:**
 - **identity**: Unique identifier for the peer (callsign, site name, etc.)
 - **rxFrequency/txFrequency**: Operating frequencies in Hertz
-- **peerClass**: Canonical peer connection class. Current peers should send this field rather than relying on legacy boolean flags.
-- **externalPeer**: Legacy compatibility flag indicating `PEER_CONN_CLASS_NEIGHBOR`
+- **peerClass**: Canonical peer connection class (`PEER_CONN_CLASS_STANDARD` is emitted by current peers)
 - **conventionalPeer**: Indicates non-trunked operation mode (affects grant behavior)
-- **sysView**: Legacy compatibility flag indicating `PEER_CONN_CLASS_SYSVIEW`
-- **consolePeer**: Reporting flag indicating `PEER_CONN_CLASS_CONSOLE`
 - **software**: Software version string (e.g., `DVMHOST_R04A00`) for compatibility checking
 
 **System Information Object (`info`):**
 - **latitude/longitude**: Geographic coordinates in decimal degrees for mapping and adjacent site calculations
 - **height**: Antenna height above ground level in meters (used for coverage calculations)
 - **location**: Human-readable location description
-- **power**: Transmit power in watts
-- **class**: Site class designation (used for network topology planning)
-- **band**: Operating frequency band identifier
-- **slot**: TDMA slot assignment for DMR systems
-- **colorCode**: Color code for DMR systems (0-15)
 
 **Channel Configuration Object (`channel`):**
 - **txPower**: Transmit power in watts
@@ -1039,11 +1048,9 @@ The FNE master stores the complete configuration JSON in the peer connection obj
 - `identity` → Used for peer identification in logs and routing tables
 - `software` → Logged for version tracking and compatibility checks
 - `peerClass` → Primary peer classification used to determine routing and peer behavior
-- `sysView` / `externalPeer` → Accepted for backward compatibility with older peers and translated into the corresponding `peerClass`
-- `consolePeer` → Emitted by the FNE when reporting a console-class peer configuration
 - `conventionalPeer` → Affects talkgroup affiliation and grant behavior (conventional peers don't require grants)
 
-If `peerClass` is absent, the FNE falls back to legacy `sysView` and `externalPeer` booleans. If `peerClass` is `PEER_CONN_CLASS_UNKNOWN` or greater than or equal to `PEER_CONN_CLASS_INVALID`, the FNE normalizes it to `PEER_CONN_CLASS_STANDARD`. After parsing, the FNE reports the resolved class back through the stored configuration JSON and backfills the legacy boolean fields for compatibility with older REST API consumers.
+If `peerClass` is absent, the FNE can still fall back to legacy booleans for backward compatibility with older peers. If `peerClass` is `PEER_CONN_CLASS_UNKNOWN` or greater than or equal to `PEER_CONN_CLASS_INVALID`, the FNE normalizes it to `PEER_CONN_CLASS_STANDARD`.
 
 **Step 4: ACK/NAK Response**
 
@@ -1059,12 +1066,12 @@ Once connected, peers and master exchange periodic PING/PONG messages:
 
 ```cpp
 bool Network::writePing() {
-    uint8_t buffer[11U];
-    SET_UINT32(m_peerId, buffer, 7U);
+    uint8_t buffer[1U];
+    ::memset(buffer, 0x00U, 1U);
     
     return writeMaster({ NET_FUNC::PING, NET_SUBFUNC::NOP }, 
-                       buffer, 11U, RTP_END_OF_CALL_SEQ, 
-                       m_random.next());
+                       buffer, 1U, RTP_END_OF_CALL_SEQ,
+                       createStreamId());
 }
 ```
 
@@ -1629,7 +1636,7 @@ The NXDN network packet uses the TAG_NXDN_DATA identifier and includes the 48-by
 | 8-10 | 3 | Destination ID | NXDN radio ID or talkgroup ID |
 | 11-13 | 3 | Reserved | Reserved for future use (0x000000) |
 | 14 | 1 | Control Byte | Network control flags |
-| 15 | 1 | Group Flag | Group call flag (0=private, 1=group) |
+| 15 | 1 | Group/Call Type Bits | Bit 6 (`0x40`) indicates private call when set; clear indicates group call |
 | 16-22 | 7 | Reserved | Reserved for future use |
 | 23 | 1 | Count | Total NXDN data length |
 | 24-71 | 48 | NXDN Frame Data | Raw NXDN frame (`NXDN_FRAME_LENGTH_BYTES = 48U`) |
@@ -1699,7 +1706,7 @@ The analog audio packet uses the `TAG_ANALOG_DATA` identifier (`"ANOD"`) and con
 | 8-10 | 3 | Destination ID | Target radio ID or conference ID |
 | 11-13 | 3 | Reserved | Reserved for future use (0x000000) |
 | 14 | 1 | Control Byte | Network control flags |
-| 15 | 1 | Frame Type / Group | Bit 7: Group flag (0=private, 1=group)<br/>Bits 0-6: Audio frame type |
+| 15 | 1 | Frame Type / Group | Bit 6 (`0x40`) indicates private call when set; clear indicates group call.<br/>Remaining bits carry `AudioFrameType` |
 | 16-19 | 4 | Reserved | Reserved for future use (0x00000000) |
 | 20-339 | 320 | Audio Data | Analog network audio payload (`AUDIO_SAMPLES_LENGTH_BYTES`) |
 | 340-343 | 4 | Trailer | Reserved trailer bytes |
@@ -1745,6 +1752,7 @@ Each protocol uses a fixed-size ring buffer for received data:
 ```cpp
 RingBuffer m_rxDMRData(NET_RING_BUF_SIZE, "DMR Net Buffer");     // 4098 bytes
 RingBuffer m_rxP25Data(NET_RING_BUF_SIZE, "P25 Net Buffer");     // 4098 bytes
+RingBuffer m_rxP25P2Data(NET_RING_BUF_SIZE, "P25 Phase 2 Net Buffer"); // 4098 bytes
 RingBuffer m_rxNXDNData(NET_RING_BUF_SIZE, "NXDN Net Buffer");   // 4098 bytes
 RingBuffer m_rxAnalogData(NET_RING_BUF_SIZE, "Analog Net Buffer"); // 4098 bytes
 ```
@@ -1758,11 +1766,13 @@ RingBuffer m_rxAnalogData(NET_RING_BUF_SIZE, "Analog Net Buffer"); // 4098 bytes
 
 **Buffer Sizing:**
 
-4KB buffers provide sufficient buffering for:
-- DMR: ~124 frames (33 bytes each)
-- P25 LDU: ~19 frames (216 bytes each)
-- NXDN: Variable, typically 40-80 frames
-- Analog: ~4 seconds at 8kHz G.711
+4098-byte buffers provide protocol-specific buffering based on on-wire packet sizes (plus `PACKET_PAD`):
+- DMR (`55 + 8 = 63` bytes): ~65 frames
+- P25 LDU1 (`193 + 8 = 201` bytes): ~20 frames
+- P25 LDU2 (`181 + 8 = 189` bytes): ~21 frames
+- P25 Phase 2 (`66 + 8 = 74` bytes): ~55 frames
+- NXDN (`70 + 8 = 78` bytes): ~52 frames
+- Analog (`344 + 8 = 352` bytes): ~11 frames
 
 ### Packet Fragmentation
 
@@ -1909,36 +1919,34 @@ Configurable timeout (default 5 seconds) prevents stale call states.
 
 ### Authentication
 
-SHA256-based challenge-response authentication:
+SHA256-based digest authentication:
 
 **Process:**
 
-1. Peer generates random salt (4 bytes)
-2. Peer sends salt in RPTL login request
-3. Master generates challenge value
-4. Master sends challenge to peer
-5. Peer computes: `SHA256(salt || password || challenge)`
-6. Peer sends hash in RPTK authorization
-7. Master validates hash
+1. Peer sends `RPTL` login message (`TAG_REPEATER_LOGIN` + peer ID)
+2. Master generates random 32-bit salt for that login exchange
+3. Master returns the salt in the `ACK` payload for `RPTL`
+4. Peer computes: `SHA256(salt || password)`
+5. Peer sends digest in `RPTK` (`TAG_REPEATER_AUTH` + peer ID + digest)
+6. Master computes the same digest and validates
 
 **Implementation:**
 
 ```cpp
-// Peer side
-uint8_t hash[50U];
-::memcpy(hash, m_salt, sizeof(uint32_t));
-::memcpy(hash + sizeof(uint32_t), m_password.c_str(), m_password.size());
-// Append master challenge...
+size_t size = m_password.size();
+uint8_t* in = new uint8_t[size + sizeof(uint32_t)];
+::memcpy(in, m_salt, sizeof(uint32_t));
+for (size_t i = 0U; i < size; i++)
+    in[i + sizeof(uint32_t)] = m_password.at(i);
 
 edac::SHA256 sha256;
-sha256.buffer(hash, 40U, hash);
+sha256.buffer(in, (uint32_t)(size + sizeof(uint32_t)), out + 8U);
 ```
 
 **Security Properties:**
 
-- Prevents replay attacks (random salt/challenge)
+- Reduces replay risk by using per-login random salt
 - Password never transmitted in cleartext
-- Mutual authentication possible
 - Resistant to offline dictionary attacks
 
 ### Encryption
@@ -2053,9 +2061,9 @@ if (response == NET_FUNC::ACK) {
 - Protocol error
 - Resource unavailable
 
-### Retry Logic
+### Connection Retry Logic
 
-Failed transmissions are retried with exponential backoff:
+Failed connections are retried with exponential backoff:
 
 ```cpp
 Timer m_retryTimer(1000U, DEFAULT_RETRY_TIME); // 10 seconds
@@ -2222,7 +2230,7 @@ bool BaseNetwork::writePeerStatus(json::object obj) {
 
 ### Metadata Network Port
 
-Current FNE runtime uses a separate `MetadataNetwork` listener for activity log transfer, diagnostic transfer, status transfer, and packet-buffered replication metadata:
+Current FNE runtime uses a separate `MetadataNetwork` listener for activity log transfer, diagnostic transfer, status transfer, peer announcement and packet-buffered replication metadata:
 
 ```cpp
 class MetadataNetwork : public BaseNetwork {
@@ -2679,11 +2687,11 @@ Offset | Length | Field         | Description
 ```
 Peer                        FNE Master
   |                             |
-  | RPTL (login + salt)         |
+  | RPTL (login request)        |
   |---------------------------->|
-  |                             | (Generate challenge)
+  |                             | (Generate login salt)
   |                             |
-  |              Challenge + ACK|
+  |                Salt + ACK   |
   |<----------------------------|
   |                             |
   | RPTK (auth response)        |
@@ -2839,7 +2847,7 @@ master:
 
 - **Check**: Password matches exactly
 - **Check**: Clock synchronization (NTP)
-- **Check**: Master challenge timeout
+- **Check**: RPTL/RPTK exchange timeout (salt ACK not received)
 - **Solution**: Verify SHA256 hash calculation
 
 ### Debug Techniques
@@ -2912,6 +2920,7 @@ tail -f /var/log/dvm/dvmhost.log | grep "NET"
 |---------|------|---------|
 | 1.0 | Dec 3, 2025 | Initial documentation based on source code analysis |
 | 1.1 | May 8, 2026 | Update to match current state of the codebase |
+| 1.2 | Jul 8, 2026 | Corrected connection/auth flow, opcode tables, RPTC schema, ping payload, bitfields, and buffer/stream details to match current implementation |
 
 ---
 
