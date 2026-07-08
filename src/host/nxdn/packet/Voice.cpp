@@ -946,7 +946,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
             sacch.encode(start + 2U);
 
             uint8_t buffer[NXDN_RTCH_LC_LENGTH_BYTES];
-            m_nxdn->m_rfLC.encode(buffer, NXDN_RTCH_LC_LENGTH_BITS);
+            m_nxdn->m_netLC.encode(buffer, NXDN_RTCH_LC_LENGTH_BITS);
 
             facch.setData(buffer);
             facch.encode(start + 2U, NXDN_FSW_LENGTH_BITS + NXDN_LICH_LENGTH_BITS + NXDN_SACCH_FEC_LENGTH_BITS);
@@ -963,7 +963,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
         }
     }
 
-    if (m_nxdn->m_rfState == RS_RF_AUDIO) {
+    if (m_nxdn->m_netState == RS_NET_AUDIO) {
         // regenerate the sync
         Sync::addNXDNSync(data + 2U);
 

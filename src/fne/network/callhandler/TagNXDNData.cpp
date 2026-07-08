@@ -127,7 +127,7 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                 case FuncChannelType::USC_UDCH:
                 {
                     channel::UDCH udch;
-                    bool validUDCH = udch.decode(data + 2U);
+                    bool validUDCH = udch.decode(frame.get() + 2U);
                     if (validUDCH) {
                         // The layer3 data will only be correct if valid is true
                         uint8_t buffer[NXDN_RTCH_LC_LENGTH_BYTES];

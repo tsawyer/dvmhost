@@ -194,3 +194,23 @@ TEST_CASE("RTCH assignment operator preserves all fields", "[nxdn][rtch]") {
     REQUIRE(assigned.getEmergency() == original.getEmergency());
     REQUIRE(assigned.getEncrypted() == original.getEncrypted());
 }
+
+TEST_CASE("RTCH encodes and decodes data frame and block numbers", "[nxdn][rtch]") {
+    uint8_t data[NXDN_RTCH_LC_LENGTH_BYTES];
+    ::memset(data, 0x00U, sizeof(data));
+
+    RTCH rtch;
+    rtch.setMessageType(MessageType::RTCH_DCALL_DATA);
+    rtch.setDataFrameNumber(0x0AU);
+    rtch.setDataBlockNumber(0x05U);
+
+    rtch.encode(data, NXDN_RTCH_LC_LENGTH_BITS);
+
+    REQUIRE(data[1U] == 0xA5U);
+
+    RTCH decoded;
+    decoded.decode(data, NXDN_RTCH_LC_LENGTH_BITS);
+    REQUIRE(decoded.getMessageType() == MessageType::RTCH_DCALL_DATA);
+    REQUIRE(decoded.getDataFrameNumber() == 0x0AU);
+    REQUIRE(decoded.getDataBlockNumber() == 0x05U);
+}

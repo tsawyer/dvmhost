@@ -362,7 +362,7 @@ void RTCH::encodeLC(uint8_t* data)
         break;
     case MessageType::RTCH_DCALL_DATA:
     case MessageType::RTCH_SDCALL_REQ_DATA:
-        data[1U] = (m_dataFrameNumber & 0x0FU << 4) +                               // Frame Number
+        data[1U] = ((m_dataFrameNumber & 0x0FU) << 4) +                             // Frame Number
             (m_dataBlockNumber & 0x0FU);                                            // Block Number
         break;
     case MessageType::RTCH_DCALL_ACK:
