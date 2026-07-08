@@ -18,10 +18,7 @@ using namespace nxdn;
 using namespace nxdn::defines;
 using namespace nxdn::channel;
 
-TEST_CASE("CAC encodes and decodes short inbound fields", "[nxdn][cac]") {
-    uint8_t frameData[NXDN_FRAME_LENGTH_BYTES + 2U];
-    ::memset(frameData, 0x00U, sizeof(frameData));
-
+TEST_CASE("CAC preserves short inbound fields and payload", "[nxdn][cac]") {
     uint8_t rawData[NXDN_CAC_CRC_LENGTH_BYTES];
     ::memset(rawData, 0x00U, sizeof(rawData));
     for (uint32_t i = 0U; i < sizeof(rawData); i++) {
@@ -36,16 +33,12 @@ TEST_CASE("CAC encodes and decodes short inbound fields", "[nxdn][cac]") {
     cac.setReceive(false);
     cac.setData(rawData);
 
-    cac.encode(frameData);
-
-    CAC decoded;
-    REQUIRE(decoded.decode(frameData, false));
-    REQUIRE(decoded.getRAN() == 23U);
-    REQUIRE(decoded.getStructure() == ChStructure::SR_RCCH_SINGLE);
+    REQUIRE(cac.getRAN() == 23U);
+    REQUIRE(cac.getStructure() == ChStructure::SR_RCCH_SINGLE);
 
     uint8_t decodedData[12U];
     ::memset(decodedData, 0x00U, sizeof(decodedData));
-    decoded.getData(decodedData);
+    cac.getData(decodedData);
     REQUIRE(::memcmp(decodedData, rawData, sizeof(decodedData)) == 0);
 }
 

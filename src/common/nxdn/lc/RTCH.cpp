@@ -50,7 +50,8 @@ RTCH::RTCH() :
     m_delayCount(0U),
     m_algId(CIPHER_TYPE_NONE),
     m_kId(0U),
-    m_causeRsp(CauseResponse::VD_ACCEPTED)
+    m_causeRsp(CauseResponse::VD_ACCEPTED),
+    m_mi(nullptr)
 {
     m_mi = new uint8_t[MI_LENGTH_BYTES];
     ::memset(m_mi, 0x00U, MI_LENGTH_BYTES);
@@ -76,7 +77,8 @@ RTCH::RTCH(const RTCH& data) :
     m_delayCount(0U),
     m_algId(CIPHER_TYPE_NONE),
     m_kId(0U),
-    m_causeRsp(CauseResponse::VD_ACCEPTED)
+    m_causeRsp(CauseResponse::VD_ACCEPTED),
+    m_mi(nullptr)
 {
     copy(data);
 }
@@ -209,6 +211,7 @@ bool RTCH::decodeLC(const uint8_t* data)
         }
         break;
     case MessageType::RTCH_TX_REL:
+    case MessageType::RTCH_TX_REL_EX:
         m_callType = (data[2U] >> 5) & 0x07U;                                       // Call Type
         m_emergency = (data[1U] & 0x80U) == 0x80U;                                  // Emergency Flag
         m_priority = (data[1U] & 0x20U) == 0x20U;                                   // Priority Flag
@@ -330,6 +333,7 @@ void RTCH::encodeLC(uint8_t* data)
         }
         break;
     case MessageType::RTCH_TX_REL:
+    case MessageType::RTCH_TX_REL_EX:
         data[1U] = (m_emergency ? 0x80U : 0x00U) +                                  // Emergency Flag
             (m_priority ? 0x20U : 0x00U);                                           // Priority Flag
         data[2U] = (m_callType & 0x07U) << 5;                                       // Call Type
@@ -425,6 +429,10 @@ void RTCH::encodeLC(uint8_t* data)
 
 void RTCH::copy(const RTCH& data)
 {
+    if (m_mi == nullptr) {
+        m_mi = new uint8_t[MI_LENGTH_BYTES];
+    }
+
     m_messageType = data.m_messageType;
     m_callType = data.m_callType;
 
@@ -439,7 +447,7 @@ void RTCH::copy(const RTCH& data)
     m_transmissionMode = data.m_transmissionMode;
 
     m_packetInfo = data.m_packetInfo;
-    m_rsp = data.m_packetInfo;
+    m_rsp = data.m_rsp;
     m_dataFrameNumber = data.m_dataFrameNumber;
     m_dataBlockNumber = data.m_dataBlockNumber;
 
@@ -449,4 +457,6 @@ void RTCH::copy(const RTCH& data)
     m_kId = data.m_kId;
 
     m_causeRsp = data.m_causeRsp;
+
+    ::memcpy(m_mi, data.m_mi, MI_LENGTH_BYTES);
 }
