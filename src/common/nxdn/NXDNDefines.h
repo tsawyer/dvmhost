@@ -115,6 +115,7 @@ namespace nxdn
         const uint8_t   CALLSIGN_LENGTH_BYTES = 8U;
 
         const uint32_t  MI_LENGTH_BYTES = 8U;
+        const uint32_t  RAW_AMBE_LENGTH_BYTES = 9U;
         const uint32_t  PCKT_INFO_LENGTH_BYTES = 3U;
         /** @} */
 

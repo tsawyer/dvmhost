@@ -5,7 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2015-2020 Jonathan Naylor, G4KLX
- *  Copyright (C) 2022-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2022-2026 Bryan Biedenkapp, N2PLL
  *
  */
 #include "Defines.h"
@@ -205,7 +205,7 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
 
         // generate the LICH
         channel::LICH lich;
-        lich.setRFCT(RFChannelType::RDCH);
+        lich.setRFCT(getVoiceRFChannelType());
         lich.setFCT(FuncChannelType::USC_SACCH_NS);
         lich.setOption(ChOption::STEAL_FACCH);
         lich.setOutbound(!m_nxdn->m_duplex ? false : true);
@@ -433,7 +433,7 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
 
             // generate the LICH
             channel::LICH lich;
-            lich.setRFCT(RFChannelType::RDCH);
+            lich.setRFCT(getVoiceRFChannelType());
             lich.setFCT(FuncChannelType::USC_SACCH_NS);
             lich.setOption(ChOption::STEAL_FACCH);
             lich.setOutbound(!m_nxdn->m_duplex ? false : true);
@@ -474,7 +474,7 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
 
         // regenerate the LICH
         channel::LICH lich;
-        lich.setRFCT(RFChannelType::RDCH);
+        lich.setRFCT(getVoiceRFChannelType());
         lich.setFCT(FuncChannelType::USC_SACCH_SS);
         lich.setOption(option);
         lich.setOutbound(!m_nxdn->m_duplex ? false : true);
@@ -739,7 +739,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
 
         // generate the LICH
         channel::LICH lich;
-        lich.setRFCT(RFChannelType::RDCH);
+        lich.setRFCT(getVoiceRFChannelType());
         lich.setFCT(FuncChannelType::USC_SACCH_NS);
         lich.setOption(ChOption::STEAL_FACCH);
         lich.setOutbound(true);
@@ -932,7 +932,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
 
             // generate the LICH
             channel::LICH lich;
-            lich.setRFCT(RFChannelType::RDCH);
+            lich.setRFCT(getVoiceRFChannelType());
             lich.setFCT(FuncChannelType::USC_SACCH_NS);
             lich.setOption(ChOption::STEAL_FACCH);
             lich.setOutbound(true);
@@ -969,7 +969,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
 
         // regenerate the LICH
         channel::LICH lich;
-        lich.setRFCT(RFChannelType::RDCH);
+        lich.setRFCT(getVoiceRFChannelType());
         lich.setFCT(FuncChannelType::USC_SACCH_SS);
         lich.setOption(option);
         lich.setOutbound(true);
@@ -1238,4 +1238,11 @@ bool Voice::checkNetTrafficCollision(lc::RTCH lc, uint32_t srcId, uint32_t dstId
     }
 
     return false;
+}
+
+/* Resolve the RF channel type to use for regenerated voice traffic. */
+
+RFChannelType::E Voice::getVoiceRFChannelType() const
+{
+    return !m_nxdn->m_authoritative ? RFChannelType::RTCH : RFChannelType::RDCH;
 }

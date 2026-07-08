@@ -106,7 +106,7 @@ system:
     # Flag indicating whether a network grant demand packet will be sent before audio.
     grantDemand: false
 
-    # Audio transmit mode (1 - DMR, 2 - P25, 3 - Analog).
+    # Audio transmit mode (1 - DMR, 2 - P25, 3 - Analog, 4 - NXDN).
     txMode: 1
 
     # PCM audio gain for received (from digital network) audio frames.

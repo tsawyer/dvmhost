@@ -5,7 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2015-2020 Jonathan Naylor, G4KLX
- *  Copyright (C) 2022-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2022-2026 Bryan Biedenkapp, N2PLL
  *
  */
 /**
@@ -128,6 +128,12 @@ namespace nxdn
              * @return bool True, if traffic collision, otherwise false.
              */
             bool checkNetTrafficCollision(lc::RTCH lc, uint32_t srcId, uint32_t dstId);
+
+            /**
+             * @brief Resolve the RF channel type to use for regenerated voice traffic.
+             * @returns RTCH for non-authoritative hosts controlled by a trunked controller, otherwise RDCH.
+             */
+            defines::RFChannelType::E getVoiceRFChannelType() const;
         };
     } // namespace packet
 } // namespace nxdn
