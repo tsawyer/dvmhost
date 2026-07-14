@@ -36,6 +36,7 @@ using namespace compress;
 #include <fstream>
 #include <streambuf>
 #include <algorithm>
+#include <array>
 
 // ---------------------------------------------------------------------------
 //  Constants
@@ -51,12 +52,30 @@ const uint64_t PACKET_LATE_TIME = 250U; // 250ms
 
 const uint32_t FIXED_HA_UPDATE_INTERVAL = 30U; // 30s
 
+const size_t PEER_STATE_LOCK_STRIPES = 256U;
+
 // ---------------------------------------------------------------------------
 //  Static Class Members
 // ---------------------------------------------------------------------------
 
 std::timed_mutex TrafficNetwork::s_keyQueueMutex;
 std::timed_mutex TrafficNetwork::s_llaKeyQueueMutex;
+
+std::array<std::mutex, PEER_STATE_LOCK_STRIPES> s_peerStateLocks;
+
+// ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Gets the mutex for a specific peer ID.
+ * @param peerId The ID of the peer.
+ * @return A reference to the mutex associated with the peer ID.
+ */
+inline std::mutex& getPeerStateLock(uint32_t peerId)
+{
+    return s_peerStateLocks[peerId % PEER_STATE_LOCK_STRIPES];
+}
 
 // ---------------------------------------------------------------------------
 //  Public Class Members
@@ -1197,6 +1216,8 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
 
             case NET_FUNC::RPTL:                                        // Repeater/Peer Login
                 {
+                    std::lock_guard<std::mutex> peerGuard(getPeerStateLock(peerId));
+
                     if (peerId > 0 && (network->m_peers.find(peerId) == network->m_peers.end())) {
                         if (network->m_peers.size() >= MAX_HARD_CONN_CAP) {
                             LogError(LOG_MASTER, "PEER %u attempted to connect with no more connections available, currConnections = %u", peerId, network->m_peers.size());
@@ -1289,6 +1310,8 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
             case NET_FUNC::RPTK:                                        // Repeater/Peer Authentication
                 {
                     if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+                        std::lock_guard<std::mutex> peerGuard(getPeerStateLock(peerId));
+
                         FNEPeerConnection* connection = network->m_peers[peerId];
                         if (connection != nullptr) {
                             connection->lastPing(now);
@@ -1397,6 +1420,8 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
             case NET_FUNC::RPTC:                                        // Repeater/Peer Configuration
                 {
                     if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+                        std::lock_guard<std::mutex> peerGuard(getPeerStateLock(peerId));
+
                         FNEPeerConnection* connection = network->m_peers[peerId];
                         if (connection != nullptr) {
                             connection->lastPing(now);
@@ -1647,6 +1672,8 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
             case NET_FUNC::RPT_DISC:                                    // Repeater/Peer Disconnect
                 {
                     if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+                        std::lock_guard<std::mutex> peerGuard(getPeerStateLock(peerId));
+
                         FNEPeerConnection* connection = network->m_peers[peerId];
                         if (connection != nullptr) {
                             std::string ip = udp::Socket::address(req->address);
