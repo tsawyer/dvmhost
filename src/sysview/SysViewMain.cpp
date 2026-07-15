@@ -20,7 +20,11 @@
 #include "common/p25/lc/tdulc/TDULCFactory.h"
 #include "common/p25/lc/tsbk/TSBKFactory.h"
 #include "common/nxdn/NXDNDefines.h"
+#include "common/nxdn/channel/LICH.h"
+#include "common/nxdn/lc/RCCH.h"
+#include "common/nxdn/lc/rcch/RCCHFactory.h"
 #include "common/nxdn/lc/RTCH.h"
+#include "common/nxdn/NXDNUtils.h"
 #include "common/yaml/Yaml.h"
 #include "common/Log.h"
 #include "common/StopWatch.h"
@@ -485,6 +489,15 @@ void* threadNetworkPump(void* arg)
                             std::string desc = csbk->toString();
                             netEvent["desc"].set<std::string>(desc);
 
+                            // report raw CSBK bytes in hex format
+                            uint8_t* csbkRaw = csbk.get()->getDecodedRaw();
+                            std::stringstream ss;
+                            ss << std::hex << std::setfill('0');
+                            for (uint8_t i = 0; i < DMRDEF::DMR_CSBK_LENGTH_BYTES; i++) {
+                                ss << std::setw(2) << (int)csbkRaw[i];
+                            }
+                            netEvent["data"].set<std::string>(ss.str());
+
                             switch (csbk->getCSBKO()) {
                             case DMRDEF::CSBKO::BROADCAST:
                                 {
@@ -647,6 +660,15 @@ void* threadNetworkPump(void* arg)
                             netEvent["opcode"].set<uint8_t>(lco);
                             std::string desc = tsbk->toString();
                             netEvent["desc"].set<std::string>(desc);
+
+                            // report raw TSBK bytes in hex format
+                            uint8_t* tsbkRaw = tsbk.get()->getDecodedRaw();
+                            std::stringstream ss;
+                            ss << std::hex << std::setfill('0');
+                            for (uint8_t i = 0; i < P25DEF::P25_TSBK_LENGTH_BYTES; i++) {
+                                ss << std::setw(2) << (int)tsbkRaw[i];
+                            }
+                            netEvent["data"].set<std::string>(ss.str());
 
                             switch (tsbk->getLCO()) {
                                 case P25DEF::TSBKO::IOSP_GRP_VCH:
@@ -1010,6 +1032,24 @@ void* threadNetworkPump(void* arg)
                     bool group = (nxdnBuffer[15U] & 0x40U) == 0x40U ? false : true;
                     lc.setGroup(group);
 
+                    // process raw NXDN data bytes
+                    UInt8Array frame;
+                    uint8_t frameLength = nxdnBuffer[23U];
+                    if (frameLength <= 24) {
+                        frame = std::unique_ptr<uint8_t[]>(new uint8_t[frameLength]);
+                        ::memset(frame.get(), 0x00U, frameLength);
+                    }
+                    else {
+                        frame = std::unique_ptr<uint8_t[]>(new uint8_t[frameLength]);
+                        ::memset(frame.get(), 0x00U, frameLength);
+                        ::memcpy(frame.get(), nxdnBuffer.get() + 24U, frameLength);
+                    }
+
+                    NXDNUtils::scrambler(frame.get() + 2U);
+
+                    channel::LICH lich;
+                    bool valid = lich.decode(frame.get() + 2U);
+
                     // specifically only check the following logic for end of call, voice or data frames
                     if ((messageType == NXDDEF::MessageType::RTCH_TX_REL || messageType == NXDDEF::MessageType::RTCH_TX_REL_EX) ||
                         (messageType == NXDDEF::MessageType::RTCH_VCALL || messageType == NXDDEF::MessageType::RTCH_DCALL_HDR ||
@@ -1053,6 +1093,47 @@ void* threadNetworkPump(void* arg)
                                 LogInfoEx(LOG_NET, "NXDN, Call Start, srcId = %u (%s), dstId = %u (%s)", 
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
                                 emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "nxdn");
+                            }
+                        }
+                    }
+
+                    std::unique_ptr<lc::RCCH> rcch;
+                    if (valid) {
+                        NXDDEF::RFChannelType::E rfct = lich.getRFCT();
+                        NXDDEF::FuncChannelType::E fct = lich.getFCT();
+                        NXDDEF::ChOption::E option = lich.getOption();
+
+                        if (rfct == NXDDEF::RFChannelType::RCCH) {
+                            rcch = lc::rcch::RCCHFactory::createRCCH(frame.get(), frameLength);
+
+                            json::object netEvent = json::object();
+                            std::string type = "rcch";
+                            netEvent["type"].set<std::string>(type);
+
+                            uint8_t lco = rcch->getMessageType();
+                            netEvent["opcode"].set<uint8_t>(lco);
+                            std::string desc = rcch->toString();
+                            netEvent["desc"].set<std::string>(desc);
+
+                            // report raw RCCH bytes in hex format
+                            uint8_t* rcchRaw = rcch.get()->getDecodedRaw();
+                            std::stringstream ss;
+                            ss << std::hex << std::setfill('0');
+                            for (uint8_t i = 0; i < NXDDEF::NXDN_RCCH_LC_LENGTH_BYTES; i++) {
+                                ss << std::setw(2) << (int)rcchRaw[i];
+                            }
+                            netEvent["data"].set<std::string>(ss.str());
+
+                            // generate a net event for this
+                            if (g_netDataEvent != nullptr) {
+                                std::string resolvedSrc = resolveRID(srcId);
+                                std::string resolvedDst = resolveTGID(dstId);
+                                netEvent["srcId"].set<uint32_t>(srcId);
+                                netEvent["srcStr"].set<std::string>(resolvedSrc);
+                                netEvent["dstId"].set<uint32_t>(dstId);
+                                netEvent["dstStr"].set<std::string>(resolvedDst);
+
+                                g_netDataEvent(netEvent);
                             }
                         }
                     }
