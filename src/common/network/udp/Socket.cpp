@@ -531,8 +531,8 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
     }
 
     // LogDebugEx(LOG_NET, "Socket::write()", "buffers len = %u", currentQueueSize);
-    if (currentQueueSize > UINT16_MAX)
-        currentQueueSize = UINT16_MAX; // only send up to this many buffers
+    if (currentQueueSize > MAX_BUFFER_COUNT)
+        currentQueueSize = MAX_BUFFER_COUNT; // only send as many buffers as the fixed arrays can hold
 
     // are we crypto wrapped?
     if (m_isCryptoWrapped) {
@@ -547,7 +547,8 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
         }
     }
 
-    int sent = 0, msgs = 0;
+    ssize_t bytesPrepared = 0;
+    int msgs = 0;
     struct sockaddr_storage* addresses[MAX_BUFFER_COUNT];
     struct mmsghdr headers[MAX_BUFFER_COUNT];
     struct iovec chunks[MAX_BUFFER_COUNT];
@@ -605,6 +606,7 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
                 cryptedLen += alignment;
 
                 // reallocate buffer and copy
+                delete[] cryptoBuffer;
                 cryptoBuffer = new uint8_t[cryptedLen];
                 ::memset(cryptoBuffer, 0x00U, cryptedLen);
                 ::memcpy(cryptoBuffer, iov_buffer, length);
@@ -644,53 +646,75 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
             continue;
         }
 
-        addresses[i] = new sockaddr_storage;
-        ::memcpy(addresses[i], &address, sizeof(sockaddr_storage));
+        int msgIdx = msgs;
+        addresses[msgIdx] = nullptr;
+        ::memset(&headers[msgIdx], 0x00U, sizeof(struct mmsghdr));
+        ::memset(&chunks[msgIdx], 0x00U, sizeof(struct iovec));
 
-        chunks[i].iov_len = iov_length;
-        chunks[i].iov_base = iov_buffer;
-        sent += iov_length;
+        addresses[msgIdx] = new sockaddr_storage;
+        ::memcpy(addresses[msgIdx], &address, sizeof(sockaddr_storage));
 
-        headers[i].msg_hdr.msg_name = (void*)addresses[i];
-        headers[i].msg_hdr.msg_namelen = addrLen;
-        headers[i].msg_hdr.msg_iov = &chunks[i];
-        headers[i].msg_hdr.msg_iovlen = 1;
-        headers[i].msg_hdr.msg_control = 0;
-        headers[i].msg_hdr.msg_controllen = 0;
+        chunks[msgIdx].iov_len = iov_length;
+        chunks[msgIdx].iov_base = iov_buffer;
+        bytesPrepared += (ssize_t)iov_length;
+
+        headers[msgIdx].msg_hdr.msg_name = (void*)addresses[msgIdx];
+        headers[msgIdx].msg_hdr.msg_namelen = addrLen;
+        headers[msgIdx].msg_hdr.msg_iov = &chunks[msgIdx];
+        headers[msgIdx].msg_hdr.msg_iovlen = 1;
+        headers[msgIdx].msg_hdr.msg_control = 0;
+        headers[msgIdx].msg_hdr.msg_controllen = 0;
 
         ++msgs;
     }
 
-    if (sendmmsg(m_fd, headers, msgs, 0) < 0) {
+    int msgsSent = 0;
+    bool partialSend = false;
+    while (msgsSent < msgs) {
+        unsigned int msgsRemaining = (unsigned int)(msgs - msgsSent);
+        int ret = sendmmsg(m_fd, headers + msgsSent, msgsRemaining, 0);
+        if (ret < 0) {
 #if defined(_WIN32)
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %lu", ::GetLastError());
+            LogError(LOG_NET, "Error returned from sendmmsg after sending %d of %d datagrams, err: %lu",
+                msgsSent, msgs, ::GetLastError());
 #else
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %d (%s)", errno, strerror(errno));
+            if (errno == EINTR)
+                continue;
+
+            LogError(LOG_NET, "Error returned from sendmmsg after sending %d of %d datagrams, err: %d (%s)",
+                msgsSent, msgs, errno, strerror(errno));
 #endif // _WIN32
-        if (lenWritten != nullptr) {
-            *lenWritten = -1;
+            break;
         }
+
+        if (ret == 0 || ret > (int)msgsRemaining) {
+            LogError(LOG_NET, "sendmmsg returned invalid datagram count, sent = %d, remaining = %u, total = %d",
+                ret, msgsRemaining, msgs);
+            break;
+        }
+
+        if (ret < (int)msgsRemaining)
+            partialSend = true;
+
+        msgsSent += ret;
     }
 
-    if (sent < 0) {
-#if defined(_WIN32)
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %lu", ::GetLastError());
-#else
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %d (%s)", errno, strerror(errno));
-#endif // _WIN32
-        if (lenWritten != nullptr) {
-            *lenWritten = -1;
+    if (msgs > 0 && msgsSent == msgs) {
+        result = true;
+        if (lenWritten != nullptr)
+            *lenWritten = bytesPrepared;
+
+        if (partialSend) {
+            LogWarning(LOG_NET, "sendmmsg required multiple writes to send all %d datagrams", msgs);
         }
     }
     else {
-        result = true;
-        if (lenWritten != nullptr) {
-            *lenWritten = sent;
-        }
+        if (lenWritten != nullptr)
+            *lenWritten = -1;
     }
 
     // cleanup buffers
-    for (size_t i = 0U; i < currentQueueSize; i++) {
+    for (int i = 0; i < msgs; i++) {
         if (addresses[i] != nullptr) {
             delete addresses[i];
             addresses[i] = nullptr;

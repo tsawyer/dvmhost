@@ -81,18 +81,20 @@ namespace network
         __THROW.  */
         static inline int sendmmsg(int sockfd, struct mmsghdr* msgvec, unsigned int vlen, int flags)
         {
-            ssize_t n = 0;
+            unsigned int sent = 0U;
             for (unsigned int i = 0; i < vlen; i++) {
                 ssize_t ret = sendmsg(sockfd, &msgvec[i].msg_hdr, flags);
                 if (ret < 0)
                     break;
-                n += ret;
+
+                msgvec[i].msg_len = (unsigned int)ret;
+                sent++;
             }
 
-            if (n == 0)
+            if (sent == 0U)
                 return -1;
 
-            return int(n);
+            return int(sent);
         }
         /** \endcond */
 #endif
@@ -135,18 +137,21 @@ namespace network
         __THROW.  */
         static inline int sendmmsg(SOCKET sockfd, struct mmsghdr* msgvec, unsigned int vlen, int flags)
         {
-            ssize_t n = 0;
+            unsigned int sent = 0U;
             for (unsigned int i = 0; i < vlen; i++) {
-                ssize_t ret = ::sendto(sockfd, (char*)&msgvec[i].msg_hdr.msg_iov->iov_base, msgvec[i].msg_hdr.msg_iov->iov_len, 0, (sockaddr*)&msgvec[i].msg_hdr.msg_name, msgvec[i].msg_hdr.msg_namelen);
+                ssize_t ret = ::sendto(sockfd, (char*)msgvec[i].msg_hdr.msg_iov->iov_base, msgvec[i].msg_hdr.msg_iov->iov_len,
+                    flags, (sockaddr*)msgvec[i].msg_hdr.msg_name, msgvec[i].msg_hdr.msg_namelen);
                 if (ret < 0)
                     break;
-                n += ret;
+
+                msgvec[i].msg_len = (unsigned int)ret;
+                sent++;
             }
 
-            if (n == 0)
+            if (sent == 0U)
                 return -1;
 
-            return int(n);
+            return int(sent);
         }
         /** \endcond */
 #endif
