@@ -419,6 +419,8 @@ void* threadNetworkPump(void* arg)
                         dmrData.setN(n);
                     }
 
+                    uint8_t controlByte = dmrData.getControl();
+
                     // is this the end of the call stream?
                     if (dataSync && (dataType == DMRDEF::DataType::TERMINATOR_WITH_LC)) {
                         if (srcId == 0U && dstId == 0U) {
@@ -582,6 +584,8 @@ void* threadNetworkPump(void* arg)
                     uint32_t sysId = (p25Buffer[11U] << 8) | (p25Buffer[12U] << 0);
                     uint32_t netId = GET_UINT24(p25Buffer, 16U);
 
+                    uint8_t controlByte = p25Buffer[14U];
+
                     // log call status
                     if (duid != P25DEF::DUID::TSDU && duid != P25DEF::DUID::PDU) {
                         // is this the end of the call stream?
@@ -633,6 +637,106 @@ void* threadNetworkPump(void* arg)
                         if (duid == P25DEF::DUID::TDU) {
                             LogInfoEx(LOG_NET, P25_TDU_STR ", srcId = %u (%s), dstId = %u (%s)", 
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
+
+                            // if this is a grant demand TDU, generate a GRP_VCH TSDU event to indicate that the call
+                            // is trying to start
+                            if (((controlByte & network::NET_CTRL_GRANT_DEMAND) == network::NET_CTRL_GRANT_DEMAND) &&
+                                g_netDataEvent != nullptr) {
+                                bool unitToUnit = (controlByte & network::NET_CTRL_U2U) == network::NET_CTRL_U2U;
+
+                                json::object netEvent = json::object();
+                                std::string type = "tsbk";
+                                netEvent["type"].set<std::string>(type);
+
+                                if (!unitToUnit) {
+                                    std::unique_ptr<lc::tsbk::IOSP_GRP_VCH> tsbk = std::make_unique<lc::tsbk::IOSP_GRP_VCH>();
+
+                                    uint8_t lco = tsbk->getLCO();
+                                    netEvent["opcode"].set<uint8_t>(lco);
+                                    std::string desc = tsbk->toString();
+                                    desc.append(" Demand");
+                                    netEvent["desc"].set<std::string>(desc);
+
+                                    tsbk->setSrcId(srcId);
+                                    tsbk->setDstId(dstId);
+                                    tsbk->setGrpVchId(0U);
+                                    tsbk->setGrpVchNo(0U);
+                                    tsbk->setPriority(4U);
+
+                                    bool emerg = tsbk->getEmergency();
+                                    netEvent["emerg"].set<bool>(emerg);
+                                    bool encry = tsbk->getEncrypted();
+                                    netEvent["encry"].set<bool>(encry);
+                                    uint8_t prio = tsbk->getPriority();
+                                    netEvent["prio"].set<uint8_t>(prio);
+                                    uint32_t chId = tsbk->getGrpVchId();
+                                    netEvent["chId"].set<uint32_t>(chId);
+                                    uint32_t chNo = tsbk->getGrpVchNo();
+                                    netEvent["chNo"].set<uint32_t>(chNo);
+
+                                    std::string resolvedSrc = resolveRID(srcId);
+                                    std::string resolvedDst = resolveTGID(dstId);
+                                    netEvent["srcId"].set<uint32_t>(srcId);
+                                    netEvent["srcStr"].set<std::string>(resolvedSrc);
+                                    netEvent["dstId"].set<uint32_t>(dstId);
+                                    netEvent["dstStr"].set<std::string>(resolvedDst);
+
+                                    // report raw TSBK bytes in hex format
+                                    DECLARE_UINT8_ARRAY(tsbkRaw, P25DEF::P25_TSBK_LENGTH_BYTES);
+                                    tsbk->encode(tsbkRaw, true, true);
+                                    std::stringstream ss;
+                                    ss << std::hex << std::setfill('0');
+                                    for (uint8_t i = 0; i < P25DEF::P25_TSBK_LENGTH_BYTES; i++) {
+                                        ss << std::setw(2) << (int)tsbkRaw[i];
+                                    }
+                                    netEvent["data"].set<std::string>(ss.str());
+                                }
+                                else {
+                                    std::unique_ptr<lc::tsbk::IOSP_UU_VCH> tsbk = std::make_unique<lc::tsbk::IOSP_UU_VCH>();
+
+                                    uint8_t lco = tsbk->getLCO();
+                                    netEvent["opcode"].set<uint8_t>(lco);
+                                    std::string desc = tsbk->toString();
+                                    desc.append(" Demand");
+                                    netEvent["desc"].set<std::string>(desc);
+
+                                    tsbk->setSrcId(srcId);
+                                    tsbk->setDstId(dstId);
+                                    tsbk->setGrpVchId(0U);
+                                    tsbk->setGrpVchNo(0U);
+                                    tsbk->setPriority(4U);
+
+                                    bool emerg = tsbk->getEmergency();
+                                    netEvent["emerg"].set<bool>(emerg);
+                                    bool encry = tsbk->getEncrypted();
+                                    netEvent["encry"].set<bool>(encry);
+                                    uint8_t prio = tsbk->getPriority();
+                                    netEvent["prio"].set<uint8_t>(prio);
+                                    uint32_t chId = tsbk->getGrpVchId();
+                                    netEvent["chId"].set<uint32_t>(chId);
+                                    uint32_t chNo = tsbk->getGrpVchNo();
+                                    netEvent["chNo"].set<uint32_t>(chNo);
+
+                                    std::string resolvedSrc = resolveRID(srcId);
+                                    std::string resolvedDst = resolveTGID(dstId);
+                                    netEvent["srcId"].set<uint32_t>(srcId);
+                                    netEvent["srcStr"].set<std::string>(resolvedSrc);
+                                    netEvent["dstId"].set<uint32_t>(dstId);
+                                    netEvent["dstStr"].set<std::string>(resolvedDst);
+
+                                    // report raw TSBK bytes in hex format
+                                    DECLARE_UINT8_ARRAY(tsbkRaw, P25DEF::P25_TSBK_LENGTH_BYTES);
+                                    tsbk->encode(tsbkRaw, true, true);
+                                    std::stringstream ss;
+                                    ss << std::hex << std::setfill('0');
+                                    for (uint8_t i = 0; i < P25DEF::P25_TSBK_LENGTH_BYTES; i++) {
+                                        ss << std::setw(2) << (int)tsbkRaw[i];
+                                    }
+                                    netEvent["data"].set<std::string>(ss.str());
+                                }
+
+                                g_netDataEvent(netEvent);
+                            }
                         }
                         else {
                             std::unique_ptr<lc::TDULC> tdulc = lc::tdulc::TDULCFactory::createTDULC(data.get());
