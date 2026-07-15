@@ -180,6 +180,37 @@ std::string resolveTGID(uint32_t id)
     return std::string("UNK");
 }
 
+/* Helper to emit a call start or end event. */
+
+void emitCallStartEndEvent(uint32_t srcId, uint32_t dstId, uint8_t slotNo, uint32_t streamId, const std::string& mode,
+    bool callEnd = false)
+{
+    if (g_netDataEvent == nullptr)
+        return;
+
+    json::object event;
+    std::string type = "call_start";
+    if (callEnd) {
+        type = "call_end";
+    }
+    event["type"].set<std::string>(type);
+
+    event["mode"].set<std::string>(mode);
+
+    event["slot"].set<uint8_t>(slotNo);
+
+    std::string resolvedSrc = resolveRID(srcId);
+    std::string resolvedDst = resolveTGID(dstId);
+    event["srcId"].set<uint32_t>(srcId);
+    event["srcStr"].set<std::string>(resolvedSrc);
+    event["dstId"].set<uint32_t>(dstId);
+    event["dstStr"].set<std::string>(resolvedDst);
+
+    event["streamId"].set<uint32_t>(streamId);
+
+    g_netDataEvent(event);
+}
+
 /* Initializes peer network connectivity. */
 
 bool createPeerNetwork()
@@ -402,6 +433,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "DMR, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                         srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
+                            emitCallStartEndEvent(srcId, dstId, slotNo, status.streamId, "dmr", true);
                         }
                     }
 
@@ -424,6 +456,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "DMR, Call Start, srcId = %u (%s), dstId = %u (%s)", 
                                 srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
+                            emitCallStartEndEvent(srcId, dstId, slotNo, status.streamId, "dmr");
                         }
                     }
 
@@ -544,6 +577,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "P25, Call End, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X, duration = %u",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), sysId, netId, duration / 1000);
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "p25", true);
                             }
                         }
 
@@ -565,6 +599,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "P25, Call Start, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X", 
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), sysId, netId);
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "p25");
                             }
                         }
                     }
@@ -982,6 +1017,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "NXDN, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "nxdn", true);
                             }
                         }
 
@@ -1003,6 +1039,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "NXDN, Call Start, srcId = %u (%s), dstId = %u (%s)", 
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "nxdn");
                             }
                         }
                     }
@@ -1035,6 +1072,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "Analog, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                 srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
+                            emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "analog", true);
                         }
                     }
 
@@ -1056,6 +1094,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "Analog, Call Start, srcId = %u (%s), dstId = %u (%s)", 
                                 srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str());
+                            emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "analog");
                         }
                     }
 
