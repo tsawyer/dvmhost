@@ -57,6 +57,34 @@ PeerNetwork::PeerNetwork(const std::string& address, uint16_t port, uint16_t loc
     m_promiscuousPeer = true;
 }
 
+/* Gets the current DMR stream ID. */
+
+uint32_t PeerNetwork::getRxDMRStreamId(uint32_t slotNo) const
+{
+    assert(slotNo == 1U || slotNo == 2U);
+
+    if (slotNo == 1U) {
+        return m_rxDMRStreamId[0U];
+    }
+    else {
+        return m_rxDMRStreamId[1U];
+    }
+}
+
+/* Gets the current P25 Phase 2 stream ID. */
+
+uint32_t PeerNetwork::getRxP25P2StreamId(uint32_t slotNo) const
+{
+    assert(slotNo == 1U || slotNo == 2U);
+
+    if (slotNo == 1U) {
+        return m_rxP25P2StreamId[0U];
+    }
+    else {
+        return m_rxP25P2StreamId[1U];
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Protected Class Members
 // ---------------------------------------------------------------------------

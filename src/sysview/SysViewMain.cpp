@@ -85,10 +85,10 @@ class RxStatus {
 public:
     ::system_clock::hrc::hrc_t callStartTime;
     ::system_clock::hrc::hrc_t lastPacket;
-    uint32_t srcId;
-    uint32_t dstId;
-    uint8_t slotNo;
-    uint32_t streamId;
+    uint32_t srcId = 0U;
+    uint32_t dstId = 0U;
+    uint8_t slotNo = 0U;
+    uint32_t streamId = 0U;
 };
 typedef std::pair<const uint32_t, RxStatus> StatusMapPair;
 std::unordered_map<uint32_t, RxStatus> g_dmrStatus;
@@ -183,7 +183,7 @@ std::string resolveTGID(uint32_t id)
 /* Helper to emit a call start or end event. */
 
 void emitCallStartEndEvent(uint32_t srcId, uint32_t dstId, uint8_t slotNo, uint32_t streamId, const std::string& mode,
-    bool callEnd = false)
+    bool callEnd = false, uint64_t duration = 0U)
 {
     if (g_netDataEvent == nullptr)
         return;
@@ -207,6 +207,10 @@ void emitCallStartEndEvent(uint32_t srcId, uint32_t dstId, uint8_t slotNo, uint3
     event["dstStr"].set<std::string>(resolvedDst);
 
     event["streamId"].set<uint32_t>(streamId);
+
+    if (callEnd) {
+        event["duration"].set<uint64_t>(duration);
+    }
 
     g_netDataEvent(event);
 }
@@ -380,6 +384,8 @@ void* threadNetworkPump(void* arg)
 
                     uint32_t slotNo = (dmrBuffer[15U] & 0x80U) == 0x80U ? 2U : 1U;
 
+                    uint32_t streamId = g_network->getRxDMRStreamId(slotNo);
+
                     DMRDEF::DataType::E dataType = (DMRDEF::DataType::E)(dmrBuffer[15U] & 0x0FU);
 
                     data::NetData dmrData;
@@ -433,7 +439,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "DMR, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                         srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
-                            emitCallStartEndEvent(srcId, dstId, slotNo, status.streamId, "dmr", true);
+                            emitCallStartEndEvent(srcId, dstId, slotNo, status.streamId, "dmr", true, duration / 1000);
                         }
                     }
 
@@ -452,6 +458,7 @@ void* threadNetworkPump(void* arg)
                             status.srcId = srcId;
                             status.dstId = dstId;
                             status.slotNo = slotNo;
+                            status.streamId = streamId;
                             g_dmrStatus[dstId] = status; // this *could* be an issue if a dstId appears on both slots somehow...
 
                             LogInfoEx(LOG_NET, "DMR, Call Start, srcId = %u (%s), dstId = %u (%s)", 
@@ -528,6 +535,8 @@ void* threadNetworkPump(void* arg)
                 if (netReadRet) {
                     using namespace p25;
 
+                    uint32_t streamId = g_network->getRxP25StreamId();
+
                     uint8_t duid = p25Buffer[22U];
                     uint8_t MFId = p25Buffer[15U];
 
@@ -577,7 +586,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "P25, Call End, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X, duration = %u",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), sysId, netId, duration / 1000);
-                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "p25", true);
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "p25", true, duration / 1000);
                             }
                         }
 
@@ -595,6 +604,7 @@ void* threadNetworkPump(void* arg)
                                 status.callStartTime = pktTime;
                                 status.srcId = srcId;
                                 status.dstId = dstId;
+                                status.streamId = streamId;
                                 g_p25Status[dstId] = status;
 
                                 LogInfoEx(LOG_NET, "P25, Call Start, srcId = %u (%s), dstId = %u (%s), sysId = $%03X, netId = $%05X", 
@@ -984,6 +994,8 @@ void* threadNetworkPump(void* arg)
                 if (netReadRet) {
                     using namespace nxdn;
 
+                    uint32_t streamId = g_network->getRxNXDNStreamId();
+
                     uint8_t messageType = nxdnBuffer[4U];
 
                     uint32_t srcId = GET_UINT24(nxdnBuffer, 5U);
@@ -1017,7 +1029,7 @@ void* threadNetworkPump(void* arg)
 
                                 LogInfoEx(LOG_NET, "NXDN, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                     srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
-                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "nxdn", true);
+                                emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "nxdn", true, duration / 1000);
                             }
                         }
 
@@ -1035,6 +1047,7 @@ void* threadNetworkPump(void* arg)
                                 status.callStartTime = pktTime;
                                 status.srcId = srcId;
                                 status.dstId = dstId;
+                                status.streamId = streamId;
                                 g_nxdnStatus[dstId] = status;
 
                                 LogInfoEx(LOG_NET, "NXDN, Call Start, srcId = %u (%s), dstId = %u (%s)", 
@@ -1051,6 +1064,8 @@ void* threadNetworkPump(void* arg)
                 UInt8Array analogBuffer = g_network->readAnalog(netReadRet, length);
                 if (netReadRet) {
                     using namespace analog;
+
+                    uint32_t streamId = g_network->getRxAnalogStreamId();
 
                     uint32_t srcId = GET_UINT24(analogBuffer, 5U);
                     uint32_t dstId = GET_UINT24(analogBuffer, 8U);
@@ -1072,7 +1087,7 @@ void* threadNetworkPump(void* arg)
 
                             LogInfoEx(LOG_NET, "Analog, Call End, srcId = %u (%s), dstId = %u (%s), duration = %u",
                                 srcId, resolveRID(srcId).c_str(), dstId, resolveTGID(dstId).c_str(), duration / 1000);
-                            emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "analog", true);
+                            emitCallStartEndEvent(srcId, dstId, 0U, status.streamId, "analog", true, duration / 1000);
                         }
                     }
 
@@ -1090,6 +1105,7 @@ void* threadNetworkPump(void* arg)
                             status.callStartTime = pktTime;
                             status.srcId = srcId;
                             status.dstId = dstId;
+                            status.streamId = streamId;
                             g_analogStatus[dstId] = status;
 
                             LogInfoEx(LOG_NET, "Analog, Call Start, srcId = %u (%s), dstId = %u (%s)", 
