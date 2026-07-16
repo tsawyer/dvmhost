@@ -16,7 +16,7 @@ These central improvments provide a more reliable P25 call path that can recover
 
 The map below points to the main implementation areas behind the call-handling improvements. Each area lists the files and functions most useful for review.
 
-Validation note: All test set passes including the added Golay(24,12,8) decode test and the UDP batch-send in `tests/UDP_Socket_Tests.cppexcept for `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`; those same two tests also fail on master.
+Validation note: The test set passes, including the added Golay(24,12,8) decode tests in `tests/edac/Golay24128_Tests.cpp` and the UDP batch-send tests in `tests/UDP_Socket_Tests.cpp`, except for `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`; those same two tests also fail on master.
 
 ### DFSI modem receive and conversion
 
