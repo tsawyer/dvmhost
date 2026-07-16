@@ -40,7 +40,7 @@ Validation note: The test set passes, including the added Golay(24,12,8) decode 
 
 ### FNE stale stream and teardown handling
 
-- Files: `src/fne/network/callhandler/TagP25Data.cpp`, `src/fne/network/callhandler/TagP25Data.h`, `src/common/network/AdaptiveJitterBuffer.cpp`, `src/fne/network/FNEPeerConnection.cpp`, `src/fne/network/TrafficNetwork.cpp`
+- Files: `src/fne/network/callhandler/TagP25Data.cpp`, `src/fne/network/callhandler/TagP25Data.h`, `src/common/network/AdaptiveJitterBuffer.cpp`, `src/fne/network/FNEPeerConnection.cpp`, `src/fne/network/TrafficNetwork.cpp`, `docs/FNE Jitter Buffer Configuration.md`
 - Key code: `resetMatchingCallStream()`, `suppressCallStream()`, `isSuppressedCallStream()`, `processFrame()`, `AdaptiveJitterBuffer::processFrame()`, `AdaptiveJitterBuffer::checkTimeouts()`
 
 ### Supporting validation and network receive
@@ -70,6 +70,9 @@ Improvements start in `ModemV24`, because this is where DFSI frames from V.24 se
 - **`create_TDU()` preserves modem end-of-transmission tags.**  
   The generated TDU frame is copied first, then `TAG_EOT` and the tag metadata are written. This prevents the generated air frame from overwriting the modem tag bytes needed by the DFSI call termination path.
 
+- **TIA DFSI end-of-stream TDU length handling was corrected.**  
+  The TIA DFSI end-of-stream path now queues generated TDUs using `P25_TDU_FRAME_LENGTH_BYTES` instead of treating the bit length constant as a byte count. This keeps generated end-of-stream frames sized correctly before they enter the converted RX path.
+
 ## DFSI LC and Metadata Recovery
 
 This area is the heart of the DFSI recovery improvement: keep recoverable calls alive, but do not trust bad identity.
@@ -97,7 +100,7 @@ This area is the heart of the DFSI recovery improvement: keep recoverable calls 
 The host voice packet layer is where network P25 calls are admitted, repaired, converted into RF/DFSI output, or rejected.
 
 - **`processNetwork()` repairs short network LDU payload damage.**  
-  Network LDU1 and LDU2 handling now calls `decodeNetLDU1Payload()` and `decodeNetLDU2Payload()`. Those helpers decode payloads by expected DFSI voice slot, keep valid slots, and fill short missing or malformed slots with null IMBE. This keeps downstream DFSI structure complete without fabricating speech.
+  Network LDU1 and LDU2 handling now calls `decodeNetLDU1Payload()` and `decodeNetLDU2Payload()`. Those helpers decode payloads by expected DFSI voice slot, keep valid slots, and fill short missing or malformed slots with null IMBE. This keeps downstream DFSI structure complete without fabricating speech, and recovery logging records the DUID, source, destination, and recovered-slot count for field review.
 
 - **Missing LDU alternation is repaired with null audio.**  
   If another LDU1 arrives before the expected LDU2, `processNetwork()` logs the missing LDU2 and writes a null-audio LDU2. The reverse path does the same for missing LDU1. This protects DFSI devices from repeated LDU halves that would otherwise disrupt superframe structure.
@@ -156,7 +159,7 @@ FNE changes prevent stale or malformed peer traffic from keeping calls stuck act
   `processFrame()` validates that `LC_CALL_TERM` comes from the peer that owns the active call. This prevents unrelated peers from ending or corrupting another stream's call state.
 
 - **The FNE adaptive jitter buffer delivery path was fixed and instrumented.**  
-  The jitter buffer protects peer network delivery when RTP packets arrive late or out of order. `AdaptiveJitterBuffer` and the FNE peer connection path now handle delayed delivery and cleanup more reliably, and telemetry was added so reordered, late, duplicate, overflow, timeout, and stream-reset behavior can be seen during field review.
+  The jitter buffer protects peer network delivery when RTP packets arrive late or out of order. `AdaptiveJitterBuffer` and the FNE peer connection path now handle delayed delivery and cleanup more reliably, and telemetry was added so reordered, late, duplicate, overflow, timeout, and stream-reset behavior can be seen during field review. See `docs/FNE Jitter Buffer Configuration.md` for operational configuration guidance.
 
 ## Network Transport and Decode Guardrails
 
