@@ -16,7 +16,7 @@ These central improvments provide a more reliable P25 call path that can recover
 
 The map below points to the main implementation areas behind the call-handling improvements. Each area lists the files and functions most useful for review.
 
-Validation note: The P25 test set passes including the added Golay(24,12,8) decode test except for `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`; those same two tests also fail on master.
+Validation note: The P25 test set passes including the added Golay(24,12,8) decode test except for `./build/tests/dvmtests "[p25][kmm_cmac]"` and `./build/tests/dvmtests "[aes][mac_cmac]"`; those same two tests also fail on master. Focused UDP batch-send tests were also added in `tests/UDP_Socket_Tests.cpp`.
 
 ### DFSI modem receive and conversion
 
@@ -45,8 +45,8 @@ Validation note: The P25 test set passes including the added Golay(24,12,8) deco
 
 ### Supporting validation and network receive
 
-- Files: `src/common/network/Network.cpp`, `src/common/network/BaseNetwork.cpp`, `src/common/edac/Golay24128.cpp`, `tests/edac/Golay24128_Tests.cpp`, `src/common/p25/acl/AccessControl.cpp`
-- Key code: `readP25()`, `decode24128()`, `validateTGId()`
+- Files: `src/common/network/Network.cpp`, `src/common/network/BaseNetwork.cpp`, `src/common/network/udp/Socket.cpp`, `src/common/network/udp/Socket.h`, `src/common/edac/Golay24128.cpp`, `tests/edac/Golay24128_Tests.cpp`, `tests/UDP_Socket_Tests.cpp`, `src/common/p25/acl/AccessControl.cpp`
+- Key code: `readP25()`, `Socket::write(BufferQueue*)`, `sendmmsg()`, `decode24128()`, `validateTGId()`
 
 ## Modem DFSI Receive Path
 
@@ -161,6 +161,9 @@ FNE changes prevent stale or malformed peer traffic from keeping calls stuck act
 ## Network Transport and Decode Guardrails
 
 These changes protect call handling before frames reach the higher-level voice and DFSI recovery paths. They are not Quantar-specific by themselves, but they matter to Quantar operation because bad transport buffering or bad protected metadata can produce the same field symptoms as a DFSI sequencing problem: malformed voice frames, incorrect call identity, stuck calls, or audio that stops even though network packets are still arriving.
+
+- **Batched UDP send handling now reports delivery more accurately.**  
+  `Socket::write(BufferQueue*)` now builds a compact batch of queued UDP datagrams and sends them with `sendmmsg()` where available, with compatibility wrappers for platforms that do not provide native `sendmmsg()`. The code now treats skipped or invalid queued entries carefully, cleans up prepared buffers, retries interrupted sends, and only reports success when every prepared datagram in the batch was accepted for sending. This protects FNE and peer traffic from silent partial batch sends, where earlier packets might leave but later packets in the same queue could be lost while the caller still believed the whole batch succeeded. `tests/UDP_Socket_Tests.cpp` covers successful multi-datagram sends, skipped entries, complete failure, partial failure, and compatibility-wrapper behavior.
 
 - **The P25 network receive ring preserves long payloads.**  
   Longer P25 network packets were being announced to the reader as one size but only partly stored in the receive ring. That could make DVMHost read missing or shifted bytes as if they were real P25 voice data, corrupting later call frames even while UDP packets were still arriving normally. `src/common/network/Network.cpp` now writes the full packet payload after the compact two-byte length prefix for P25 frames longer than 254 bytes. `BaseNetwork::readP25()` expects the reconstructed full length, so preserving the full payload prevents ring underflow and corrupt frame reads.
