@@ -98,6 +98,9 @@ namespace network
 
     const uint32_t  HA_PARAMS_ENTRY_LEN = 20U;
 
+    /** @brief KMM Decryption Instruction - Encrypted Peer Key Response */
+    const uint8_t   KMM_DECRYPT_PEER_ENC = 0x80U;
+
     /**
      * @brief Network Peer Connection Status
      * @ingroup network_core

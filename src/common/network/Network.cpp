@@ -11,6 +11,7 @@
 #include "common/edac/SHA256.h"
 #include "common/p25/kmm/KMMFactory.h"
 #include "common/json/json.h"
+#include "common/AESCrypto.h"
 #include "common/Log.h"
 #include "common/Utils.h"
 #include "network/Network.h"
@@ -62,6 +63,7 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_ridLookup(nullptr),
     m_tidLookup(nullptr),
     m_salt(nullptr),
+    m_kmfPresharedKey(nullptr),
     m_retryTimer(1000U, DEFAULT_RETRY_TIME),
     m_retryCount(0U),
     m_maxRetryCount(MAX_RETRY_BEFORE_RECONNECT),
@@ -76,6 +78,7 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_promiscuousPeer(false),
     m_userHandleProtocol(false),
     m_neverDisableOnACLNAK(false),
+    m_passKeysWithNoPresharedKey(false),
     m_peerConnectedCallback(nullptr),
     m_peerDisconnectedCallback(nullptr),
     m_dmrInCallCallback(nullptr),
@@ -109,6 +112,10 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
 
 Network::~Network()
 {
+    if (m_kmfPresharedKey != nullptr) {
+        delete[] m_kmfPresharedKey;
+        m_kmfPresharedKey = nullptr;
+    }
     delete[] m_salt;
     delete[] m_rxDMRStreamId;
     delete[] m_rxP25P2StreamId;
@@ -228,6 +235,14 @@ void Network::setRESTAPIData(const std::string& password, uint16_t port)
 void Network::setPresharedKey(const uint8_t* presharedKey)
 {
     m_socket->setPresharedKey(presharedKey);
+}
+
+/* Sets endpoint preshared encryption key. */
+
+void Network::setKMFPresharedKey(const uint8_t* presharedKey)
+{
+    m_kmfPresharedKey = new uint8_t[P25DEF::MAX_ENC_KEY_LENGTH_BYTES];
+    memcpy(m_kmfPresharedKey, presharedKey, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
 }
 
 /* Updates the timer by the passed number of milliseconds. */
@@ -1103,6 +1118,50 @@ void Network::clock(uint32_t ms)
                                     LogInfoEx(LOG_NET, "PEER %u, master reported enc. key, algId = $%02X, kID = $%04X", m_peerId,
                                         ks.algId(), ki.kId());
 
+                                    if (!m_passKeysWithNoPresharedKey && (modifyKey->getDecryptInfoFmt() == KMM_DECRYPT_PEER_ENC)) {
+                                        // if the to decrypt the key with a preshared key, do that now
+                                        if (m_kmfPresharedKey != nullptr) {
+                                            uint8_t encryptedKey[P25DEF::MAX_ENC_KEY_LENGTH_BYTES];
+                                            ::memset(encryptedKey, 0x00U, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                            ki.getKey(encryptedKey);
+
+                                            uint8_t* key = nullptr;
+                                            crypto::AES aes = crypto::AES(crypto::AESKeyLength::AES_256);
+                                            key = aes.decryptECB(encryptedKey, P25DEF::MAX_ENC_KEY_LENGTH_BYTES, m_kmfPresharedKey);
+
+                                            uint32_t keyLength = P25DEF::MAX_ENC_KEY_LENGTH_BYTES;
+                                            switch (ks.algId()) {
+                                            case P25DEF::ALGO_DES:
+                                                keyLength = P25DEF::DES_ENC_KEY_LENGTH_BYTES;
+                                                break;
+                                            case P25DEF::ALGO_ARC4:
+                                                keyLength = P25DEF::ARC4_ENC_KEY_LENGTH_BYTES;
+                                                break;
+
+                                            case P25DEF::ALGO_AES_256:
+                                                break;
+                                            default:
+                                                LogWarning(LOG_NET, "PEER %u, unknown algorithm ID $%02X, unable to determine key length", m_peerId, ks.algId());
+                                                break;
+                                            }
+
+                                            if (m_debug)
+                                                Utils::dump(1U, "Network::clock(), Key", key, keyLength);
+
+                                            if (key != nullptr) {
+                                                ki.setKey(key, keyLength);
+                                                ks.keyLength(keyLength);
+                                                delete[] key;
+                                            }
+                                        } else {
+                                            if (modifyKey->getDecryptInfoFmt() == KMM_DECRYPT_PEER_ENC) {
+                                                LogInfoEx(LOG_NET, "PEER %u, received encrypted enc. key, but no preshared key available, algId = $%02X, kID = $%04X", m_peerId,
+                                                    ks.algId(), ki.kId());
+                                                break;
+                                            }
+                                        }
+                                    }
+
                                     // fire off key response callback if we have one
                                     if (m_keyRespCallback != nullptr) {
                                         m_keyRespCallback(ki, ks.algId(), ks.keyLength());
@@ -1269,6 +1328,46 @@ void Network::clock(uint32_t ms)
                                     KeyItem ki = ks.keys()[0];
                                     LogInfoEx(LOG_NET, "PEER %u, master reported LLA enc. key, algId = $%02X, kID = $%04X", m_peerId,
                                         ks.algId(), ki.kId());
+
+                                    if (!m_passKeysWithNoPresharedKey && (modifyKey->getDecryptInfoFmt() == KMM_DECRYPT_PEER_ENC)) {
+                                        // if the to decrypt the key with a preshared key, do that now
+                                        if (m_kmfPresharedKey != nullptr) {
+                                            uint8_t encryptedKey[P25DEF::MAX_ENC_KEY_LENGTH_BYTES];
+                                            ::memset(encryptedKey, 0x00U, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                            ki.getKey(encryptedKey);
+
+                                            uint8_t* key = nullptr;
+                                            crypto::AES aes = crypto::AES(crypto::AESKeyLength::AES_256);
+                                            key = aes.decryptECB(encryptedKey, P25DEF::MAX_ENC_KEY_LENGTH_BYTES, m_kmfPresharedKey);
+
+                                            uint32_t keyLength = P25DEF::MAX_ENC_KEY_LENGTH_BYTES;
+                                            switch (ks.algId()) {
+                                            case P25DEF::ALGO_AES_128:
+                                                keyLength = P25DEF::AES_128_ENC_KEY_LENGTH_BYTES;
+                                                break;
+
+                                            case P25DEF::ALGO_AES_256:
+                                            default:
+                                                LogWarning(LOG_NET, "PEER %u, unknown algorithm ID $%02X, unable to determine key length", m_peerId, ks.algId());
+                                                break;
+                                            }
+
+                                            if (m_debug)
+                                                Utils::dump(1U, "Network::clock(), Key", key, keyLength);
+
+                                            if (key != nullptr) {
+                                                ki.setKey(key, keyLength);
+                                                ks.keyLength(keyLength);
+                                                delete[] key;
+                                            }
+                                        } else {
+                                            if (modifyKey->getDecryptInfoFmt() == KMM_DECRYPT_PEER_ENC) {
+                                                LogInfoEx(LOG_NET, "PEER %u, received encrypted LLA enc. key, but no preshared key available, algId = $%02X, kID = $%04X", m_peerId,
+                                                    ks.algId(), ki.kId());
+                                                break;
+                                            }
+                                        }
+                                    }
 
                                     // fire off key response callback if we have one
                                     if (m_llaKeyRespCallback != nullptr) {

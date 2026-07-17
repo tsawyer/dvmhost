@@ -519,6 +519,44 @@ bool HostPatch::createNetwork()
         }
     }
 
+    bool kmfEncrypted = false;
+    uint8_t kmfPresharedKey[AES_WRAPPED_PCKT_KEY_LEN];
+    ::memset(kmfPresharedKey, 0x00U, AES_WRAPPED_PCKT_KEY_LEN);
+
+    // scope is intentional
+    {
+        std::string key = networkConf["kmfPresharedKey"].as<std::string>();
+        if (!key.empty()) {
+            if (key.size() == 32) {
+                // bryanb: shhhhhhh....dirty nasty hacks
+                key = key.append(key); // since the key is 32 characters (16 hex pairs), double it on itself for 64 characters (32 hex pairs)
+                LogWarning(LOG_HOST, "Half-length KMF preshared encryption key detected, doubling key on itself.");
+            }
+
+            if (key.size() == 64) {
+                if ((key.find_first_not_of("0123456789abcdefABCDEF", 2) == std::string::npos)) {
+                    const char* keyPtr = key.c_str();
+
+                    for (uint8_t i = 0; i < AES_WRAPPED_PCKT_KEY_LEN; i++) {
+                        char t[4] = {keyPtr[0], keyPtr[1], 0};
+                        kmfPresharedKey[i] = (uint8_t)::strtoul(t, NULL, 16);
+                        keyPtr += 2 * sizeof(char);
+                    }
+
+                    kmfEncrypted = true;
+                }
+                else {
+                    LogWarning(LOG_HOST, "Invalid characters in the KMF preshared encryption key. Encryption disabled.");
+                    kmfEncrypted = false;
+                }
+            }
+            else {
+                LogWarning(LOG_HOST, "Invalid KMF preshared encryption key length, key should be 32 hex pairs, or 64 characters. Encryption disabled.");
+                kmfEncrypted = false;
+            }
+        }
+    }
+
     if (id > 999999999U) {
         ::LogError(LOG_HOST, "Network Peer ID cannot be greater then 999999999.");
         return false;
@@ -534,6 +572,7 @@ bool HostPatch::createNetwork()
         LogInfo("    Local: random");
 
     LogInfo("    Encrypted: %s", encrypted ? "yes" : "no");
+    LogInfo("    KMF Encrypted: %s", kmfEncrypted ? "yes" : "no");
 
     LogInfo("    Source TGID: %u", m_srcTGId);
     LogInfo("    Source DMR Slot: %u", m_srcSlot);
@@ -585,6 +624,10 @@ bool HostPatch::createNetwork()
 
     if (encrypted) {
         m_network->setPresharedKey(presharedKey);
+    }
+
+    if (kmfEncrypted) {
+        m_network->setKMFPresharedKey(kmfPresharedKey);
     }
 
     m_network->enable(true);

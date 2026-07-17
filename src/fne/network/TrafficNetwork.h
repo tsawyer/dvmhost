@@ -316,6 +316,8 @@ namespace network
 
         std::string m_password;
 
+        bool m_encryptedTrafficConn;
+
         bool m_isReplica;
 
         bool m_dmrEnabled;
@@ -331,6 +333,8 @@ namespace network
 
         bool m_kmfServicesEnabled;
         bool m_kmfAllowRID0;
+        bool m_kmfEncKeyRequest;
+        uint8_t* m_kmfPresharedKey;
 
         lookups::RadioIdLookup* m_ridLookup;
         lookups::TalkgroupRulesLookup* m_tidLookup;
@@ -351,7 +355,7 @@ namespace network
         static std::timed_mutex s_keyQueueMutex;
         std::unordered_map<uint32_t, uint16_t> m_peerReplicaKeyQueue;
         static std::timed_mutex s_llaKeyQueueMutex;
-        std::unordered_map<uint32_t, uint16_t> m_peerReplicaLLAKeyQueue;
+        std::unordered_map<uint32_t, uint32_t> m_peerReplicaLLAKeyQueue;
 
         fne_lookups::AffiliationLookup* m_globalAff;
 

@@ -71,6 +71,9 @@ PeerNetwork::PeerNetwork(const std::string& address, uint16_t port, uint16_t loc
     // never disable peer network services on ACL NAK from master
     m_neverDisableOnACLNAK = true;
 
+    // allow passing encryption keys without a preshared key set
+    m_passKeysWithNoPresharedKey = true;
+
     // FNE peer network manually handle protocol packets
     m_userHandleProtocol = true;
 

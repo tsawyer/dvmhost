@@ -12,6 +12,7 @@
 #include "common/p25/kmm/KMMFactory.h"
 #include "common/json/json.h"
 #include "common/zlib/Compression.h"
+#include "common/AESCrypto.h"
 #include "common/Log.h"
 #include "common/StopWatch.h"
 #include "common/Utils.h"
@@ -98,6 +99,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_address(address),
     m_port(port),
     m_password(password),
+    m_encryptedTrafficConn(false),
     m_isReplica(false),
     m_dmrEnabled(dmr),
     m_p25Enabled(p25),
@@ -110,6 +112,8 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_parrotOverrideSrcId(0U),
     m_kmfServicesEnabled(false),
     m_kmfAllowRID0(false),
+    m_kmfEncKeyRequest(false),
+    m_kmfPresharedKey(nullptr),
     m_ridLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
@@ -313,6 +317,43 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
 #endif // ENABLE_SSL
     m_kmfAllowRID0 = conf["kmfAllowRID0"].as<bool>(false);
 
+    // scope is intentional
+    {
+        bool encrypted = conf["kmfEncKeyRequest"].as<bool>(false);
+        std::string key = conf["kmfPresharedKey"].as<std::string>();
+        if (!key.empty()) {
+            if (key.size() == 32) {
+                // bryanb: shhhhhhh....dirty nasty hacks
+                key = key.append(key); // since the key is 32 characters (16 hex pairs), double it on itself for 64 characters (32 hex pairs)
+                LogWarning(LOG_HOST, "Half-length KMF preshared encryption key detected, doubling key on itself.");
+            }
+
+            if (key.size() == 64) {
+                if ((key.find_first_not_of("0123456789abcdefABCDEF", 2) == std::string::npos)) {
+                    const char* keyPtr = key.c_str();
+                    m_kmfPresharedKey = new uint8_t[AES_WRAPPED_PCKT_KEY_LEN];
+                    ::memset(m_kmfPresharedKey, 0x00U, AES_WRAPPED_PCKT_KEY_LEN);
+
+                    for (uint8_t i = 0; i < AES_WRAPPED_PCKT_KEY_LEN; i++) {
+                        char t[4] = {keyPtr[0], keyPtr[1], 0};
+                        m_kmfPresharedKey[i] = (uint8_t)::strtoul(t, NULL, 16);
+                        keyPtr += 2 * sizeof(char);
+                    }
+                }
+                else {
+                    LogWarning(LOG_HOST, "Invalid characters in the KMF preshared encryption key. Encryption disabled.");
+                    encrypted = false;
+                }
+            }
+            else {
+                LogWarning(LOG_HOST, "Invalid KMF preshared encryption key length, key should be 32 hex pairs, or 64 characters. Encryption disabled.");
+                encrypted = false;
+            }
+        }
+
+        m_kmfEncKeyRequest = encrypted;
+    }
+
     m_callCollisionTimeout = conf["callCollisionTimeout"].as<uint32_t>(5U);
 
     m_restrictGrantToAffOnly = conf["restrictGrantToAffiliatedOnly"].as<bool>(false);
@@ -447,6 +488,10 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         LogInfo("    P25 OTAR KMF Listening Address: %s", m_address.c_str());
         LogInfo("    P25 OTAR KMF Listening Port: %u", kmfOtarPort);
         LogInfo("    P25 KMF Allow RID 0 Requests: %s", m_kmfAllowRID0 ? "yes" : "no");
+        LogInfo("    P25 KMF Peer Request Encrypted: %s", m_kmfEncKeyRequest ? "yes" : "no");
+        if (!m_encryptedTrafficConn && !m_kmfEncKeyRequest) {
+            LogWarning(LOG_MASTER, "Peers can make key requests, but the encrypted traffic connection is not enabled and KMF requests are not encrypted! Key requests will be sent in the clear.");
+        }
         LogInfo("    High Availability Enabled: %s", m_haEnabled ? "yes" : "no");
         if (m_haEnabled) {
             LogInfo("    Advertised HA WAN IP: %s", m_advertisedHAAddress.c_str());
@@ -471,6 +516,10 @@ void TrafficNetwork::setLookups(lookups::RadioIdLookup* ridLookup, lookups::Talk
 
 void TrafficNetwork::setPresharedKey(const uint8_t* presharedKey)
 {
+    if (presharedKey != nullptr) {
+        m_encryptedTrafficConn = true;
+    }
+
     m_socket->setPresharedKey(presharedKey);
 }
 
@@ -1920,12 +1969,32 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 LogInfoEx(LOG_MASTER, "PEER %u (%s) local enc. key, algId = $%02X, kID = $%04X", peerId, connection->identWithQualifier().c_str(),
                                                     modifyKey->getAlgId(), modifyKey->getKId());
 
+                                                // if configured to encrypt the key with a preshared key, do that now
+                                                if (network->m_kmfEncKeyRequest) {
+                                                    uint8_t* encryptedKey = nullptr;
+                                                    if (network->m_kmfPresharedKey != nullptr) {
+                                                        crypto::AES aes = crypto::AES(crypto::AESKeyLength::AES_256);
+                                                        encryptedKey = aes.encryptECB(key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES, network->m_kmfPresharedKey);
+
+                                                        if (encryptedKey != nullptr) {
+                                                            ::memcpy(key, encryptedKey, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                            keyLength = P25DEF::MAX_ENC_KEY_LENGTH_BYTES;
+                                                            delete[] encryptedKey;
+                                                        }
+                                                    }
+
+                                                    if (network->m_debug) {
+                                                        LogDebugEx(LOG_HOST, "TrafficNetwork::threadedNetworkRx()", "keyLength = %u", keyLength);
+                                                        Utils::dump(1U, "TrafficNetwork::taskNetworkRx(), Encrypted Key", key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                    }
+                                                }
+
                                                 // build response buffer
                                                 uint8_t buffer[DATA_PACKET_LENGTH];
                                                 ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
 
                                                 KMMModifyKey modifyKeyRsp = KMMModifyKey();
-                                                modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+                                                modifyKeyRsp.setDecryptInfoFmt(network->m_kmfEncKeyRequest ? KMM_DECRYPT_PEER_ENC : KMM_DECRYPT_INSTRUCT_NONE);
                                                 modifyKeyRsp.setAlgId(modifyKey->getAlgId());
                                                 modifyKeyRsp.setKId(0U);
 
@@ -2024,10 +2093,11 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                     {
                                         KMMModifyKey* modifyKey = static_cast<KMMModifyKey*>(frame.get());
 
-                                        LogDebugEx(LOG_MASTER, "TrafficNetwork::taskNetworkRx()", "PEER %u (%s) LLA enc. key request received, dstLLId = %u, algId = %u, kId = %u", peerId, connection->identWithQualifier().c_str(), modifyKey->getDstLLId(), modifyKey->getAlgId(), modifyKey->getKId());
-
                                         if (modifyKey->getAlgId() == ALGO_AES_128 && modifyKey->getDstLLId() > 0U) {
-                                            LogDebugEx(LOG_MASTER, "TrafficNetwork::taskNetworkRx()", "PEER %u (%s) LLA enc. key request received", peerId, connection->identWithQualifier().c_str());
+                                            if (network->m_debug)
+                                                LogDebugEx(LOG_MASTER, "TrafficNetwork::taskNetworkRx()", "PEER %u (%s) LLA enc. key request received, dstLLId = %u, algId = %u, kId = %u", peerId, connection->identWithQualifier().c_str(), 
+                                                    modifyKey->getDstLLId(), modifyKey->getAlgId(), modifyKey->getKId());
+
                                             uint32_t requestingRid = modifyKey->getDstLLId();
 
                                             LogInfoEx(LOG_MASTER, "PEER %u (%s) requested LLA enc. key, rsi = %u", peerId, connection->identWithQualifier().c_str(),
@@ -2039,20 +2109,40 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                                 ::memset(key, 0x00U, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
                                                 uint8_t keyLength = keyItem.getKey(key);
 
-                                                //if (network->m_debug) {
+                                                if (network->m_debug) {
                                                     LogDebugEx(LOG_HOST, "TrafficNetwork::threadedNetworkRx()", "keyLength = %u", keyLength);
                                                     Utils::dump(1U, "TrafficNetwork::taskNetworkRx(), Key", key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
-                                                //}
+                                                }
 
                                                 LogInfoEx(LOG_MASTER, "PEER %u (%s) local enc. key, algId = $%02X, rsi = %u", peerId, connection->identWithQualifier().c_str(),
                                                     modifyKey->getAlgId(), requestingRid);
+
+                                                // if configured to encrypt the key with a preshared key, do that now
+                                                if (network->m_kmfEncKeyRequest) {
+                                                    uint8_t* encryptedKey = nullptr;
+                                                    if (network->m_kmfPresharedKey != nullptr) {
+                                                        crypto::AES aes = crypto::AES(crypto::AESKeyLength::AES_256);
+                                                        encryptedKey = aes.encryptECB(key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES, network->m_kmfPresharedKey);
+
+                                                        if (encryptedKey != nullptr) {
+                                                            ::memcpy(key, encryptedKey, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                            keyLength = P25DEF::MAX_ENC_KEY_LENGTH_BYTES;
+                                                            delete[] encryptedKey;
+                                                        }
+                                                    }
+
+                                                    if (network->m_debug) {
+                                                        LogDebugEx(LOG_HOST, "TrafficNetwork::threadedNetworkRx()", "keyLength = %u", keyLength);
+                                                        Utils::dump(1U, "TrafficNetwork::taskNetworkRx(), Encrypted Key", key, P25DEF::MAX_ENC_KEY_LENGTH_BYTES);
+                                                    }
+                                                }
 
                                                 // build response buffer
                                                 uint8_t buffer[DATA_PACKET_LENGTH];
                                                 ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
 
                                                 KMMModifyKey modifyKeyRsp = KMMModifyKey();
-                                                modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+                                                modifyKeyRsp.setDecryptInfoFmt(network->m_kmfEncKeyRequest ? KMM_DECRYPT_PEER_ENC : KMM_DECRYPT_INSTRUCT_NONE);
                                                 modifyKeyRsp.setAlgId(modifyKey->getAlgId());
                                                 modifyKeyRsp.setKId(0U);
                                                 modifyKeyRsp.setSrcLLId(WUID_FNE);
@@ -3620,7 +3710,7 @@ void TrafficNetwork::processTEKResponse(p25::kmm::KeyItem* rspKi, uint8_t algId,
             ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
 
             KMMModifyKey modifyKeyRsp = KMMModifyKey();
-            modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+            modifyKeyRsp.setDecryptInfoFmt(m_kmfEncKeyRequest ? KMM_DECRYPT_PEER_ENC : KMM_DECRYPT_INSTRUCT_NONE);
             modifyKeyRsp.setAlgId(algId);
             modifyKeyRsp.setKId(0U);
 
@@ -3688,7 +3778,7 @@ void TrafficNetwork::processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* rspKi
             ::memset(buffer, 0x00U, DATA_PACKET_LENGTH);
 
             KMMModifyKey modifyKeyRsp = KMMModifyKey();
-            modifyKeyRsp.setDecryptInfoFmt(KMM_DECRYPT_INSTRUCT_NONE);
+            modifyKeyRsp.setDecryptInfoFmt(m_kmfEncKeyRequest ? KMM_DECRYPT_PEER_ENC : KMM_DECRYPT_INSTRUCT_NONE);
             modifyKeyRsp.setAlgId(ALGO_AES_128);
             modifyKeyRsp.setKId(0U);
             modifyKeyRsp.setSrcLLId(WUID_FNE);
@@ -3714,6 +3804,8 @@ void TrafficNetwork::processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* rspKi
                 RTP_END_OF_CALL_SEQ, createStreamId());
 
             peersToRemove.push_back(peerId);
+        } else {
+            LogError(LOG_PEER, "upstream master LLA enc. key, peerId = %u, requestingRSI = %u, rsi = %u -- mismatch!", entry.first, requestingRid, srcId);
         }
     }
 

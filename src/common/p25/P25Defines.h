@@ -170,6 +170,10 @@ namespace p25
         const uint8_t   AUTH_KEY_LENGTH_BYTES = 16U;
 
         const uint8_t   MAX_ENC_KEY_LENGTH_BYTES = 32U;
+        const uint8_t   AES_256_ENC_KEY_LENGTH_BYTES = 32U;
+        const uint8_t   AES_128_ENC_KEY_LENGTH_BYTES = 16U;
+        const uint8_t   DES_ENC_KEY_LENGTH_BYTES = 8U;
+        const uint8_t   ARC4_ENC_KEY_LENGTH_BYTES = 5U;
         const uint8_t   MAX_WRAPPED_ENC_KEY_LENGTH_BYTES = 40U;
         const uint8_t   KMM_AES_MAC_LENGTH = 8U;
         const uint8_t   KMM_DES_MAC_LENGTH = 4U;

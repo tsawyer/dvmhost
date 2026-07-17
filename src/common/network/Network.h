@@ -219,6 +219,11 @@ namespace network
          * @param presharedKey Encryption preshared key for networking.
          */
         void setPresharedKey(const uint8_t* presharedKey);
+        /**
+         * @brief Sets endpoint preshared encryption key for peer key requets.
+         * @param presharedKey Encryption preshared key for networking.
+         */
+        void setKMFPresharedKey(const uint8_t* presharedKey);
 
         /**
          * @brief Updates the timer by the passed number of milliseconds.
@@ -329,6 +334,8 @@ namespace network
 
         uint8_t* m_salt;
 
+        uint8_t* m_kmfPresharedKey;
+
         Timer m_retryTimer;
         uint8_t m_retryCount;
         uint8_t m_maxRetryCount;
@@ -364,6 +371,10 @@ namespace network
          * @brief Flag indicating this peer will not disable networking services on a master ACL NAK.
          */
         bool m_neverDisableOnACLNAK;
+        /**
+         * @brief Flag indicating this peer will pass encryption keys without a preshared key set.
+         */
+        bool m_passKeysWithNoPresharedKey;
 
         /**
          * @brief Peer Connected Function Callback.
