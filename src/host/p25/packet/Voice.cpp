@@ -1152,6 +1152,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 m_p25->m_tailOnIdle = true;
                 m_p25->m_control->writeNet_TSDU_Call_Term(m_rfLC.getSrcId(), m_rfLC.getDstId());
             }
+        } else {
+            LogInfoEx(LOG_RF, P25_TDU_STR ", non-call terminator");
         }
 
         // if voice on control; and CC is halted restart CC
