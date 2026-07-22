@@ -95,7 +95,7 @@ bool MotFullRateVoice::decode(const uint8_t* data, bool shortened)
     assert(data != nullptr);
 
     if (imbeData != nullptr)
-        delete imbeData;
+        delete[] imbeData;
     imbeData = new uint8_t[RAW_IMBE_LENGTH_BYTES];
     ::memset(imbeData, 0x00U, RAW_IMBE_LENGTH_BYTES);
 

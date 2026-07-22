@@ -531,8 +531,10 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
     }
 
     // LogDebugEx(LOG_NET, "Socket::write()", "buffers len = %u", currentQueueSize);
-    if (currentQueueSize > UINT16_MAX)
-        currentQueueSize = UINT16_MAX; // only send up to this many buffers
+    if (currentQueueSize > MAX_BUFFER_COUNT) {
+        currentQueueSize = MAX_BUFFER_COUNT; // only send up to this many buffers
+        LogWarning(LOG_NET, "socket buffer queue backpressure >%d", MAX_BUFFER_COUNT);
+    }
 
     // are we crypto wrapped?
     if (m_isCryptoWrapped) {
@@ -605,6 +607,7 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
                 cryptedLen += alignment;
 
                 // reallocate buffer and copy
+                delete[] cryptoBuffer;
                 cryptoBuffer = new uint8_t[cryptedLen];
                 ::memset(cryptoBuffer, 0x00U, cryptedLen);
                 ::memcpy(cryptoBuffer, iov_buffer, length);
