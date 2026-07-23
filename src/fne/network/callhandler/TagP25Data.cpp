@@ -240,14 +240,72 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
         if (duid != DUID::TSDU && duid != DUID::PDU) {
             // is this the end of the call stream?
             if ((duid == DUID::TDU) || (duid == DUID::TDULC)) {
+                bool illegalTerm = false;
+
                 // reject TDU with no source or destination
                 if (srcId == 0U && dstId == 0U) {
                     LogWarning(LOG_NET, "P25, invalid TDU, peer = %u, ssrc = %u, srcId = %u, dstId = %u, streamId = %u, fromUpstream = %u", peerId, ssrc, srcId, dstId, streamId, fromUpstream);
-                    return false;
+                    illegalTerm = true;
                 }
 
                 // reject TDU's with no destination
                 if (dstId == 0U) {
+                    illegalTerm = true;
+                }
+
+                // if the terminator is illegal, we need to clean up the call state for this stream, to do this
+                // we match against the peer ID, SSRC and stream ID
+                if (illegalTerm) {
+                    auto it = std::find_if(m_status.begin(), m_status.end(), [&](StatusMapPair& x) {
+                        if (x.second.peerId == peerId && x.second.ssrc == ssrc && x.second.streamId == streamId) {
+                            if (x.second.activeCall)
+                                return true;
+                        }
+                        return false;
+                    });
+                    if (it == m_status.end()) {
+                        return false;
+                    }
+
+                    // determine the destination ID for the call, if it is not set use the key from 
+                    // the status map
+                    uint32_t dstId = it->second.dstId;
+                    if (dstId == 0U) {
+                        dstId = it->first;
+                    }
+
+                    lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(dstId);
+
+                    m_status.lock(false);
+                    m_status[dstId].reset();
+                    m_status.unlock();
+
+                    // is this a private call?
+                    auto pvIt = std::find_if(m_statusPVCall.begin(), m_statusPVCall.end(), [&](StatusMapPair& x) {
+                        if (x.second.peerId == peerId && x.second.ssrc == ssrc && x.second.streamId == streamId) {
+                            if (x.second.activeCall)
+                                return true;
+                        }
+                        return false;
+                    });
+                    if (pvIt != m_statusPVCall.end()) {
+                        m_statusPVCall.lock(false);
+                        m_statusPVCall[dstId].reset();
+                        m_statusPVCall.unlock();
+                    }
+
+                    // clear any rejected call streams for this TG
+                    m_rejectedCallStreams.lock(false);
+                    m_rejectedCallStreams[dstId].clear();
+                    m_rejectedCallStreams.unlock();
+
+                    if (!tg.config().parrot()) {
+                        m_network->m_totalActiveCalls--;
+                        if (m_network->m_totalActiveCalls < 0)
+                            m_network->m_totalActiveCalls = 0;
+                    }
+
+                    m_network->eraseStreamPktSeq(peerId, streamId);
                     return false;
                 }
 
@@ -279,7 +337,9 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                         return false;
                     }
                     else {
+                        m_status.lock(false);
                         m_status[dstId].reset();
+                        m_status.unlock();
 
                         // is this a parrot talkgroup? if so, reset parrot states
                         lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(dstId);
@@ -301,7 +361,9 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                             return false;
                         });
                         if (it != m_statusPVCall.end()) {
+                            m_statusPVCall.lock(false);
                             m_statusPVCall[dstId].reset();
+                            m_statusPVCall.unlock();
 
                             m_network->m_globalAff->releaseGrant(dstId);
 

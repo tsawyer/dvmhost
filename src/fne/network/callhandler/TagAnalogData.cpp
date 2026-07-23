@@ -95,8 +95,51 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
 
         // is this the end of the call stream?
         if (frameType == AudioFrameType::TERMINATOR) {
+            bool illegalTerm = false;
             if (srcId == 0U && dstId == 0U) {
                 LogWarning(LOG_NET, "Analog, invalid TERMINATOR, peer = %u, ssrc = %u, srcId = %u, dstId = %u, slot = %u, streamId = %u, fromUpstream = %u", peerId, ssrc, srcId, dstId, streamId, fromUpstream);
+                illegalTerm = true;
+            }
+
+            // if the terminator is illegal, we need to clean up the call state for this stream, to do this
+            // we match against the peer ID, SSRC and stream ID
+            if (illegalTerm) {
+                auto it = std::find_if(m_status.begin(), m_status.end(), [&](StatusMapPair& x) {
+                    if (x.second.peerId == peerId && x.second.ssrc == ssrc && x.second.streamId == streamId) {
+                        if (x.second.activeCall)
+                            return true;
+                    }
+                    return false;
+                });
+                if (it == m_status.end()) {
+                    return false;
+                }
+
+                // determine the destination ID for the call, if it is not set use the key from 
+                // the status map
+                uint32_t dstId = it->second.dstId;
+                if (dstId == 0U) {
+                    dstId = it->first;
+                }
+
+                lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(dstId);
+
+                m_status.lock(false);
+                m_status[dstId].reset();
+                m_status.unlock();
+
+                // clear any rejected call streams for this TG
+                m_rejectedCallStreams.lock(false);
+                m_rejectedCallStreams[dstId].clear();
+                m_rejectedCallStreams.unlock();
+
+                if (!tg.config().parrot()) {
+                    m_network->m_totalActiveCalls--;
+                    if (m_network->m_totalActiveCalls < 0)
+                        m_network->m_totalActiveCalls = 0;
+                }
+
+                m_network->eraseStreamPktSeq(peerId, streamId);
                 return false;
             }
 
@@ -111,7 +154,9 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                 return false;
             });
             if (it != m_status.end()) {
+                m_status.lock(false);
                 m_status[dstId].reset();
+                m_status.unlock();
 
                 // is this a parrot talkgroup? if so, clear any remaining frames from the buffer
                 lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(dstId);
