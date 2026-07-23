@@ -146,6 +146,18 @@ namespace network
         AdaptiveJitterBuffer* getOrCreateJitterBuffer(uint64_t streamId);
 
         /**
+         * @brief Processes a frame through the jitter buffer for the specified stream.
+         * @param streamId Stream ID.
+         * @param seq RTP sequence number.
+         * @param data Frame data buffer.
+         * @param length Frame length.
+         * @param[out] readyFrames Vector of frames ready for delivery.
+         * @returns bool True if frame was processed successfully, otherwise false.
+         */
+        bool processJitterFrame(uint64_t streamId, uint16_t seq, const uint8_t* data, uint32_t length,
+            std::vector<BufferedFrame*>& readyFrames);
+
+        /**
          * @brief Cleans up jitter buffer for the specified stream.
          * @param streamId Stream ID.
          */

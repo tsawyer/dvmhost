@@ -124,6 +124,42 @@ TEST_CASE("AdaptiveJitterBuffer reorders and drops duplicates", "[network][jitte
     REQUIRE(timedOutFrames == 0U);
 }
 
+TEST_CASE("AdaptiveJitterBuffer drops the oldest buffered frame on overflow", "[network][jitter]")
+{
+    AdaptiveJitterBuffer buffer(1U, 1000U);
+    std::vector<BufferedFrame*> readyFrames;
+    std::vector<BufferedFrame*> timedOutFrames;
+
+    const std::string base = "base";
+    const std::string older = "older";
+    const std::string newer = "newer";
+
+    REQUIRE(buffer.processFrame(3000U, reinterpret_cast<const uint8_t*>(base.data()), (uint32_t)base.size(), readyFrames));
+    cleanupFrames(readyFrames);
+
+    REQUIRE(buffer.processFrame(3002U, reinterpret_cast<const uint8_t*>(older.data()), (uint32_t)older.size(), readyFrames));
+    REQUIRE(readyFrames.empty());
+
+    REQUIRE(buffer.processFrame(3003U, reinterpret_cast<const uint8_t*>(newer.data()), (uint32_t)newer.size(), readyFrames));
+    REQUIRE(readyFrames.empty());
+
+    buffer.checkTimeouts(timedOutFrames, UINT64_MAX);
+    REQUIRE(timedOutFrames.size() == 1U);
+    REQUIRE(timedOutFrames[0U]->seq == 3003U);
+    REQUIRE(frameToString(timedOutFrames[0U]) == newer);
+    cleanupFrames(timedOutFrames);
+
+    uint64_t totalFrames = 0ULL;
+    uint64_t reorderedFrames = 0ULL;
+    uint64_t droppedFrames = 0ULL;
+    uint64_t timedOutFramesCount = 0ULL;
+    buffer.getStatistics(totalFrames, reorderedFrames, droppedFrames, timedOutFramesCount);
+    REQUIRE(totalFrames == 3U);
+    REQUIRE(reorderedFrames == 2U);
+    REQUIRE(droppedFrames == 1U);
+    REQUIRE(timedOutFramesCount == 1U);
+}
+
 TEST_CASE("AdaptiveJitterBuffer handles wraparound and timeout delivery", "[network][jitter]")
 {
     AdaptiveJitterBuffer buffer(4U, 1000U);

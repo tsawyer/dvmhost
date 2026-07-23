@@ -1106,10 +1106,9 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                             if (network->m_tagDMR != nullptr) {
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
-                                                    AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
                                                     std::vector<BufferedFrame*> readyFrames;
 
-                                                    buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
+                                                    connection->processJitterFrame(streamId, req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
 
                                                     // process all frames that are now ready (in sequence order)
                                                     for (BufferedFrame* frame : readyFrames) {
@@ -1147,10 +1146,9 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                             if (network->m_tagP25 != nullptr) {
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
-                                                    AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
                                                     std::vector<BufferedFrame*> readyFrames;
 
-                                                    buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
+                                                    connection->processJitterFrame(streamId, req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
 
                                                     // process all frames that are now ready (in sequence order)
                                                     for (BufferedFrame* frame : readyFrames) {
@@ -1188,10 +1186,9 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                             if (network->m_tagNXDN != nullptr) {
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
-                                                    AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
                                                     std::vector<BufferedFrame*> readyFrames;
 
-                                                    buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
+                                                    connection->processJitterFrame(streamId, req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
 
                                                     // process all frames that are now ready (in sequence order)
                                                     for (BufferedFrame* frame : readyFrames) {
@@ -1229,10 +1226,9 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                                             if (network->m_tagAnalog != nullptr) {
                                                 // check if jitter buffer is enabled for this peer
                                                 if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
-                                                    AdaptiveJitterBuffer* buffer = connection->getOrCreateJitterBuffer(streamId);
                                                     std::vector<BufferedFrame*> readyFrames;
 
-                                                    buffer->processFrame(req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
+                                                    connection->processJitterFrame(streamId, req->rtpHeader.getSequence(), req->buffer, req->length, readyFrames);
 
                                                     // process all frames that are now ready (in sequence order)
                                                     for (BufferedFrame* frame : readyFrames) {
