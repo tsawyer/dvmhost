@@ -259,6 +259,22 @@ TEST_CASE("TSBK", "[p25][tsbk]") {
         REQUIRE(tsbk2.getMFId() == 0x00);
     }
 
+    SECTION("RawTSBK_Reports_Invalid_CRC_But_Decodes") {
+        OSP_TSBK_RAW tsbk;
+
+        uint8_t rawTSBK[P25_TSBK_LENGTH_BYTES];
+        ::memset(rawTSBK, 0x00U, P25_TSBK_LENGTH_BYTES);
+        rawTSBK[0] = 0x34;
+        rawTSBK[1] = 0x00;
+        edac::CRC::addCCITT162(rawTSBK, P25_TSBK_LENGTH_BYTES);
+        rawTSBK[P25_TSBK_LENGTH_BYTES - 1U] ^= 0xFFU;
+
+        REQUIRE_FALSE(edac::CRC::checkCCITT162(rawTSBK, P25_TSBK_LENGTH_BYTES, true));
+        REQUIRE(tsbk.decode(rawTSBK, true));
+        REQUIRE(tsbk.getLCO() == 0x34U);
+        REQUIRE(tsbk.getMFId() == 0x00U);
+    }
+
     SECTION("AllOnes_Pattern") {
         // Test all-ones pattern
         OSP_TSBK_RAW tsbk1;

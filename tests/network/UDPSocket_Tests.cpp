@@ -543,6 +543,29 @@ TEST_CASE("UDP socket does not report a partial sendmmsg send as success", "[net
     sender.close();
 }
 
+TEST_CASE("UDP socket resize helpers and address helpers work", "[network][udp]")
+{
+    Socket socket;
+    REQUIRE(socket.open(AF_INET));
+    REQUIRE(socket.recvBufSize(65536U));
+    REQUIRE(socket.sendBufSize(65536U));
+
+    sockaddr_storage loopback = {};
+    uint32_t loopbackLen = 0U;
+    REQUIRE(Socket::lookup("127.0.0.1", 12345U, loopback, loopbackLen) == 0);
+
+    sockaddr_storage same = loopback;
+    REQUIRE(Socket::match(loopback, same));
+    REQUIRE(Socket::address(loopback) == "127.0.0.1");
+    REQUIRE(Socket::port(loopback) == 12345U);
+
+    sockaddr_storage invalid = {};
+    uint32_t invalidLen = 0U;
+    REQUIRE(Socket::lookup("not-a-hostname.invalid", 12345U, invalid, invalidLen) != 0);
+    REQUIRE(Socket::isNone(invalid));
+    socket.close();
+}
+
 #if (defined(HAVE_SENDMSG) && !defined(HAVE_SENDMMSG)) || defined(_WIN32)
 TEST_CASE("UDP sendmmsg compatibility wrapper returns a datagram count", "[network][udp][compatibility]")
 {

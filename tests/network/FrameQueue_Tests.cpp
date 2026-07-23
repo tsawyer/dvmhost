@@ -25,6 +25,10 @@ using namespace network;
 using namespace network::frame;
 using namespace network::udp;
 
+// ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
+
 /**
  * @brief Finds an available loopback UDP port.
  * @return uint16_t A free UDP port, or 0 on failure.

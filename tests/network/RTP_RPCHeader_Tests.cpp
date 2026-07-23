@@ -21,6 +21,14 @@
 using namespace network;
 using namespace network::frame;
 
+// ---------------------------------------------------------------------------
+//  Class Declaration
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief A test subclass of RTPExtensionHeader that exposes the type and length fields for 
+ * testing purposes.
+ */
 class TestRTPExtensionHeader : public RTPExtensionHeader {
 public:
     void setType(uint16_t type) { setPayloadType(type); }
@@ -65,6 +73,21 @@ TEST_CASE("RTPHeader rejects invalid RTP version", "[network][rtp][header]")
 
     RTPHeader decoded = RTPHeader();
     REQUIRE_FALSE(decoded.decode(buffer.data()));
+}
+
+TEST_CASE("RTPHeader generates a timestamp when unset", "[network][rtp][header]")
+{
+    RTPHeader header = RTPHeader();
+    header.setTimestamp(INVALID_TS);
+    header.setSSRC(0x01020304U);
+
+    std::array<uint8_t, RTP_HEADER_LENGTH_BYTES> buffer = {};
+    header.encode(buffer.data());
+
+    RTPHeader decoded = RTPHeader();
+    REQUIRE(decoded.decode(buffer.data()));
+    REQUIRE(decoded.getTimestamp() != INVALID_TS);
+    REQUIRE(decoded.getSSRC() == 0x01020304U);
 }
 
 TEST_CASE("RTPExtensionHeader encodes and decodes payload metadata", "[network][rtp][extension]")

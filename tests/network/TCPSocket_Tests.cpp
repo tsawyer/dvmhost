@@ -206,3 +206,21 @@ TEST_CASE("TCP operations fail on uninitialized socket descriptor", "[network][t
     REQUIRE(socket.write(reinterpret_cast<const uint8_t*>(payload.data()), payload.size()) == -1);
     REQUIRE(socket.read(buffer, sizeof(buffer)) == -1);
 }
+
+TEST_CASE("TCP socket rejects invalid connect hostnames", "[network][tcp]")
+{
+    Socket client(AF_INET, SOCK_STREAM, 0);
+    REQUIRE_THROWS_AS(client.connect("not-an-ip-address", 12345U), std::runtime_error);
+}
+
+TEST_CASE("TCP listen fails when the port is already in use", "[network][tcp]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(port != 0U);
+
+    Socket server1(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(server1.listen("127.0.0.1", port, 1) == 0);
+
+    Socket server2(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(server2.listen("127.0.0.1", port, 1) == -1);
+}

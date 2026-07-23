@@ -205,3 +205,25 @@ TEST_CASE("NetRPC request receives JSON reply from registered remote handler", "
     server.close();
     client.close();
 }
+
+TEST_CASE("NetRPC blocking request times out without a reply", "[network][rpc][netrpc]")
+{
+    const uint16_t serverPort = reserveLoopbackPort();
+    const uint16_t clientPort = reserveLoopbackPort();
+    REQUIRE(serverPort != 0U);
+    REQUIRE(clientPort != 0U);
+
+    NetRPC server("127.0.0.1", serverPort, serverPort, "shared-password", false);
+    NetRPC client("127.0.0.1", clientPort, clientPort, "shared-password", false);
+
+    REQUIRE(server.open());
+    REQUIRE(client.open());
+
+    json::object request;
+    request["op"].set<std::string>("timeout");
+
+    REQUIRE_FALSE(client.req(0x3333U, request, NetRPC::RPCType(), "127.0.0.1", serverPort, true));
+
+    server.close();
+    client.close();
+}

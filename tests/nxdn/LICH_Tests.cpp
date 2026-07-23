@@ -208,3 +208,20 @@ TEST_CASE("LICH golden test for voice call", "[nxdn][lich][golden]") {
     REQUIRE(decoded.getOption() == ChOption::STEAL_FACCH);
     REQUIRE(decoded.getOutbound() == false);
 }
+
+TEST_CASE("LICH rejects invalid parity", "[nxdn][lich]") {
+    uint8_t data[NXDN_FRAME_LENGTH_BYTES + 2U];
+    ::memset(data, 0x00U, sizeof(data));
+
+    LICH lich;
+    lich.setRFCT(RFChannelType::RDCH);
+    lich.setFCT(FuncChannelType::USC_SACCH_NS);
+    lich.setOption(ChOption::DATA_NORMAL);
+    lich.setOutbound(true);
+    lich.encode(data);
+
+    WRITE_BIT(data, NXDN_FSW_LENGTH_BITS, !READ_BIT(data, NXDN_FSW_LENGTH_BITS));
+
+    LICH decoded;
+    REQUIRE_FALSE(decoded.decode(data));
+}
