@@ -22,6 +22,7 @@
 #include "common/network/RawFrameQueue.h"
 
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace network

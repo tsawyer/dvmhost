@@ -16,4 +16,5 @@ file(GLOB dvmtests_SRC
     "tests/edac/*.cpp"
     "tests/p25/*.cpp"
     "tests/nxdn/*.cpp"
+    "tests/network/*.cpp"
 )

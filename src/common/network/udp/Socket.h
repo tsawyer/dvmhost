@@ -5,7 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2006-2016,2020 Jonathan Naylor, G4KLX
- *  Copyright (C) 2017-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2017-2026 Bryan Biedenkapp, N2PLL
  *
  */
 /**
@@ -86,7 +86,8 @@ namespace network
                 ssize_t ret = sendmsg(sockfd, &msgvec[i].msg_hdr, flags);
                 if (ret < 0)
                     break;
-                n += ret;
+                msgvec[i].msg_len = (unsigned int)ret;
+                n++;
             }
 
             if (n == 0)
@@ -140,7 +141,8 @@ namespace network
                 ssize_t ret = ::sendto(sockfd, (char*)&msgvec[i].msg_hdr.msg_iov->iov_base, msgvec[i].msg_hdr.msg_iov->iov_len, 0, (sockaddr*)&msgvec[i].msg_hdr.msg_name, msgvec[i].msg_hdr.msg_namelen);
                 if (ret < 0)
                     break;
-                n += ret;
+                msgvec[i].msg_len = (unsigned int)ret;
+                n++;
             }
 
             if (n == 0)

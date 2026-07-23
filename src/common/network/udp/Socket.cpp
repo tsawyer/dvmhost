@@ -5,7 +5,7 @@
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  Copyright (C) 2006-2016,2020 Jonathan Naylor, G4KLX
- *  Copyright (C) 2017-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2017-2026 Bryan Biedenkapp, N2PLL
  *
  */
 #include "Defines.h"
@@ -673,32 +673,43 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
         return false;
     }
 
-    if (sendmmsg(m_fd, headers, msgs, 0) < 0) {
+    // iterate through the messages and begin transmission -- this loop will attempt to send all prepared messages 
+    // using sendmmsg, handling partial sends and errors appropriately
+    int totalMsgs = 0;
+    while (totalMsgs < msgs) {
+        uint32_t remaining = (uint32_t)(msgs - totalMsgs);
+        int ret = sendmmsg(m_fd, headers + totalMsgs, remaining, 0);
+        if (ret < 0) {
 #if defined(_WIN32)
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %lu", ::GetLastError());
+            LogError(LOG_NET, "Error returned from sendmmsg after sending %d of %d packet, err: %lu", totalMsgs, msgs, ::GetLastError());
 #else
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %d (%s)", errno, strerror(errno));
+            if (errno == EINTR)
+                continue;
+
+            LogError(LOG_NET, "Error returned from sendmmsg after sending %d of %d packet, err: %d (%s)", totalMsgs, msgs, errno, strerror(errno));
 #endif // _WIN32
-        if (lenWritten != nullptr) {
-            *lenWritten = -1;
+            break;
         }
+
+        if (ret == 0 || ret > (int)remaining) {
+            LogError(LOG_NET, "Returned invalid packet count, sent = %d, remaining = %u, total = %d", ret, remaining, msgs);
+            break;
+        }
+
+        if (ret < (int)remaining)
+            LogWarning(LOG_NET, "Required multiple writes to send all %d packet (this shouldn't happen!)", msgs);
+
+        totalMsgs += ret;
     }
 
-    if (sent < 0) {
-#if defined(_WIN32)
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %lu", ::GetLastError());
-#else
-        LogError(LOG_NET, "Error returned from sendmmsg, err: %d (%s)", errno, strerror(errno));
-#endif // _WIN32
-        if (lenWritten != nullptr) {
-            *lenWritten = -1;
-        }
+    if (msgs > 0 && totalMsgs == msgs) {
+        result = true;
+        if (lenWritten != nullptr)
+            *lenWritten = sent;
     }
     else {
-        result = true;
-        if (lenWritten != nullptr) {
-            *lenWritten = sent;
-        }
+        if (lenWritten != nullptr)
+            *lenWritten = -1;
     }
 
     // cleanup buffers
