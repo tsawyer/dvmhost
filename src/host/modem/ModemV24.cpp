@@ -1903,7 +1903,7 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
                 buffer[0U] = modem::TAG_DATA;
                 buffer[1U] = 0x01U;
-                storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BITS + 2U);
+                storeConvertedRx(buffer, P25_TDU_FRAME_LENGTH_BYTES + 2U);
             }
 
             m_rxCall->resetCallData();
@@ -2085,7 +2085,6 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                     m_rxCall->dstId = GET_UINT24(voice.additionalData, 0U);
 
                     // copy LDU1 LC bytes into LDU LC buffer
-                    ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
                     m_rxCall->LDULC[3U] = voice.additionalData[0U];
                     m_rxCall->LDULC[4U] = voice.additionalData[1U];
                     m_rxCall->LDULC[5U] = voice.additionalData[2U];
@@ -2101,7 +2100,6 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                     m_rxCall->srcId = GET_UINT24(voice.additionalData, 0U);
 
                     // copy LDU1 LC bytes into LDU LC buffer
-                    ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
                     m_rxCall->LDULC[6U] = voice.additionalData[0U];
                     m_rxCall->LDULC[7U] = voice.additionalData[1U];
                     m_rxCall->LDULC[8U] = voice.additionalData[2U];
