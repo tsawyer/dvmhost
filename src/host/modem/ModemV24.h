@@ -84,6 +84,8 @@ namespace modem
             seqNo(0U),
             ldu1N(0U),
             ldu2N(0U),
+            ldu1Mask(0U),
+            ldu2Mask(0U),
             netLDU1(nullptr),
             netLDU2(nullptr),
             pduUserData(nullptr),
@@ -183,6 +185,8 @@ namespace modem
 
             ldu1N = 0U;
             ldu2N = 0U;
+            ldu1Mask = 0U;
+            ldu2Mask = 0U;
             seqNo = 0U;
 
             if (pduUserData != nullptr)
@@ -195,6 +199,27 @@ namespace modem
             pduTotalBlocks = 0U;
 
             errors = 0U;
+        }
+
+        /**
+         * @brief Resets the state of the LDU1 sequence, including its buffer, block count, and bitmask.
+         */
+        void resetLDU1State()
+        {
+            if (netLDU1 != nullptr)
+                ::memset(netLDU1, 0x00U, 9U * 25U);
+            ldu1N = 0U;
+            ldu1Mask = 0U;
+        }
+        /**
+         * @brief Resets the state of the LDU2 sequence, including its buffer, block count, and bitmask.
+         */
+        void resetLDU2State()
+        {
+            if (netLDU2 != nullptr)
+                ::memset(netLDU2, 0x00U, 9U * 25U);
+            ldu2N = 0U;
+            ldu2Mask = 0U;
         }
 
     public:
@@ -269,6 +294,14 @@ namespace modem
          * @brief Number of LDU2 blocks.
          */
         uint8_t ldu2N;
+        /**
+         * @brief Bitmask of received LDU1 voice blocks (VOICE1..VOICE9 => bits 0..8).
+         */
+        uint16_t ldu1Mask;
+        /**
+         * @brief Bitmask of received LDU2 voice blocks (VOICE10..VOICE18 => bits 0..8).
+         */
+        uint16_t ldu2Mask;
 
         /**
          * @brief LDU1 Buffer.

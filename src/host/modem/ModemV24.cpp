@@ -690,92 +690,90 @@ void ModemV24::create_TDU(uint8_t* buffer)
 
 DUID::E ModemV24::updateLDUSequence(DFSIFrameType::E frameType)
 {
-    // determine the LDU1 N
-    uint8_t n = 0U;
+    // helper lambda to advance the LDU sequence and determine if a complete LDU has been received
+    auto advanceLDU = [this](uint8_t n, uint8_t& state, uint16_t& mask, DUID::E duidType) -> DUID::E {
+        const std::string lduName = (duidType == DUID::LDU1) ? "LDU1" : "LDU2";
+        const uint16_t blockBit = (uint16_t)(1U << (n - 1U));
+        const uint16_t fullMask = 0x01FFU;
+
+        if ((mask & blockBit) != 0U) {
+            if (m_debug) {
+                LogDebugEx(LOG_MODEM, "ModemV24::updateLDUSequence()", "%s duplicate frame received, n = %u, mask = $%03X", lduName.c_str(), n, mask);
+            }
+            return (DUID::E)0xFFU;
+        }
+
+        // track highest observed block index for diagnostics only
+        if (n > state) {
+            state = n;
+        }
+
+        // out-of-sequence arrivals are retained by setting their bit in the mask
+        if (n != 1U && ((mask & (uint16_t)(blockBit >> 1U)) == 0U) && m_debug) {
+            LogDebugEx(LOG_MODEM, "ModemV24::updateLDUSequence()", "%s out-of-sequence frame held, n = %u, mask(before) = $%03X", lduName.c_str(), n, mask);
+        }
+
+        mask |= blockBit;
+
+        if (mask != fullMask) {
+            if (m_debug) {
+                const uint16_t missingMask = (uint16_t)(fullMask & ~mask);
+                LogDebugEx(LOG_MODEM, "ModemV24::updateLDUSequence()", "%s awaiting missing frames, mask = $%03X, missing = $%03X", lduName.c_str(), mask, missingMask);
+            }
+            return (DUID::E)0xFFU;
+        }
+
+        if (m_debug) {
+            LogDebugEx(LOG_MODEM, "ModemV24::updateLDUSequence()", "%s complete frame set received, mask = $%03X", lduName.c_str(), mask);
+        }
+
+        state = 0U;
+        mask = 0U;
+        return duidType;
+    };
+
+    // advance LDU sequence
     switch (frameType) {
     case DFSIFrameType::LDU1_VOICE1:
-        n = 1U;
-        break;
+        return advanceLDU(1U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE2:
-        n = 2U;
-        break;
+        return advanceLDU(2U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE3:
-        n = 3U;
-        break;
+        return advanceLDU(3U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE4:
-        n = 4U;
-        break;
+        return advanceLDU(4U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE5:
-        n = 5U;
-        break;
+        return advanceLDU(5U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE6:
-        n = 6U;
-        break;
+        return advanceLDU(6U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE7:
-        n = 7U;
-        break;
+        return advanceLDU(7U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE8:
-        n = 8U;
-        break;
+        return advanceLDU(8U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
     case DFSIFrameType::LDU1_VOICE9:
-        n = 9U;
-        break;
-    default:
-        break;
-    }
+        return advanceLDU(9U, m_rxCall->ldu1N, m_rxCall->ldu1Mask, DUID::LDU1);
 
-    // advance LDU1 sequence if applicable
-    if (n != 0U) {
-        if (n == 1U || n > m_rxCall->ldu1N) {
-            m_rxCall->ldu1N = n;
-            return (n == 9U) ? DUID::LDU1 : (DUID::E)0xFFU;
-        }
-
-        return (DUID::E)0xFFU;
-    }
-
-    // determine the LDU2 N
-    n = 0U;
-    switch (frameType) {
     case DFSIFrameType::LDU2_VOICE10:
-        n = 1U;
-        break;
+        return advanceLDU(1U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE11:
-        n = 2U;
-        break;
+        return advanceLDU(2U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE12:
-        n = 3U;
-        break;
+        return advanceLDU(3U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE13:
-        n = 4U;
-        break;
+        return advanceLDU(4U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE14:
-        n = 5U;
-        break;
+        return advanceLDU(5U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE15:
-        n = 6U;
-        break;
+        return advanceLDU(6U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE16:
-        n = 7U;
-        break;
+        return advanceLDU(7U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE17:
-        n = 8U;
-        break;
+        return advanceLDU(8U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
     case DFSIFrameType::LDU2_VOICE18:
-        n = 9U;
-        break;
+        return advanceLDU(9U, m_rxCall->ldu2N, m_rxCall->ldu2Mask, DUID::LDU2);
+
     default:
         break;
-    }
-
-    // advance LDU2 sequence if applicable
-    if (n != 0U) {
-        if (n == 1U || n > m_rxCall->ldu2N) {
-            m_rxCall->ldu2N = n;
-            return (n == 9U) ? DUID::LDU2 : (DUID::E)0xFFU;
-        }
-
-        return (DUID::E)0xFFU;
     }
 
     return (DUID::E)0xFFU;
@@ -952,6 +950,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
             ::memcpy(m_rxCall->netLDU1 + 10U, svf.fullRateVoice->imbeData, RAW_IMBE_LENGTH_BYTES);
 
+            m_rxCall->resetLDU2State(); // force reset the LDU2 state to prevent LDU2 from being emitted
             m_rxCall->errors = 0U;
 
             // process start of stream ICW for the voice call
@@ -1004,6 +1003,7 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
             ::memcpy(m_rxCall->netLDU2 + 10U, svf.fullRateVoice->imbeData, RAW_IMBE_LENGTH_BYTES);
 
+            m_rxCall->resetLDU1State(); // force reset the LDU1 state to prevent LDU1 from being emitted
             m_rxCall->errors = 0U;
 
             // process start of stream ICW for the voice call
@@ -1690,8 +1690,6 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 m_rxCall->errors = 0U;
             }
 
-            m_rxCall->ldu1N = 0U;
-
             lc::LC lc = lc::LC();
             lc.setLCO(m_rxCall->lco);
             lc.setMFId(m_rxCall->mfId);
@@ -1767,6 +1765,8 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             buffer[0U] = modem::TAG_DATA;
             buffer[1U] = 0x01U;
             storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+            m_rxCall->resetLDU1State();
         }
         
         // encode LDU2 if ready
@@ -1788,8 +1788,6 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                 LogWarning(LOG_MODEM, P25_DFSI_LDU2_STR ", V.24, errs = %u/1233 (%.1f%%)", m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
                 m_rxCall->errors = 0U;
             }
-
-            m_rxCall->ldu2N = 0U;
 
             lc::LC lc = lc::LC();
             lc.setMI(m_rxCall->MI);
@@ -1829,6 +1827,8 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             buffer[0U] = modem::TAG_DATA;
             buffer[1U] = 0x01U;
             storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+            m_rxCall->resetLDU2State();
         }
     }
 }
@@ -2052,6 +2052,7 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
             switch (frameType) {
             case DFSIFrameType::LDU1_VOICE1:
             {
+                m_rxCall->resetLDU2State(); // force reset the LDU2 state to prevent LDU2 from being emitted
                 ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
                 ::memcpy(m_rxCall->netLDU1 + 10U, voice.imbeData, RAW_IMBE_LENGTH_BYTES);
             }
@@ -2161,6 +2162,7 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
             case DFSIFrameType::LDU2_VOICE10:
             {
+                m_rxCall->resetLDU1State(); // force reset the LDU1 state to prevent LDU1 from being emitted
                 ::memset(m_rxCall->LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
                 ::memcpy(m_rxCall->netLDU2 + 10U, voice.imbeData, RAW_IMBE_LENGTH_BYTES);
             }
@@ -2295,8 +2297,6 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                     m_rxCall->errors = 0U;
                 }
 
-                m_rxCall->ldu1N = 0U;
-
                 lc::LC lc = lc::LC();
                 lc.setLCO(m_rxCall->lco);
                 lc.setMFId(m_rxCall->mfId);
@@ -2372,6 +2372,8 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 buffer[0U] = modem::TAG_DATA;
                 buffer[1U] = 0x01U;
                 storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+                m_rxCall->resetLDU1State();
             }
             
             // encode LDU2 if ready
@@ -2434,6 +2436,8 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 buffer[0U] = modem::TAG_DATA;
                 buffer[1U] = 0x01U;
                 storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+                m_rxCall->resetLDU2State();
             }
         }
         break;
