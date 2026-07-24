@@ -588,7 +588,7 @@ bool Control::processFrame(uint8_t* data, uint32_t len)
         if (m_frameLossCnt > m_frameLossThreshold) {
             m_frameLossCnt = 0U;
 
-            processFrameLoss();
+            processFrameLoss(RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD);
 
             return false;
         }
@@ -936,7 +936,7 @@ void Control::clock()
 
             // has the talkgroup hang timer expired while the modem is in a non-listening state?
             if (m_rfState != RS_RF_LISTENING) {
-                processFrameLoss();
+                processFrameLoss(RF_LOSS_TYPE_TG_HANG_NOT_LISTENING);
             }
         }
     }
@@ -948,7 +948,7 @@ void Control::clock()
             if (m_rfLossWatchdog.hasExpired()) {
                 m_rfLossWatchdog.stop();
 
-                processFrameLoss();
+                processFrameLoss(RF_LOSS_TYPE_LOSS_WATCHDOG);
             }
         }
     }
@@ -1038,7 +1038,7 @@ void Control::clock()
     if (m_frameLossCnt > 0U && m_rfState == RS_RF_LISTENING)
         m_frameLossCnt = 0U;
     if (m_frameLossCnt >= m_frameLossThreshold && (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA)) {
-        processFrameLoss();
+        processFrameLoss(RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD);
     }
 
     // clock data and trunking
@@ -1693,20 +1693,40 @@ void Control::processNetwork()
 
 /* Helper to process loss of frame stream from modem. */
 
-void Control::processFrameLoss()
+void Control::processFrameLoss(RPT_RF_LOSS_TYPE type)
 {
+    // resolve the type of RF frame loss into a human-readable string
+    std::string typeStr;
+    switch (type) {
+    case RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD:
+        typeStr = "exceeded frame loss threshold";
+        break;
+    case RF_LOSS_TYPE_LOSS_WATCHDOG:
+        typeStr = "loss watchdog timeout";
+        break;
+    case RF_LOSS_TYPE_IN_CALL_CONTROL:
+        typeStr = "in-call control request";
+        break;
+    case RF_LOSS_TYPE_TG_HANG_NOT_LISTENING:
+        typeStr = "TG hang RF not listening";
+        break;
+    default:
+        typeStr = "no loss type set BUGBUG";
+        break;
+    }
+
     if (m_rfState == RS_RF_AUDIO) {
         if (m_rssi != 0U) {
-            ::ActivityLog("P25", true, "transmission lost, %.1f seconds, BER: %.1f%%, RSSI: -%u/-%u/-%u dBm, loss count: %u",
-                float(m_voice->m_rfFrames) / 5.56F, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits), m_minRSSI, m_maxRSSI, m_aveRSSI / m_rssiCount, m_frameLossCnt);
+            ::ActivityLog("P25", true, "transmission lost, %s, %.1f seconds, BER: %.1f%%, RSSI: -%u/-%u/-%u dBm, loss count: %u",
+                typeStr.c_str(), float(m_voice->m_rfFrames) / 5.56F, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits), m_minRSSI, m_maxRSSI, m_aveRSSI / m_rssiCount, m_frameLossCnt);
         }
         else {
-            ::ActivityLog("P25", true, "transmission lost, %.1f seconds, BER: %.1f%%, loss count: %u",
-                float(m_voice->m_rfFrames) / 5.56F, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits), m_frameLossCnt);
+            ::ActivityLog("P25", true, "transmission lost, %s, %.1f seconds, BER: %.1f%%, loss count: %u",
+                typeStr.c_str(), float(m_voice->m_rfFrames) / 5.56F, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits), m_frameLossCnt);
         }
 
-        LogInfoEx(LOG_RF, P25_TDU_STR ", total frames: %d, bits: %d, undecodable LC: %d, errors: %d, BER: %.4f%%",
-            m_voice->m_rfFrames, m_voice->m_rfBits, m_voice->m_rfUndecodableLC, m_voice->m_rfErrs, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits));
+        LogInfoEx(LOG_RF, P25_TDU_STR ", transmission lost, %s, total frames: %d, bits: %d, undecodable LC: %d, errors: %d, BER: %.4f%%", 
+            typeStr.c_str(), m_voice->m_rfFrames, m_voice->m_rfBits, m_voice->m_rfUndecodableLC, m_voice->m_rfErrs, float(m_voice->m_rfErrs * 100U) / float(m_voice->m_rfBits));
 
         m_affiliations->releaseGrant(m_voice->m_rfLC.getDstId(), false);
         if (!m_enableControl) {
@@ -1722,6 +1742,7 @@ void Control::processFrameLoss()
         m_rfLastDstId = 0U;
         m_rfLastSrcId = 0U;
         m_rfTGHang.stop();
+        m_rfLossWatchdog.stop();
 
         m_rfVoiceCallTermTimeout.stop();
         m_rfCallTermSrcId = 0U;
@@ -1741,6 +1762,7 @@ void Control::processFrameLoss()
         m_rfLastDstId = 0U;
         m_rfLastSrcId = 0U;
         m_rfTGHang.stop();
+        m_rfLossWatchdog.stop();
 
         m_tailOnIdle = true;
 
@@ -1782,7 +1804,7 @@ void Control::processInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId)
                     m_voice->m_rfLC.setDstId(dstId);
                 }
 
-                processFrameLoss();
+                processFrameLoss(RF_LOSS_TYPE_IN_CALL_CONTROL);
 
                 m_rfLastDstId = 0U;
                 m_rfLastSrcId = 0U;

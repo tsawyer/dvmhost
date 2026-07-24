@@ -204,7 +204,7 @@ bool Slot::processFrame(uint8_t *data, uint32_t len)
         if (m_frameLossCnt > m_frameLossThreshold) {
             m_frameLossCnt = 0U;
 
-            processFrameLoss();
+            processFrameLoss(RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD);
 
             return false;
         }
@@ -545,7 +545,7 @@ void Slot::processInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId)
                     }
                 }
 
-                processFrameLoss();
+                processFrameLoss(RF_LOSS_TYPE_IN_CALL_CONTROL);
 
                 m_rfLastDstId = 0U;
                 m_rfLastSrcId = 0U;
@@ -701,7 +701,7 @@ void Slot::clock()
             if (m_rfLossWatchdog.hasExpired()) {
                 m_rfLossWatchdog.stop();
 
-                processFrameLoss();
+                processFrameLoss(RF_LOSS_TYPE_LOSS_WATCHDOG);
             }
         }
     }
@@ -790,7 +790,7 @@ void Slot::clock()
     if (m_frameLossCnt > 0U && m_rfState == RS_RF_LISTENING)
         m_frameLossCnt = 0U;
     if (m_frameLossCnt >= m_frameLossThreshold && (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA)) {
-        processFrameLoss();
+        processFrameLoss(RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD);
     }
 }
 
@@ -1226,20 +1226,40 @@ void Slot::addFrame(const uint8_t *data, bool net, bool imm)
 
 /* Helper to process loss of frame stream from modem. */
 
-void Slot::processFrameLoss()
+void Slot::processFrameLoss(RPT_RF_LOSS_TYPE type)
 {
+    // resolve the type of RF frame loss into a human-readable string
+    std::string typeStr;
+    switch (type) {
+    case RF_LOSS_TYPE_EXCEEDED_FRAME_THRESHOLD:
+        typeStr = "exceeded frame loss threshold";
+        break;
+    case RF_LOSS_TYPE_LOSS_WATCHDOG:
+        typeStr = "loss watchdog timeout";
+        break;
+    case RF_LOSS_TYPE_IN_CALL_CONTROL:
+        typeStr = "in-call control request";
+        break;
+    case RF_LOSS_TYPE_TG_HANG_NOT_LISTENING:
+        typeStr = "TG hang, RF not listening";
+        break;
+    default:
+        typeStr = "no loss type set BUGBUG";
+        break;
+    }
+
     if (m_rfState == RS_RF_AUDIO) {
         if (m_rssi != 0U) {
-            ::ActivityLog("DMR", true, "Slot %u RF voice transmission lost, %.1f seconds, BER: %.1f%%, RSSI: -%u/-%u/-%u dBm, loss count: %u",
-                m_slotNo, float(m_rfFrames) / 16.667F, float(m_rfErrs * 100U) / float(m_rfBits), m_minRSSI, m_maxRSSI, m_aveRSSI / m_rssiCount, m_frameLossCnt);
+            ::ActivityLog("DMR", true, "Slot %u RF voice transmission lost, %s, %.1f seconds, BER: %.1f%%, RSSI: -%u/-%u/-%u dBm, loss count: %u",
+                m_slotNo, typeStr.c_str(), float(m_rfFrames) / 16.667F, float(m_rfErrs * 100U) / float(m_rfBits), m_minRSSI, m_maxRSSI, m_aveRSSI / m_rssiCount, m_frameLossCnt);
         }
         else {
-            ::ActivityLog("DMR", true, "Slot %u RF voice transmission lost, %.1f seconds, BER: %.1f%%, loss count: %u",
-                m_slotNo, float(m_rfFrames) / 16.667F, float(m_rfErrs * 100U) / float(m_rfBits), m_frameLossCnt);
+            ::ActivityLog("DMR", true, "Slot %u RF voice transmission lost, %s, %.1f seconds, BER: %.1f%%, loss count: %u",
+                m_slotNo, typeStr.c_str(), float(m_rfFrames) / 16.667F, float(m_rfErrs * 100U) / float(m_rfBits), m_frameLossCnt);
         }
 
-        LogInfoEx(LOG_RF, "DMR Slot %u, total frames: %d, total bits: %d, errors: %d, BER: %.4f%%",
-            m_slotNo, m_rfFrames, m_rfBits, m_rfErrs, float(m_rfErrs * 100U) / float(m_rfBits));
+        LogInfoEx(LOG_RF, "DMR Slot %u, transmission lost, %s, total frames: %d, total bits: %d, errors: %d, BER: %.4f%%",
+            m_slotNo, typeStr.c_str(), m_rfFrames, m_rfBits, m_rfErrs, float(m_rfErrs * 100U) / float(m_rfBits));
 
         // release trunked grant (if necessary)
         Slot* tscc = s_dmr->getTSCCSlot();
@@ -1272,6 +1292,9 @@ void Slot::processFrameLoss()
 
     m_rfLastDstId = 0U;
     m_rfTGHang.stop();
+    m_rfLossWatchdog.stop();
+
+    m_txQueue.clear();
 }
 
 /* Helper to send a REST API request to the CC to release a channel grant at the end of a call. */

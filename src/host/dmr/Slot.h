@@ -515,8 +515,9 @@ namespace dmr
 
         /**
          * @brief Helper to process loss of frame stream from modem.
+         * @param type Type of RF frame loss.
          */
-        void processFrameLoss();
+        void processFrameLoss(RPT_RF_LOSS_TYPE type);
 
         /**
          * @brief Helper to send a REST API request to the CC to release a channel grant at the end of a call.

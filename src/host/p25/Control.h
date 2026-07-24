@@ -428,8 +428,9 @@ namespace p25
         void processNetwork();
         /**
          * @brief Helper to process loss of frame stream from modem.
+         * @param type Type of RF frame loss.
          */
-        void processFrameLoss();
+        void processFrameLoss(RPT_RF_LOSS_TYPE type);
         /**
          * @brief Helper to process an In-Call Control message.
          * @param command In-Call Control Command.

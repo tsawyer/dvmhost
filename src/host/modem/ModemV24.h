@@ -82,7 +82,8 @@ namespace modem
             VHDR2(nullptr),
             LDULC(nullptr),
             seqNo(0U),
-            n(0U),
+            ldu1N(0U),
+            ldu2N(0U),
             netLDU1(nullptr),
             netLDU2(nullptr),
             pduUserData(nullptr),
@@ -180,7 +181,8 @@ namespace modem
             if (netLDU2 != nullptr)
                 ::memset(netLDU2, 0x00U, 9U * 25U);
 
-            n = 0U;
+            ldu1N = 0U;
+            ldu2N = 0U;
             seqNo = 0U;
 
             if (pduUserData != nullptr)
@@ -260,9 +262,13 @@ namespace modem
          */
         uint32_t seqNo;
         /**
-         * @brief 
+         * @brief Number of LDU1 blocks.
          */
-        uint8_t n;
+        uint8_t ldu1N;
+        /**
+         * @brief Number of LDU2 blocks.
+         */
+        uint8_t ldu2N;
 
         /**
          * @brief LDU1 Buffer.
@@ -603,6 +609,7 @@ namespace modem
         uint64_t m_rxLastFrameTime;
         
         uint16_t m_callTimeout;
+        uint32_t m_silenceThreshold;
 
         uint16_t m_jitter;
         uint64_t m_lastP25Tx;
@@ -638,6 +645,12 @@ namespace modem
          */
         void create_TDU(uint8_t* buffer);
 
+        /**
+         * @brief Advances LDU voice frame sequencing.
+         * @param frameType Type of DFSI frame received.
+         * @returns DUID::E LDU1 if LDU1 is ready, LDU2 if LDU2 is ready, NONE if no LDU is ready.
+         */
+        P25DEF::DUID::E updateLDUSequence(P25DFSIDEF::DFSIFrameType::E frameType);
         /**
          * @brief Internal helper to convert from V.24/DFSI to TIA-102 air interface.
          * @param data Buffer containing data to convert.
