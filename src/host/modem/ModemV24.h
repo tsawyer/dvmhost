@@ -76,11 +76,14 @@ namespace modem
             lsd1(0U),
             lsd2(0U),
             MI(nullptr),
+            lastMI(nullptr),
             algoId(P25DEF::ALGO_UNENCRYPT),
             kId(0U),
             VHDR1(nullptr),
             VHDR2(nullptr),
             LDULC(nullptr),
+            lastLDU1(),
+            lastLDU2(),
             seqNo(0U),
             ldu1N(0U),
             ldu2N(0U),
@@ -96,6 +99,7 @@ namespace modem
             errors(0U)
         {
             MI = new uint8_t[P25DEF::MI_LENGTH_BYTES];
+            lastMI = new uint8_t[P25DEF::MI_LENGTH_BYTES];
             VHDR1 = new uint8_t[P25DFSIDEF::DFSI_MOT_VHDR_1_LEN];
             VHDR2 = new uint8_t[P25DFSIDEF::DFSI_MOT_VHDR_2_LEN];
             LDULC = new uint8_t[P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES];
@@ -119,6 +123,10 @@ namespace modem
             if (MI != nullptr) {
                 delete[] MI;
                 MI = nullptr;
+            }
+            if (lastMI != nullptr) {
+                delete[] lastMI;
+                lastMI = nullptr;
             }
             if (VHDR1 != nullptr) {
                 delete[] VHDR1;
@@ -167,6 +175,8 @@ namespace modem
 
             if (MI != nullptr)
                 ::memset(MI, 0x00U, P25DEF::MI_LENGTH_BYTES);
+            if (lastMI != nullptr)
+                ::memset(lastMI, 0x00U, P25DEF::MI_LENGTH_BYTES);
             algoId = P25DEF::ALGO_UNENCRYPT;
             kId = 0U;
 
@@ -177,6 +187,9 @@ namespace modem
 
             if (LDULC != nullptr)
                 ::memset(LDULC, 0x00U, P25DEF::P25_LDU_LC_FEC_LENGTH_BYTES);
+
+            lastLDU1 = p25::lc::LC();
+            lastLDU2 = p25::lc::LC();
 
             if (netLDU1 != nullptr)
                 ::memset(netLDU1, 0x00U, 9U * 25U);
@@ -260,6 +273,10 @@ namespace modem
          */
         uint8_t* MI;
         /**
+         * @brief Last Encryption Message Indicator.
+         */
+        uint8_t* lastMI;
+        /**
          * @brief Encryption Algorithm ID.
          */
         uint8_t algoId;
@@ -281,6 +298,14 @@ namespace modem
          * @brief LDU LC.
          */
         uint8_t* LDULC;
+        /**
+         * @brief Last LDU1 Link Control.
+         */
+        p25::lc::LC lastLDU1;
+        /**
+         * @brief Last LDU2 Link Control.
+         */
+        p25::lc::LC lastLDU2;
 
         /**
          * @brief Sequence Number.
@@ -337,7 +362,7 @@ namespace modem
         /**
          * @brief Total errors for a given call sequence.
          */
-        uint32_t errors;
+        uint16_t errors;
         /** @} */
     };
 
@@ -752,6 +777,13 @@ namespace modem
          * @param imm Flag indicating whether the frame is immediate.
          */
         void convertFromAirTIA(uint8_t* data, uint32_t length, bool imm);
+
+        /**
+         * @brief Given the last MI, generate the next MI using LFSR.
+         * @param lastMI Last MI received.
+         * @param nextMI Next MI.
+         */
+        void getNextMI(uint8_t lastMI[9U], uint8_t nextMI[9U]);
     };
 } // namespace modem
 

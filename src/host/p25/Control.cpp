@@ -656,28 +656,36 @@ bool Control::processFrame(uint8_t* data, uint32_t len)
 
     DUID::E duid = m_nid.getDUID();
 
-    // Have we got RSSI bytes on the end of a P25 LDU?
-    if (len == (P25_LDU_FRAME_LENGTH_BYTES + 4U)) {
-        uint16_t raw = 0U;
-        raw |= (data[218U] << 8) & 0xFF00U;
-        raw |= (data[219U] << 0) & 0x00FFU;
+    // have we got RSSI bytes (or error count for DFSI) on the end of a P25 LDU?
+    if ((duid == DUID::LDU1 || duid == DUID::LDU2) && len == (P25_LDU_FRAME_LENGTH_BYTES + 4U)) {
+        if (m_isModemDFSI) {
+            uint16_t raw = 0U;
+            raw |= (data[218U] << 8) & 0xFF00U;
+            raw |= (data[219U] << 0) & 0x00FFU;
 
-        // Convert the raw RSSI to dBm
-        int rssi = m_rssiMapper->interpolate(raw);
-        if (m_verbose) {
-            LogInfoEx(LOG_RF, "P25, raw RSSI = %u, reported RSSI = %d dBm", raw, rssi);
+            m_voice->m_dfsiReportedErrs = raw;
+        } else {
+            uint16_t raw = 0U;
+            raw |= (data[218U] << 8) & 0xFF00U;
+            raw |= (data[219U] << 0) & 0x00FFU;
+
+            // Convert the raw RSSI to dBm
+            int rssi = m_rssiMapper->interpolate(raw);
+            if (m_verbose) {
+                LogInfoEx(LOG_RF, "P25, raw RSSI = %u, reported RSSI = %d dBm", raw, rssi);
+            }
+
+            // RSSI is always reported as positive
+            m_rssi = (rssi >= 0) ? rssi : -rssi;
+
+            if (m_rssi > m_minRSSI)
+                m_minRSSI = m_rssi;
+            if (m_rssi < m_maxRSSI)
+                m_maxRSSI = m_rssi;
+
+            m_aveRSSI += m_rssi;
+            m_rssiCount++;
         }
-
-        // RSSI is always reported as positive
-        m_rssi = (rssi >= 0) ? rssi : -rssi;
-
-        if (m_rssi > m_minRSSI)
-            m_minRSSI = m_rssi;
-        if (m_rssi < m_maxRSSI)
-            m_maxRSSI = m_rssi;
-
-        m_aveRSSI += m_rssi;
-        m_rssiCount++;
     }
 
     if (m_debug) {

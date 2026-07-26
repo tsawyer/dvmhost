@@ -86,6 +86,7 @@ namespace p25
             uint32_t m_rfFrames;
             uint32_t m_rfBits;
             uint32_t m_rfErrs;
+            uint16_t m_dfsiReportedErrs;
             uint32_t m_rfUndecodableLC;
             uint32_t m_netFrames;
             uint32_t m_netLost;

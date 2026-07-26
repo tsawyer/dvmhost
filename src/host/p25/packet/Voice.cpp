@@ -57,6 +57,7 @@ void Voice::resetRF()
 
     m_rfFrames = 0U;
     m_rfErrs = 0U;
+    m_dfsiReportedErrs = 0U;
     m_rfBits = 1U;
     m_rfUndecodableLC = 0U;
     m_pktLDU1Count = 0U;
@@ -594,6 +595,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             m_rfFrames = 0U;
             m_rfErrs = 0U;
+            m_dfsiReportedErrs = 0U;
             m_rfBits = 1U;
             m_rfUndecodableLC = 0U;
             m_pktLDU1Count = 0U;
@@ -646,24 +648,24 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     // ensure our srcId and dstId are sane from the last LDU1
                     if (m_rfLastLDU1.getDstId() != 0U) {
                         if (m_rfLC.getDstId() != m_rfLastLDU1.getDstId()) {
-                            LogWarning(LOG_RF, P25_LDU2_STR ", dstId = %u doesn't match last LDU1 dstId = %u, fixing",
+                            LogWarning(LOG_RF, P25_LDU1_STR ", dstId = %u doesn't match last LDU1 dstId = %u, fixing",
                                 m_rfLC.getDstId(), m_rfLastLDU1.getDstId());
                             m_rfLC.setDstId(m_rfLastLDU1.getDstId());
                         }
                     }
                     else {
-                        LogWarning(LOG_RF, P25_LDU2_STR ", last LDU1 LC has bad data, dstId = 0");
+                        LogWarning(LOG_RF, P25_LDU1_STR ", last LDU1 LC has bad data, dstId = 0");
                     }
 
                     if (m_rfLastLDU1.getSrcId() != 0U) {
                         if (m_rfLC.getSrcId() != m_rfLastLDU1.getSrcId()) {
-                            LogWarning(LOG_RF, P25_LDU2_STR ", srcId = %u doesn't match last LDU1 srcId = %u, fixing",
+                            LogWarning(LOG_RF, P25_LDU1_STR ", srcId = %u doesn't match last LDU1 srcId = %u, fixing",
                                 m_rfLC.getSrcId(), m_rfLastLDU1.getSrcId());
                             m_rfLC.setSrcId(m_rfLastLDU1.getSrcId());
                         }
                     }
                     else {
-                        LogWarning(LOG_RF, P25_LDU2_STR ", last LDU1 LC has bad data, srcId = 0");
+                        LogWarning(LOG_RF, P25_LDU1_STR ", last LDU1 LC has bad data, srcId = 0");
                     }
 
                     m_rfUndecodableLC++;
@@ -741,6 +743,11 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // regenerate audio
             uint32_t errors = m_audio.process(data + 2U);
+            if (m_p25->m_isModemDFSI) {
+                errors = m_dfsiReportedErrs; // because the errors will have been "corrected" by the encoders
+                                             // within ModemV24 we should use the reported errors from the modem
+                                             // and not the audio vectors detected errors
+            }
 
             // replace audio with silence in cases where the error rate
             // has exceeded the configured threshold
@@ -858,6 +865,11 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             // regenerate audio
             uint32_t errors = m_audio.process(data + 2U);
+            if (m_p25->m_isModemDFSI) {
+                errors = m_dfsiReportedErrs; // because the errors will have been "corrected" by the encoders
+                                             // within ModemV24 we should use the reported errors from the modem
+                                             // and not the audio vectors detected errors
+            }
 
             // replace audio with silence in cases where the error rate
             // has exceeded the configured threshold
@@ -1363,6 +1375,7 @@ Voice::Voice(Control* p25, bool debug, bool verbose) :
     m_rfFrames(0U),
     m_rfBits(0U),
     m_rfErrs(0U),
+    m_dfsiReportedErrs(0U),
     m_rfUndecodableLC(0U),
     m_netFrames(0U),
     m_netLost(0U),

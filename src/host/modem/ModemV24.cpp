@@ -920,6 +920,10 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     lc.setKId(m_rxCall->kId);
                     lc.setMI(m_rxCall->MI);
 
+                    m_rxCall->lastLDU1 = lc;
+                    m_rxCall->lastLDU2 = lc;
+                    ::memcpy(m_rxCall->lastMI, m_rxCall->MI, MI_LENGTH_BYTES);
+
                     // generate Sync
                     Sync::addP25Sync(buffer + 2U);
 
@@ -1672,13 +1676,54 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
 
         // encode LDU1 if ready
         if (duid == DUID::LDU1) {
+            bool valid = false;
+
             // decode RS (24,12,13) FEC
-            // bryanb: for now this won't abort the frame if RS fails, but maybe it should in the future, for now
-            //  we'll just log the error
             try {
                 bool ret = m_rs.decode241213(m_rxCall->LDULC);
                 if (!ret) {
                     LogError(LOG_MODEM, "V.24/DFSI LDU1, failed to decode RS (24,12,13) FEC");
+
+                    // ensure our srcId and dstId are sane from the last LDU1
+                    if (m_rxCall->lastLDU1.getDstId() != 0U) {
+                        if (m_rxCall->dstId != m_rxCall->lastLDU1.getDstId()) {
+                            LogWarning(LOG_MODEM, "V.24/DFSI LDU1, dstId = %u doesn't match last LDU1 dstId = %u, fixing",
+                                m_rxCall->dstId, m_rxCall->lastLDU1.getDstId());
+                            m_rxCall->dstId = m_rxCall->lastLDU1.getDstId();
+                        }
+                    }
+                    else {
+                        LogWarning(LOG_MODEM, "V.24/DFSI LDU1, last LDU1 LC has bad data, dstId = 0");
+                    }
+
+                    if (m_rxCall->lastLDU1.getSrcId() != 0U) {
+                        if (m_rxCall->srcId != m_rxCall->lastLDU1.getSrcId()) {
+                            LogWarning(LOG_MODEM, "V.24/DFSI LDU1, srcId = %u doesn't match last LDU1 srcId = %u, fixing",
+                                m_rxCall->srcId, m_rxCall->lastLDU1.getSrcId());
+                            m_rxCall->srcId = m_rxCall->lastLDU1.getSrcId();
+                        }
+                    }
+                    else {
+                        LogWarning(LOG_MODEM, "V.24/DFSI LDU1, last LDU1 LC has bad data, srcId = 0");
+                    }
+
+                    // recover LC data using the last known good LDU1
+                    if (m_rxCall->lastLDU1.getSrcId() != 0U && m_rxCall->lastLDU1.getDstId() != 0U) {
+                        m_rxCall->lco = m_rxCall->lastLDU1.getLCO();
+                        m_rxCall->mfId = m_rxCall->lastLDU1.getMFId();
+
+                        bool emergency = m_rxCall->lastLDU1.getEmergency();
+                        bool encryption = m_rxCall->lastLDU1.getEncrypted();
+                        uint8_t priority = m_rxCall->lastLDU1.getPriority();
+                        m_rxCall->serviceOptions = (emergency ? 0x80U : 0x00U) +        // Emergency Flag
+                                                   (encryption ? 0x40U : 0x00U) +       // Encrypted Flag
+                                                   (priority & 0x07U);                  // Priority
+
+                        m_rxCall->srcId = m_rxCall->lastLDU1.getSrcId();
+                        m_rxCall->dstId = m_rxCall->lastLDU1.getDstId();
+                    }
+                } else {
+                    valid = true;
                 }
             }
             catch (...) {
@@ -1732,6 +1777,14 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             lc.setEncrypted(encryption);
             lc.setPriority(priority);
 
+            if (valid)
+                m_rxCall->lastLDU1 = lc;
+
+            if (m_debug) {
+                LogInfoEx(LOG_MODEM, "V.24/DFSI LDU1, audio, mfId = $%02X srcId = %u, dstId = %u, group = %u, emerg = %u, encrypt = %u, prio = %u, errs = %u/1233 (%.1f%%)",
+                    lc.getMFId(), lc.getSrcId(), lc.getDstId(), lc.getGroup(), lc.getEmergency(), lc.getEncrypted(), lc.getPriority(), m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+            }
+
             data::LowSpeedData lsd = data::LowSpeedData();
             lsd.setLSD1(m_rxCall->lsd1);
             lsd.setLSD2(m_rxCall->lsd2);
@@ -1764,20 +1817,42 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
 
             buffer[0U] = modem::TAG_DATA;
             buffer[1U] = 0x01U;
-            storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+            buffer[217U] = (m_rxCall->errors >> 8) & 0xFFU;
+            buffer[218U] = (m_rxCall->errors >> 0) & 0xFFU;
+
+            storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 4U);
 
             m_rxCall->resetLDU1State();
         }
         
         // encode LDU2 if ready
         if (duid == DUID::LDU2) {
+            bool valid = false;
+
             // decode RS (24,16,9) FEC
-            // bryanb: for now this won't abort the frame if RS fails, but maybe it should in the future, for now
-            //  we'll just log the error
             try {
                 bool ret = m_rs.decode24169(m_rxCall->LDULC);
                 if (!ret) {
                     LogError(LOG_MODEM, "V.24/DFSI LDU2, failed to decode RS (24,16,9) FEC");
+
+                    m_rxCall->algoId = m_rxCall->lastLDU2.getAlgId();
+                    m_rxCall->kId = m_rxCall->lastLDU2.getKId();
+
+                    // regenerate the MI using LFSR
+                    uint8_t lastMI[MI_LENGTH_BYTES];
+                    ::memset(lastMI, 0x00U, MI_LENGTH_BYTES);
+
+                    uint8_t nextMI[MI_LENGTH_BYTES];
+                    ::memset(nextMI, 0x00U, MI_LENGTH_BYTES);
+
+                    getNextMI(m_rxCall->lastMI, m_rxCall->MI);
+                    if (m_debug) {
+                        Utils::dump(1U, "P25, V.24/LDU2, Previous P25 MI", lastMI, MI_LENGTH_BYTES);
+                        Utils::dump(1U, "P25, V.24/LDU2, Calculated next P25 MI", nextMI, MI_LENGTH_BYTES);
+                    }
+                } else {
+                    valid = true;
                 }
             }
             catch (...) {
@@ -1793,6 +1868,26 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
             lc.setMI(m_rxCall->MI);
             lc.setAlgId(m_rxCall->algoId);
             lc.setKId(m_rxCall->kId);
+
+            if (valid) {
+                m_rxCall->lastLDU2 = lc;
+                ::memcpy(m_rxCall->lastMI, m_rxCall->MI, MI_LENGTH_BYTES);
+            }
+
+            if (m_debug) {
+                LogInfoEx(LOG_MODEM, "V.24/LDU2, audio, algo = $%02X, kid = $%04X, errs = %u/1233 (%.1f%%)",
+                    lc.getAlgId(), lc.getKId(), m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+
+                if (lc.getAlgId() != ALGO_UNENCRYPT) {
+                    uint8_t mi[MI_LENGTH_BYTES];
+                    ::memset(mi, 0x00U, MI_LENGTH_BYTES);
+
+                    lc.getMI(mi);
+
+                    LogInfoEx(LOG_MODEM, "V.24/LDU2, Enc Sync, MI = %02X %02X %02X %02X %02X %02X %02X %02X %02X", 
+                        mi[0U], mi[1U], mi[2U], mi[3U], mi[4U], mi[5U], mi[6U], mi[7U], mi[8U]);
+                }
+            }
 
             data::LowSpeedData lsd = data::LowSpeedData();
             lsd.setLSD1(m_rxCall->lsd1);
@@ -1826,7 +1921,11 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
 
             buffer[0U] = modem::TAG_DATA;
             buffer[1U] = 0x01U;
-            storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
+
+            buffer[217U] = (m_rxCall->errors >> 8) & 0xFFU;
+            buffer[218U] = (m_rxCall->errors >> 0) & 0xFFU;
+
+            storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 4U);
 
             m_rxCall->resetLDU2State();
         }
@@ -2005,6 +2104,10 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                     lc.setAlgId(m_rxCall->algoId);
                     lc.setKId(m_rxCall->kId);
                     lc.setMI(m_rxCall->MI);
+
+                    m_rxCall->lastLDU1 = lc;
+                    m_rxCall->lastLDU2 = lc;
+                    ::memcpy(m_rxCall->lastMI, m_rxCall->MI, MI_LENGTH_BYTES);
 
                     // generate Sync
                     Sync::addP25Sync(buffer + 2U);
@@ -2279,13 +2382,54 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
             // encode LDU1 if ready
             if (duid == DUID::LDU1) {
+                bool valid = false;
+
                 // decode RS (24,12,13) FEC
-                // bryanb: for now this won't abort the frame if RS fails, but maybe it should in the future, for now
-                //  we'll just log the error
                 try {
                     bool ret = m_rs.decode241213(m_rxCall->LDULC);
                     if (!ret) {
                         LogError(LOG_MODEM, "TIA/DFSI LDU1, failed to decode RS (24,12,13) FEC");
+
+                        // ensure our srcId and dstId are sane from the last LDU1
+                        if (m_rxCall->lastLDU1.getDstId() != 0U) {
+                            if (m_rxCall->dstId != m_rxCall->lastLDU1.getDstId()) {
+                                LogWarning(LOG_MODEM, "TIA/DFSI LDU1, dstId = %u doesn't match last LDU1 dstId = %u, fixing",
+                                    m_rxCall->dstId, m_rxCall->lastLDU1.getDstId());
+                                m_rxCall->dstId = m_rxCall->lastLDU1.getDstId();
+                            }
+                        }
+                        else {
+                            LogWarning(LOG_MODEM, "TIA/DFSI LDU1, last LDU1 LC has bad data, dstId = 0");
+                        }
+
+                        if (m_rxCall->lastLDU1.getSrcId() != 0U) {
+                            if (m_rxCall->srcId != m_rxCall->lastLDU1.getSrcId()) {
+                                LogWarning(LOG_MODEM, "V.24/DFSI LDU1, srcId = %u doesn't match last LDU1 srcId = %u, fixing",
+                                    m_rxCall->srcId, m_rxCall->lastLDU1.getSrcId());
+                                m_rxCall->srcId = m_rxCall->lastLDU1.getSrcId();
+                            }
+                        }
+                        else {
+                            LogWarning(LOG_MODEM, "TIA/DFSI LDU1, last LDU1 LC has bad data, srcId = 0");
+                        }
+
+                        // recover LC data using the last known good LDU1
+                        if (m_rxCall->lastLDU1.getSrcId() != 0U && m_rxCall->lastLDU1.getDstId() != 0U) {
+                            m_rxCall->lco = m_rxCall->lastLDU1.getLCO();
+                            m_rxCall->mfId = m_rxCall->lastLDU1.getMFId();
+
+                            bool emergency = m_rxCall->lastLDU1.getEmergency();
+                            bool encryption = m_rxCall->lastLDU1.getEncrypted();
+                            uint8_t priority = m_rxCall->lastLDU1.getPriority();
+                            m_rxCall->serviceOptions = (emergency ? 0x80U : 0x00U) +        // Emergency Flag
+                                                    (encryption ? 0x40U : 0x00U) +       // Encrypted Flag
+                                                    (priority & 0x07U);                  // Priority
+
+                            m_rxCall->srcId = m_rxCall->lastLDU1.getSrcId();
+                            m_rxCall->dstId = m_rxCall->lastLDU1.getDstId();
+                        }
+                    } else {
+                        valid = true;
                     }
                 }
                 catch (...) {
@@ -2339,6 +2483,14 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 lc.setEncrypted(encryption);
                 lc.setPriority(priority);
 
+                if (valid)
+                    m_rxCall->lastLDU1 = lc;
+
+                if (m_debug) {
+                    LogInfoEx(LOG_MODEM, "TIA/DFSI LDU1, audio, mfId = $%02X srcId = %u, dstId = %u, group = %u, emerg = %u, encrypt = %u, prio = %u, errs = %u/1233 (%.1f%%)",
+                        lc.getMFId(), lc.getSrcId(), lc.getDstId(), lc.getGroup(), lc.getEmergency(), lc.getEncrypted(), lc.getPriority(), m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+                }
+
                 data::LowSpeedData lsd = data::LowSpeedData();
                 lsd.setLSD1(m_rxCall->lsd1);
                 lsd.setLSD2(m_rxCall->lsd2);
@@ -2371,6 +2523,10 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
                 buffer[0U] = modem::TAG_DATA;
                 buffer[1U] = 0x01U;
+
+                buffer[217U] = (m_rxCall->errors >> 8) & 0xFFU;
+                buffer[218U] = (m_rxCall->errors >> 0) & 0xFFU;
+
                 storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
 
                 m_rxCall->resetLDU1State();
@@ -2378,13 +2534,31 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
             
             // encode LDU2 if ready
             if (duid == DUID::LDU2) {
+                bool valid = false;
+
                 // decode RS (24,16,9) FEC
-                // bryanb: for now this won't abort the frame if RS fails, but maybe it should in the future, for now
-                //  we'll just log the error
                 try {
                     bool ret = m_rs.decode24169(m_rxCall->LDULC);
                     if (!ret) {
                         LogError(LOG_MODEM, "TIA/DFSI LDU2, failed to decode RS (24,16,9) FEC");
+
+                        m_rxCall->algoId = m_rxCall->lastLDU2.getAlgId();
+                        m_rxCall->kId = m_rxCall->lastLDU2.getKId();
+
+                        // regenerate the MI using LFSR
+                        uint8_t lastMI[MI_LENGTH_BYTES];
+                        ::memset(lastMI, 0x00U, MI_LENGTH_BYTES);
+
+                        uint8_t nextMI[MI_LENGTH_BYTES];
+                        ::memset(nextMI, 0x00U, MI_LENGTH_BYTES);
+
+                        getNextMI(m_rxCall->lastMI, m_rxCall->MI);
+                        if (m_debug) {
+                            Utils::dump(1U, "P25, TIA/LDU2, Previous P25 MI", lastMI, MI_LENGTH_BYTES);
+                            Utils::dump(1U, "P25, TIA/LDU2, Calculated next P25 MI", nextMI, MI_LENGTH_BYTES);
+                        }
+                    } else {
+                        valid = true;
                     }
                 }
                 catch (...) {
@@ -2402,6 +2576,26 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                 lc.setMI(m_rxCall->MI);
                 lc.setAlgId(m_rxCall->algoId);
                 lc.setKId(m_rxCall->kId);
+
+                if (valid) {
+                    m_rxCall->lastLDU2 = lc;
+                    ::memcpy(m_rxCall->lastMI, m_rxCall->MI, MI_LENGTH_BYTES);
+                }
+
+                if (m_debug) {
+                    LogInfoEx(LOG_MODEM, "TIA/LDU2, audio, algo = $%02X, kid = $%04X, errs = %u/1233 (%.1f%%)",
+                        lc.getAlgId(), lc.getKId(), m_rxCall->errors, float(m_rxCall->errors) / 12.33F);
+
+                    if (lc.getAlgId() != ALGO_UNENCRYPT) {
+                        uint8_t mi[MI_LENGTH_BYTES];
+                        ::memset(mi, 0x00U, MI_LENGTH_BYTES);
+
+                        lc.getMI(mi);
+
+                        LogInfoEx(LOG_MODEM, "TIA/LDU2, Enc Sync, MI = %02X %02X %02X %02X %02X %02X %02X %02X %02X", 
+                            mi[0U], mi[1U], mi[2U], mi[3U], mi[4U], mi[5U], mi[6U], mi[7U], mi[8U]);
+                    }
+                }
 
                 data::LowSpeedData lsd = data::LowSpeedData();
                 lsd.setLSD1(m_rxCall->lsd1);
@@ -2435,6 +2629,10 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
                 buffer[0U] = modem::TAG_DATA;
                 buffer[1U] = 0x01U;
+
+                buffer[217U] = (m_rxCall->errors >> 8) & 0xFFU;
+                buffer[218U] = (m_rxCall->errors >> 0) & 0xFFU;
+
                 storeConvertedRx(buffer, P25_LDU_FRAME_LENGTH_BYTES + 2U);
 
                 m_rxCall->resetLDU2State();
@@ -3816,5 +4014,29 @@ void ModemV24::convertFromAirTIA(uint8_t* data, uint32_t length, bool imm)
             else
                 m_superFrameCnt++;
         }
+    }
+}
+
+/* Given the last MI, generate the next MI using LFSR. */
+
+void ModemV24::getNextMI(uint8_t lastMI[9U], uint8_t nextMI[9U])
+{
+    uint8_t carry, i;
+    std::copy(lastMI, lastMI + 9, nextMI);
+
+    for (uint8_t cycle = 0; cycle < 64; cycle++) {
+        // calculate bit 0 for the next cycle
+        carry = ((nextMI[0] >> 7) ^ (nextMI[0] >> 5) ^ (nextMI[2] >> 5) ^
+                 (nextMI[3] >> 5) ^ (nextMI[4] >> 2) ^ (nextMI[6] >> 6)) &
+                0x01;
+
+        // shift all the list elements, except the last one
+        for (i = 0; i < 7; i++) {
+            // grab high bit from the next element and use it as our low bit
+            nextMI[i] = ((nextMI[i] & 0x7F) << 1) | (nextMI[i + 1] >> 7);
+        }
+
+        // shift last element, then copy the bit 0 we calculated in
+        nextMI[7] = ((nextMI[i] & 0x7F) << 1) | carry;
     }
 }
