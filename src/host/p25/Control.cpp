@@ -1023,10 +1023,11 @@ void Control::clock()
             m_networkWatchdog.stop();
             m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
 
-            if (m_dedicatedControl) {
-                if (m_network != nullptr)
-                    m_network->resetP25();
-            }
+            // Always release the receive-side stream lock when the network
+            // watchdog expires. A missing terminator must not leave
+            // conventional peers locked to a stale P25 stream.
+            if (m_network != nullptr)
+                m_network->resetP25();
 
             m_netState = RS_NET_IDLE;
             m_tailOnIdle = true;
@@ -1441,6 +1442,11 @@ void Control::processNetwork()
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
+            // Network::clock() claims the receive stream before the frame is
+            // consumed here. Release it when RF state prevents the frame from
+            // starting a network call.
+            if (m_network != nullptr)
+                m_network->resetP25();
             return;
         }
     }
