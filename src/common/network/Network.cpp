@@ -152,6 +152,14 @@ void Network::resetP25()
         LogDebugEx(LOG_NET, "Network::resetP25()", "reset P25 rx stream ID");
 }
 
+/* Resets the P25 receive ring buffer and stream lock. */
+
+void Network::resetP25Rx()
+{
+    m_rxP25Data.clear();
+    m_rxP25StreamId = 0U;
+}
+
 /* Resets the P25 Phase 2 ring buffer for the given slot. */
 
 void Network::resetP25P2(uint32_t slotNo)

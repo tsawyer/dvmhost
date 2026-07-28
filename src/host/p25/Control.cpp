@@ -1446,7 +1446,7 @@ void Control::processNetwork()
             // consumed here. Release it when RF state prevents the frame from
             // starting a network call.
             if (m_network != nullptr)
-                m_network->resetP25();
+                m_network->resetP25Rx();
             return;
         }
     }
