@@ -168,10 +168,6 @@ namespace network
          */
         void resetP25() override;
         /**
-         * @brief Resets the P25 receive ring buffer and stream lock.
-         */
-        void resetP25Rx();
-        /**
          * @brief Resets the P25 Phase 2 ring buffer.
          */
         void resetP25P2(uint32_t slotNo) override;
@@ -345,7 +341,6 @@ namespace network
         uint8_t m_maxRetryCount;
         bool m_flaggedDuplicateConn;
         Timer m_timeoutTimer;
-        Timer m_rxP25StreamTimer;
 
         uint32_t m_pingsReceived;
 
