@@ -345,6 +345,7 @@ namespace network
         uint8_t m_maxRetryCount;
         bool m_flaggedDuplicateConn;
         Timer m_timeoutTimer;
+        Timer m_rxP25StreamTimer;
 
         uint32_t m_pingsReceived;
 

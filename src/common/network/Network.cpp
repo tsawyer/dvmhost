@@ -35,6 +35,8 @@ using namespace network;
 
 #define MAX_SERVER_DIFF 360ULL // maximum difference in time between a server timestamp and local timestamp in milliseconds
 
+#define P25_RX_STREAM_TIMEOUT 2U // seconds
+
 // ---------------------------------------------------------------------------
 //  Public Class Members
 // ---------------------------------------------------------------------------
@@ -69,6 +71,7 @@ Network::Network(const std::string& address, uint16_t port, uint16_t localPort, 
     m_maxRetryCount(MAX_RETRY_BEFORE_RECONNECT),
     m_flaggedDuplicateConn(false),
     m_timeoutTimer(1000U, MAX_PEER_PING_TIME),
+    m_rxP25StreamTimer(1000U, P25_RX_STREAM_TIMEOUT),
     m_pingsReceived(0U),
     m_pktSeq(0U),
     m_loginStreamId(0U),
@@ -147,6 +150,7 @@ void Network::resetP25()
 {
     BaseNetwork::resetP25();
     m_rxP25StreamId = 0U;
+    m_rxP25StreamTimer.stop();
 
     if (m_debug)
         LogDebugEx(LOG_NET, "Network::resetP25()", "reset P25 rx stream ID");
@@ -158,6 +162,7 @@ void Network::resetP25Rx()
 {
     m_rxP25Data.clear();
     m_rxP25StreamId = 0U;
+    m_rxP25StreamTimer.stop();
 }
 
 /* Resets the P25 Phase 2 ring buffer for the given slot. */
@@ -313,6 +318,11 @@ void Network::clock(uint32_t ms)
     // if we aren't enabled -- bail
     if (!m_enabled) {
         return;
+    }
+
+    m_rxP25StreamTimer.clock(ms);
+    if (m_rxP25StreamTimer.isRunning() && m_rxP25StreamTimer.hasExpired()) {
+        resetP25Rx();
     }
 
     uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -492,9 +502,11 @@ void Network::clock(uint32_t ms)
                                 if (m_rxP25StreamId == 0U) {
                                     if (rtpHeader.getSequence() == RTP_END_OF_CALL_SEQ) {
                                         m_rxP25StreamId = 0U;
+                                        m_rxP25StreamTimer.stop();
                                     }
                                     else {
                                         m_rxP25StreamId = streamId;
+                                        m_rxP25StreamTimer.start();
                                     }
 
                                     m_pktLastSeq = m_pktSeq;
@@ -519,6 +531,10 @@ void Network::clock(uint32_t ms)
 #endif
                                         if (rtpHeader.getSequence() == RTP_END_OF_CALL_SEQ) {
                                             m_rxP25StreamId = 0U;
+                                            m_rxP25StreamTimer.stop();
+                                        }
+                                        else {
+                                            m_rxP25StreamTimer.start();
                                         }
                                     }
                                 }
