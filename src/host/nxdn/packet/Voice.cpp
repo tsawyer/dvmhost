@@ -256,6 +256,7 @@ bool Voice::process(FuncChannelType::E fct, ChOption::E option, uint8_t* data, u
             m_rfFrames = 0U;
             m_rfErrs = 0U;
             m_rfBits = 1U;
+            m_nxdn->m_networkWatchdog.start();
             m_nxdn->m_rfTimeout.start();
             m_nxdn->m_rfState = RS_RF_AUDIO;
 
@@ -776,6 +777,7 @@ bool Voice::processNetwork(FuncChannelType::E fct, ChOption::E option, lc::RTCH&
             m_netFrames = 0U;
             m_nxdn->m_netTimeout.start();
             m_nxdn->m_netState = RS_NET_AUDIO;
+            m_nxdn->m_networkWatchdog.start();
 
             if (m_verbose) {
                 LogInfoEx(LOG_NET, "NXDN, " NXDN_RTCH_MSG_TYPE_VCALL ", srcId = %u, dstId = %u, group = %u, emerg = %u, encrypt = %u, prio = %u, algo = $%02X, kid = $%02X",

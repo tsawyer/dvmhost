@@ -18,6 +18,10 @@
 #define __NXDN_PACKET_VOICE_H__
 
 #include "Defines.h"
+#include "common/nxdn/Sync.h"
+#include "common/nxdn/NXDNUtils.h"
+#include "common/nxdn/channel/FACCH1.h"
+#include "common/nxdn/channel/SACCH.h"
 #include "nxdn/Control.h"
 
 #include <cstdio>

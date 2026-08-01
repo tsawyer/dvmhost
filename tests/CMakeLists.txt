@@ -13,6 +13,7 @@ file(GLOB dvmtests_SRC
     "tests/*.cpp"
     "tests/crypto/*.cpp"
     "tests/dmr/*.cpp"
+    "tests/host/*.cpp"
     "tests/edac/*.cpp"
     "tests/p25/*.cpp"
     "tests/nxdn/*.cpp"

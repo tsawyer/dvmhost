@@ -27,6 +27,12 @@
 #include <cstdio>
 #include <string>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+class HostTestHooks;
+
 namespace p25
 {
     // ---------------------------------------------------------------------------
@@ -81,6 +87,7 @@ namespace p25
         protected:
             friend class packet::ControlSignaling;
             friend class p25::Control;
+            friend class ::HostTestHooks;
             Control* m_p25;
 
             uint32_t m_rfFrames;

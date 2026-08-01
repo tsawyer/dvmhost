@@ -1943,6 +1943,7 @@ void Voice::writeNet_LDU1()
         m_p25->m_netState = RS_NET_AUDIO;
         m_p25->m_netLastDstId = dstId;
         m_p25->m_netLastSrcId = srcId;
+        m_p25->m_networkWatchdog.start();
         m_p25->m_netTGHang.start();
         m_p25->m_netTimeout.start();
         m_netFrames = 0U;

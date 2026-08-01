@@ -720,8 +720,13 @@ void Control::clock()
 
         if (m_networkWatchdog.hasExpired()) {
             if (m_netState == RS_NET_AUDIO) {
-                ::ActivityLog("NXDN", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
-                    float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+                if (m_voice->m_netFrames > 0U) {
+                    ::ActivityLog("NXDN", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
+                        float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+                }
+                else {
+                    ::ActivityLog("NXDN", false, "network watchdog has expired");
+                }
             }
             else {
                 ::ActivityLog("NXDN", false, "network watchdog has expired");

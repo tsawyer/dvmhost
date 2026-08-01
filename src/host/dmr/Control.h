@@ -39,6 +39,12 @@
 #include "dmr/Slot.h"
 #include "modem/Modem.h"
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+class HostTestHooks;
+
 namespace dmr
 {
     // ---------------------------------------------------------------------------
@@ -299,6 +305,7 @@ namespace dmr
 
     private:
         friend class Slot;
+        friend class ::HostTestHooks;
 
         bool m_authoritative;
         bool m_supervisor;

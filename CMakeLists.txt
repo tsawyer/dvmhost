@@ -190,7 +190,6 @@ if (NOT DISABLE_WEBSOCKETS)
             GIT_TAG 4dfe1be74e684acca19ac1cf96cce0df9eac2a2d # 0.8.2 with modified CMake version
         )
         FetchContent_MakeAvailable(WEBSOCKETPP)
-        add_subdirectory(${websocketpp_SOURCE_DIR} EXCLUDE_FROM_ALL)
         set(WEBSOCKETPP_INCLUDED 1)
     endif (NOT WEBSOCKETPP_INCLUDED)
 endif (NOT DISABLE_WEBSOCKETS)

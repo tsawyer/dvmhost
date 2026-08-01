@@ -75,6 +75,7 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_enableControl(false),
     m_dedicatedControl(false),
     m_voiceOnControl(false),
+    m_controlOnly(false),
     m_ackTSBKRequests(true),
     m_disableNetworkGrant(false),
     m_disableNetworkHDU(false),
@@ -979,6 +980,17 @@ void Control::clock()
                     }
                 }
 
+                if (m_netState != RS_NET_IDLE) {
+                    if (m_network != nullptr)
+                        m_network->resetP25();
+
+                    m_voice->resetNet();
+                    m_data->resetReceivedBlocks();
+                    m_netState = RS_NET_IDLE;
+                    m_tailOnIdle = true;
+                    m_netTimeout.stop();
+                }
+
                 m_netLastDstId = 0U;
                 m_netLastSrcId = 0U;
             }
@@ -1023,10 +1035,8 @@ void Control::clock()
             m_networkWatchdog.stop();
             m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
 
-            if (m_dedicatedControl) {
-                if (m_network != nullptr)
-                    m_network->resetP25();
-            }
+            if (m_network != nullptr)
+                m_network->resetP25();
 
             m_netState = RS_NET_IDLE;
             m_tailOnIdle = true;

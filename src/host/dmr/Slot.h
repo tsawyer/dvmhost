@@ -37,6 +37,12 @@
 #include <vector>
 #include <mutex>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+class HostTestHooks;
+
 namespace dmr
 {
     // ---------------------------------------------------------------------------
@@ -339,6 +345,7 @@ namespace dmr
 
     private:
         friend class Control;
+        friend class ::HostTestHooks;
         friend class packet::Voice;
         packet::Voice* m_voice;
         friend class packet::Data;

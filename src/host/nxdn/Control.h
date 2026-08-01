@@ -47,6 +47,12 @@
 #include <string>
 #include <mutex>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+class HostTestHooks;
+
 namespace nxdn
 {
     // ---------------------------------------------------------------------------
@@ -260,6 +266,7 @@ namespace nxdn
 
     private:
         friend class packet::Voice;
+        friend class ::HostTestHooks;
         packet::Voice* m_voice;
         friend class packet::Data;
         packet::Data* m_data;
