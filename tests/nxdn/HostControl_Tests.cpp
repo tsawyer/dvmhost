@@ -13,14 +13,23 @@
 #include "common/lookups/RSSIInterpolator.h"
 #include "common/lookups/RadioIdLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
+#include "common/network/Network.h"
 #include "common/network/NetRPC.h"
 #include "common/nxdn/NXDNDefines.h"
+#include "common/nxdn/Sync.h"
+#include "common/nxdn/channel/FACCH1.h"
+#include "common/nxdn/channel/LICH.h"
+#include "common/nxdn/channel/SACCH.h"
+#include "common/nxdn/NXDNUtils.h"
 #include "common/nxdn/lc/RTCH.h"
 #include "host/modem/Modem.h"
 #include "modem/port/IModemPort.h"
 #include "host/HostTestHooks.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <cstring>
+#include <thread>
 
 extern network::NetRPC* g_RPC;
 #include "host/nxdn/Control.h"
@@ -38,6 +47,55 @@ namespace {
 uint32_t expireTimerTicks(const Timer& timer)
 {
     return (timer.getTimeout() + 1U) * 1000U;
+}
+
+/**
+ * @brief Finds an available loopback UDP port.
+ * @returns uint16_t A free UDP port, or 0 on failure.
+ */
+uint16_t reserveLoopbackPort()
+{
+#if defined(_WIN32)
+    SOCKET fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == INVALID_SOCKET)
+        return 0U;
+#else
+    int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
+        return 0U;
+#endif // defined(_WIN32)
+
+    sockaddr_in address = {};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(0U);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    if (::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+#if defined(_WIN32)
+        ::closesocket(fd);
+#else
+        ::close(fd);
+#endif // defined(_WIN32)
+        return 0U;
+    }
+
+    socklen_t addrLen = sizeof(address);
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&address), &addrLen) < 0) {
+#if defined(_WIN32)
+        ::closesocket(fd);
+#else
+        ::close(fd);
+#endif // defined(_WIN32)
+        return 0U;
+    }
+
+#if defined(_WIN32)
+    ::closesocket(fd);
+#else
+    ::close(fd);
+#endif // defined(_WIN32)
+
+    return ntohs(address.sin_port);
 }
 
 }
@@ -93,6 +151,102 @@ public:
     void close() override {}
 };
 
+/**
+ * @brief Lightweight network test double for NXDN ingress stream-lock tests.
+ */
+class TestNetwork final : public network::Network {
+public:
+    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+        network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, false, true, false, true, true, false, false, false, false),
+        m_resetNXDNCount(0U)
+    {
+        /* stub */
+    }
+
+    bool activateLoopback(const std::string& remoteAddress, uint16_t remotePort)
+    {
+        if (network::udp::Socket::lookup(remoteAddress, remotePort, m_addr, m_addrLen) != 0) {
+            return false;
+        }
+
+        if (!m_socket->open(m_addr.ss_family)) {
+            return false;
+        }
+
+        m_enabled = true;
+        m_status = network::NET_STAT_RUNNING;
+        return true;
+    }
+
+    bool sendNXDNFrame(uint32_t targetPeerId, uint32_t streamId, uint16_t seq, uint8_t messageType, uint16_t srcId, uint16_t dstId)
+    {
+        uint8_t frame[nxdn::defines::NXDN_FRAME_LENGTH_BYTES + 2U];
+        ::memset(frame, 0x00U, sizeof(frame));
+
+        frame[0U] = messageType == nxdn::defines::MessageType::RTCH_TX_REL ? modem::TAG_EOT : modem::TAG_DATA;
+        frame[1U] = 0x01U;
+
+        nxdn::Sync::addNXDNSync(frame + 2U);
+
+        nxdn::channel::LICH lich;
+        lich.setRFCT(nxdn::defines::RFChannelType::RTCH);
+        lich.setFCT(nxdn::defines::FuncChannelType::USC_SACCH_NS);
+        lich.setOption(nxdn::defines::ChOption::STEAL_FACCH);
+        lich.setOutbound(true);
+        lich.encode(frame + 2U);
+
+        nxdn::channel::SACCH sacch;
+        sacch.setData(nxdn::defines::SACCH_IDLE);
+        sacch.setRAN(1U);
+        sacch.setStructure(nxdn::defines::ChStructure::SR_SINGLE);
+        sacch.encode(frame + 2U);
+
+        uint8_t lcBuffer[nxdn::defines::NXDN_RTCH_LC_LENGTH_BYTES];
+        nxdn::lc::RTCH lc;
+        lc.setMessageType(messageType);
+        lc.setSrcId(srcId);
+        lc.setDstId(dstId);
+        lc.setGroup(true);
+        lc.setTransmissionMode(nxdn::defines::TransmissionMode::MODE_4800);
+        lc.encode(lcBuffer, nxdn::defines::NXDN_RTCH_LC_LENGTH_BITS);
+
+        nxdn::channel::FACCH1 facch;
+        facch.setData(lcBuffer);
+        facch.encode(frame + 2U, nxdn::defines::NXDN_FSW_LENGTH_BITS + nxdn::defines::NXDN_LICH_LENGTH_BITS + nxdn::defines::NXDN_SACCH_FEC_LENGTH_BITS);
+        facch.encode(frame + 2U, nxdn::defines::NXDN_FSW_LENGTH_BITS + nxdn::defines::NXDN_LICH_LENGTH_BITS + nxdn::defines::NXDN_SACCH_FEC_LENGTH_BITS + nxdn::defines::NXDN_FACCH1_FEC_LENGTH_BITS);
+
+        nxdn::NXDNUtils::scrambler(frame + 2U);
+
+        uint32_t messageLength = 0U;
+        UInt8Array message = createNXDN_Message(messageLength, lc, frame, sizeof(frame));
+        if (message == nullptr || messageLength == 0U) {
+            return false;
+        }
+
+        return m_frameQueue->write(message.get(), messageLength, streamId, targetPeerId, m_peerId,
+            { network::NET_FUNC::PROTOCOL, network::NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN }, seq, m_addr, m_addrLen);
+    }
+
+    void resetNXDN() override
+    {
+        ++m_resetNXDNCount;
+        network::Network::resetNXDN();
+    }
+
+    uint32_t resetNXDNCount() const
+    {
+        return m_resetNXDNCount;
+    }
+
+    uint32_t rxNXDNStreamId() const
+    {
+        return m_rxNXDNStreamId;
+    }
+
+private:
+    uint32_t m_resetNXDNCount;
+};
+
 // ---------------------------------------------------------------------------
 //  Class Declaration
 // ---------------------------------------------------------------------------
@@ -106,7 +260,7 @@ public:
      * @brief Initializes a new instance of the NXDNHostHarness class.
      * @param authoritative Indicates whether the host is authoritative.
      */
-    explicit NXDNHostHarness(bool authoritative = true) :
+    explicit NXDNHostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
         m_modem(new TestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
@@ -115,13 +269,14 @@ public:
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
+        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
         m_modem.setModeParams(false, false, true);
 
-        m_control = new nxdn::Control(authoritative, 1U, 1U, 4096U, 5U, 2U, &m_modem, nullptr,
-            false, &m_chLookup, &m_ridLookup, &m_tidLookup, &m_idenLookup, &m_rssiMapper, false, false, false);
+        m_control = new nxdn::Control(authoritative, 1U, 1U, 4096U, 5U, 2U, &m_modem, m_network,
+            false, &m_chLookup, &m_ridLookup, &m_tidLookup, &m_idenLookup, &m_rssiMapper, false, true, true);
     }
     /**
      * @brief Finalizes an instance of the NXDNHostHarness class.
@@ -129,7 +284,13 @@ public:
     ~NXDNHostHarness()
     {
         delete m_control;
+        delete m_network;
         g_RPC = nullptr;
+    }
+
+    TestNetwork* network() const
+    {
+        return m_network;
     }
 
     /**
@@ -157,8 +318,142 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
+    TestNetwork* m_network;
     nxdn::Control* m_control;
 };
+
+TEST_CASE("NXDN host e2e loopback handles missed frames without dropping active call", "[nxdn][host][control][net][e2e]")
+{
+    NXDNHostHarness harness;
+    harness.startNetworkVoiceCall(1001U, 2001U);
+
+    nxdn::lc::RTCH followOn;
+    followOn.setMessageType(nxdn::defines::MessageType::RTCH_VCALL);
+    followOn.setSrcId(1001U);
+    followOn.setDstId(2001U);
+    followOn.setGroup(true);
+    followOn.setTransmissionMode(nxdn::defines::TransmissionMode::MODE_4800);
+
+    REQUIRE(HostTestHooks::nxdnStartNetCall(*harness.m_control, followOn));
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(HostTestHooks::nxdnNetworkWatchdog(*harness.m_control).isRunning());
+    REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 1001U);
+    REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 2001U);
+}
+
+TEST_CASE("NXDN host e2e loopback handles dropped call terminator and returns idle", "[nxdn][host][control][net][e2e]")
+{
+    NXDNHostHarness harness;
+    harness.startNetworkVoiceCall(1101U, 2101U);
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+
+    HostTestHooks::nxdnNetworkWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnNetworkWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE_FALSE(HostTestHooks::nxdnNetworkWatchdog(*harness.m_control).isRunning());
+}
+
+TEST_CASE("NXDN host e2e loopback times out stale call and resets stream state", "[nxdn][host][control][net][e2e]")
+{
+    NXDNHostHarness harness;
+    harness.startNetworkVoiceCall(1201U, 2201U);
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+
+    HostTestHooks::nxdnNetTGHang(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnNetTGHang(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 0U);
+    REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 0U);
+}
+
+TEST_CASE("NXDN host e2e loopback enforces stream lock until active stream terminates", "[nxdn][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 8007U;
+    const uint32_t streamA = 0x620101U;
+    const uint32_t streamB = 0x620102U;
+
+    NXDNHostHarness harness(true, true, hostPort, hostPeerId);
+    TestNetwork sender(senderPort, 8008U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamA, 400U, nxdn::defines::MessageType::RTCH_VCALL, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 1301U);
+    REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 2301U);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamA);
+
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamB, 500U, nxdn::defines::MessageType::RTCH_VCALL, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 30U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 1301U);
+    REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 2301U);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamA);
+
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamA, RTP_END_OF_CALL_SEQ, nxdn::defines::MessageType::RTCH_TX_REL, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 50U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_IDLE) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxNXDNStreamId() == 0U);
+
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamB, 502U, nxdn::defines::MessageType::RTCH_VCALL, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 1301U);
+    REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 2301U);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamB);
+}
 
 TEST_CASE("NXDN host arms the network watchdog when network voice starts", "[nxdn][host][control]")
 {

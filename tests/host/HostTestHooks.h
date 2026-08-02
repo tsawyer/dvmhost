@@ -157,6 +157,14 @@ public:
      */
     static Timer& p25NetTGHang(p25::Control& control);
     /**
+     * @brief Forces P25 control network state and last IDs for targeted recovery-path tests.
+     * @param control P25 control instance.
+     * @param netState Network state to set.
+     * @param srcId Last network source ID to set.
+     * @param dstId Last network destination ID to set.
+     */
+    static void p25SetNetState(p25::Control& control, RPT_NET_STATE netState, uint32_t srcId, uint32_t dstId);
+    /**
      * @brief Forces P25 control into active RF call state for tests.
      * @param control P25 control instance.
      * @param srcId Source ID to apply to control state.

@@ -177,6 +177,15 @@ Timer& HostTestHooks::p25NetworkWatchdog(p25::Control& control) { return control
 
 Timer& HostTestHooks::p25NetTGHang(p25::Control& control) { return control.m_netTGHang; }
 
+/* Forces P25 control network state and last IDs. */
+
+void HostTestHooks::p25SetNetState(p25::Control& control, RPT_NET_STATE netState, uint32_t srcId, uint32_t dstId)
+{
+    control.m_netState = netState;
+    control.m_netLastSrcId = srcId;
+    control.m_netLastDstId = dstId;
+}
+
 /* Forces P25 control into active RF call state. */
 
 void HostTestHooks::p25SetRFCall(p25::Control& control, uint32_t srcId, uint32_t dstId)
