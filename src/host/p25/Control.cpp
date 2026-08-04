@@ -1018,17 +1018,17 @@ void Control::clock()
         m_rfCallTermSrcId = 0U;
     }
 
-    if (m_netState == RS_NET_AUDIO || m_netState == RS_NET_DATA) {
+    if (m_networkWatchdog.isRunning()) {
         m_networkWatchdog.clock(ms);
 
-        if (m_networkWatchdog.isRunning() && m_networkWatchdog.hasExpired()) {
+        if (m_networkWatchdog.hasExpired()) {
             if (m_netState == RS_NET_AUDIO) {
                 if (m_voice->m_netFrames > 0.0F) {
                     ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
                         float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
                 }
             }
-            else {
+            else if (m_netState == RS_NET_DATA) {
                 ::ActivityLog("P25", false, "network watchdog has expired");
             }
 
@@ -1451,6 +1451,7 @@ void Control::processNetwork()
     if (m_netState != RS_NET_DATA) {
         // don't process network frames if the RF modem isn't in a listening state
         if (m_rfState != RS_RF_LISTENING && m_netState == RS_NET_IDLE) {
+            m_network->resetP25();
             return;
         }
     }
@@ -1472,6 +1473,8 @@ void Control::processNetwork()
         m_network->resetP25();
         return;
     }
+
+    m_networkWatchdog.start();
 
     if (duid == DUID::PDU) {
         frameLength = length;
