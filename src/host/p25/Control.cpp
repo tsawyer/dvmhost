@@ -613,7 +613,9 @@ bool Control::processFrame(uint8_t* data, uint32_t len)
     }
 
     if (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA) {
-        if (m_rfLossWatchdog.isRunning()) {
+        // if RF TG hang is disabled, keep the loss watchdog alive from inbound
+        // RF frames so abrupt stream loss can still recover state.
+        if (m_rfTGHang.getTimeout() == 0U || m_rfLossWatchdog.isRunning()) {
             m_rfLossWatchdog.start();
         }
     }
@@ -976,7 +978,8 @@ void Control::clock()
                 if (m_affiliations->isGranted(m_netLastDstId)) {
                     if (!m_dedicatedControl) {
                         m_affiliations->releaseGrant(m_netLastDstId, false);
-                        m_network->resetP25();
+                        if (m_network != nullptr)
+                            m_network->resetP25();
                     }
                 }
 
