@@ -875,6 +875,36 @@ void Control::clock()
     uint32_t ms = m_interval.elapsed();
     m_interval.start();
 
+    if (m_networkWatchdog.isRunning()) {
+        m_networkWatchdog.clock(ms);
+
+        if (m_networkWatchdog.hasExpired()) {
+            if (m_netState == RS_NET_AUDIO) {
+                if (m_voice->m_netFrames > 0.0F) {
+                    ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
+                        float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+                }
+            }
+            else if (m_netState == RS_NET_DATA) {
+                ::ActivityLog("P25", false, "network watchdog has expired");
+            }
+
+            m_networkWatchdog.stop();
+            m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
+
+            if (m_network != nullptr)
+                m_network->resetP25();
+
+            m_netState = RS_NET_IDLE;
+            m_tailOnIdle = true;
+
+            m_voice->resetNet();
+            m_data->resetReceivedBlocks();
+
+            m_netTimeout.stop();
+        }
+    }
+
     if (m_network != nullptr) {
         processNetwork();
 
@@ -1016,36 +1046,6 @@ void Control::clock()
 
         m_rfCallTermDstId = 0U;
         m_rfCallTermSrcId = 0U;
-    }
-
-    if (m_networkWatchdog.isRunning()) {
-        m_networkWatchdog.clock(ms);
-
-        if (m_networkWatchdog.hasExpired()) {
-            if (m_netState == RS_NET_AUDIO) {
-                if (m_voice->m_netFrames > 0.0F) {
-                    ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
-                        float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
-                }
-            }
-            else if (m_netState == RS_NET_DATA) {
-                ::ActivityLog("P25", false, "network watchdog has expired");
-            }
-
-            m_networkWatchdog.stop();
-            m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
-
-            if (m_network != nullptr)
-                m_network->resetP25();
-
-            m_netState = RS_NET_IDLE;
-            m_tailOnIdle = true;
-
-            m_voice->resetNet();
-            m_data->resetReceivedBlocks();
-
-            m_netTimeout.stop();
-        }
     }
 
     // reset states if we're in a rejected state and we're a control channel
