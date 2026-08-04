@@ -202,14 +202,14 @@ public:
 /**
  * @brief Lightweight network test double that records P25 reset calls.
  */
-class TestNetwork final : public network::Network {
+class P25TestNetwork final : public network::Network {
 public:
     /**
-     * @brief Initializes a new instance of the TestNetwork class.
+     * @brief Initializes a new instance of the P25TestNetwork class.
      * @param localPort The local port number.
      * @param peerId The peer ID.
      */
-    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+    P25TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, true, false, false, true, true, false, false, false, false),
         m_resetP25Count(0U)
     {
@@ -377,7 +377,7 @@ public:
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
-        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
+        m_network(withNetwork ? new P25TestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
@@ -397,7 +397,7 @@ public:
         g_RPC = nullptr;
     }
 
-    TestNetwork* network() const
+    P25TestNetwork* network() const
     {
         return m_network;
     }
@@ -428,7 +428,7 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
-    TestNetwork* m_network;
+    P25TestNetwork* m_network;
     p25::Control* m_control;
 };
 
@@ -605,7 +605,7 @@ TEST_CASE("P25 host e2e loopback times out a stream before call state starts", "
     const uint32_t nextStream = 0x500102U;
 
     P25HostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 6008U);
+    P25TestNetwork sender(senderPort, 6008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
@@ -665,7 +665,7 @@ TEST_CASE("P25 host e2e loopback enforces stream lock until active stream termin
     const uint32_t streamB = 0x500102U;
 
     P25HostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 6008U);
+    P25TestNetwork sender(senderPort, 6008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));

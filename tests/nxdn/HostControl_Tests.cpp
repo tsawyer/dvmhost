@@ -154,9 +154,9 @@ public:
 /**
  * @brief Lightweight network test double for NXDN ingress stream-lock tests.
  */
-class TestNetwork final : public network::Network {
+class NXDNTestNetwork final : public network::Network {
 public:
-    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+    NXDNTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, false, true, false, true, true, false, false, false, false),
         m_resetNXDNCount(0U)
     {
@@ -269,7 +269,7 @@ public:
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
-        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
+        m_network(withNetwork ? new NXDNTestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
@@ -288,7 +288,7 @@ public:
         g_RPC = nullptr;
     }
 
-    TestNetwork* network() const
+    NXDNTestNetwork* network() const
     {
         return m_network;
     }
@@ -318,7 +318,7 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
-    TestNetwork* m_network;
+    NXDNTestNetwork* m_network;
     nxdn::Control* m_control;
 };
 
@@ -382,7 +382,7 @@ TEST_CASE("NXDN host e2e loopback enforces stream lock until active stream termi
     const uint32_t streamB = 0x620102U;
 
     NXDNHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 8008U);
+    NXDNTestNetwork sender(senderPort, 8008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
