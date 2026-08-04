@@ -468,7 +468,7 @@ TEST_CASE("P25 watchdog expiry resets network stream state", "[p25][host][contro
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 host net hang expiry clears active network voice state", "[p25][host][control]")
@@ -498,7 +498,7 @@ TEST_CASE("P25 net hang expiry resets network stream state", "[p25][host][contro
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 recovers inconsistent net state via network reset", "[p25][host][control][net][stream]")
@@ -520,7 +520,7 @@ TEST_CASE("P25 recovers inconsistent net state via network reset", "[p25][host][
     (void)HostTestHooks::p25TerminateNetCall(*harness.m_control, control, p25::defines::DUID::TDU);
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 host e2e loopback handles missed frames without dropping active call", "[p25][host][control][net][e2e]")
@@ -589,7 +589,7 @@ TEST_CASE("P25 host e2e loopback times out stale call and resets stream state", 
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 host e2e loopback times out a stream before call state starts", "[p25][host][control][net][e2e]")
