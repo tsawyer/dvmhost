@@ -196,6 +196,16 @@ void HostTestHooks::p25SetRFCall(p25::Control& control, uint32_t srcId, uint32_t
     control.m_rfTGHang.start();
 }
 
+/* Returns P25 control to RF listening state. */
+
+void HostTestHooks::p25ClearRFCall(p25::Control& control)
+{
+    control.m_rfState = RS_RF_LISTENING;
+    control.m_rfLastSrcId = 0U;
+    control.m_rfLastDstId = 0U;
+    control.m_rfTGHang.stop();
+}
+
 /* Forces P25 control into RF rejected state. */
 
 void HostTestHooks::p25SetRFRejected(p25::Control& control)

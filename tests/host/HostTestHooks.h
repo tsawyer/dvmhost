@@ -172,6 +172,11 @@ public:
      */
     static void p25SetRFCall(p25::Control& control, uint32_t srcId, uint32_t dstId);
     /**
+     * @brief Returns P25 control to the RF listening state after a synthetic RF call.
+     * @param control P25 control instance.
+     */
+    static void p25ClearRFCall(p25::Control& control);
+    /**
      * @brief Forces P25 control into RF rejected state for tests.
      * @param control P25 control instance.
      */

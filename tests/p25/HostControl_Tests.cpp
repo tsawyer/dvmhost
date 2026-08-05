@@ -656,6 +656,123 @@ TEST_CASE("P25 host e2e loopback times out a stream before call state starts", "
     REQUIRE(harness.network()->rxP25StreamId() == nextStream);
 }
 
+TEST_CASE("P25 host e2e loopback preserves a continuing network stream across an RF collision", "[p25][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 6009U;
+    const uint32_t streamId = 0x500201U;
+
+    P25HostHarness harness(true, true, hostPort, hostPeerId);
+    P25TestNetwork sender(senderPort, 6010U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::p25SetRFCall(*harness.m_control, 1401U, 2401U);
+    REQUIRE(sender.sendP25LDU1Frame(hostPeerId, streamId, 600U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxP25StreamId() == streamId &&
+            HostTestHooks::p25NetworkWatchdog(*harness.m_control).isRunning()) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxP25StreamId() == streamId);
+    REQUIRE(harness.network()->resetP25Count() == 0U);
+
+    HostTestHooks::p25NetworkWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25NetworkWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25NetworkWatchdog(*harness.m_control).hasExpired());
+    REQUIRE(harness.network()->rxP25StreamId() == streamId);
+    REQUIRE(harness.network()->resetP25Count() == 0U);
+
+    HostTestHooks::p25ClearRFCall(*harness.m_control);
+    REQUIRE(sender.sendP25LDU1Frame(hostPeerId, streamId, 601U, 1501U, 2501U));
+    REQUIRE(sender.sendP25LDU2Frame(hostPeerId, streamId, 602U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::p25NetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxP25StreamId() == streamId);
+    REQUIRE(harness.network()->resetP25Count() == 0U);
+}
+
+TEST_CASE("P25 host e2e loopback clears a stopped network stream after an RF collision", "[p25][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 6011U;
+    const uint32_t streamId = 0x500202U;
+
+    P25HostHarness harness(true, true, hostPort, hostPeerId);
+    P25TestNetwork sender(senderPort, 6012U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::p25SetRFCall(*harness.m_control, 1401U, 2401U);
+    REQUIRE(sender.sendP25LDU1Frame(hostPeerId, streamId, 700U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxP25StreamId() == streamId &&
+            HostTestHooks::p25NetworkWatchdog(*harness.m_control).isRunning()) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxP25StreamId() == streamId);
+    REQUIRE(harness.network()->resetP25Count() == 0U);
+
+    HostTestHooks::p25NetworkWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25NetworkWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25NetworkWatchdog(*harness.m_control).hasExpired());
+    REQUIRE(harness.network()->rxP25StreamId() == streamId);
+    REQUIRE(harness.network()->resetP25Count() == 0U);
+
+    HostTestHooks::p25ClearRFCall(*harness.m_control);
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE_FALSE(HostTestHooks::p25NetworkWatchdog(*harness.m_control).isRunning());
+    REQUIRE(harness.network()->rxP25StreamId() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
+}
+
 TEST_CASE("P25 host e2e loopback enforces stream lock until active stream terminates", "[p25][host][control][net][e2e]")
 {
     const uint16_t hostPort = reserveLoopbackPort();
