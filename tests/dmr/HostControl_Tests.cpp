@@ -573,6 +573,61 @@ TEST_CASE("DMR host e2e loopback times out stale call and resets stream state", 
     REQUIRE(harness.network()->resetDMRCount() == 1U);
 }
 
+TEST_CASE("DMR host e2e loopback preserves a continuing network stream across an RF collision", "[dmr][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 7011U;
+    const uint32_t streamId = 0x610201U;
+
+    DMRHostHarness harness(true, true, hostPort, hostPeerId);
+    DMRTestNetwork sender(senderPort, 7012U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::dmrSetRFCall(*HostTestHooks::dmrSlot1(*harness.m_control), 1401U, 2401U);
+    REQUIRE(sender.sendDMRVoiceHeader(hostPeerId, streamId, 600U, 1U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxDMRStreamId(1U) == streamId) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxDMRStreamId(1U) == streamId);
+    REQUIRE(harness.network()->resetDMRCount() == 0U);
+
+    HostTestHooks::dmrClearRFCall(*HostTestHooks::dmrSlot1(*harness.m_control));
+    REQUIRE(sender.sendDMRVoiceHeader(hostPeerId, streamId, 601U, 1U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxDMRStreamId(1U) == streamId);
+    REQUIRE(harness.network()->resetDMRCount() == 0U);
+}
+
 TEST_CASE("DMR host e2e loopback enforces stream lock until active stream terminates", "[dmr][host][control][net][e2e]")
 {
     const uint16_t hostPort = reserveLoopbackPort();

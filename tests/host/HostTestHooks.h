@@ -81,6 +81,11 @@ public:
      */
     static void dmrSetRFCall(dmr::Slot& slot, uint32_t srcId, uint32_t dstId);
     /**
+     * @brief Returns a DMR slot to RF listening state after a synthetic RF call.
+     * @param slot DMR slot instance.
+     */
+    static void dmrClearRFCall(dmr::Slot& slot);
+    /**
      * @brief Forces a DMR slot into RF rejected state for tests.
      * @param slot DMR slot instance.
      */
@@ -258,6 +263,11 @@ public:
      * @param dstId Destination ID to apply to control state.
      */
     static void nxdnSetRFCall(nxdn::Control& control, uint32_t srcId, uint32_t dstId);
+    /**
+     * @brief Returns NXDN control to RF listening state after a synthetic RF call.
+     * @param control NXDN control instance.
+     */
+    static void nxdnClearRFCall(nxdn::Control& control);
     /**
      * @brief Forces NXDN control into RF rejected state for tests.
      * @param control NXDN control instance.

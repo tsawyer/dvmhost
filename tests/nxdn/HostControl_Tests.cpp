@@ -373,6 +373,61 @@ TEST_CASE("NXDN host e2e loopback times out stale call and resets stream state",
     REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 0U);
 }
 
+TEST_CASE("NXDN host e2e loopback preserves a continuing network stream across an RF collision", "[nxdn][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 8011U;
+    const uint32_t streamId = 0x620201U;
+
+    NXDNHostHarness harness(true, true, hostPort, hostPeerId);
+    NXDNTestNetwork sender(senderPort, 8012U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::nxdnSetRFCall(*harness.m_control, 1401U, 2401U);
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamId, 600U, nxdn::defines::MessageType::RTCH_VCALL, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxNXDNStreamId() == streamId) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamId);
+    REQUIRE(harness.network()->resetNXDNCount() == 0U);
+
+    HostTestHooks::nxdnClearRFCall(*harness.m_control);
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamId, 601U, nxdn::defines::MessageType::RTCH_VCALL, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamId);
+    REQUIRE(harness.network()->resetNXDNCount() == 0U);
+}
+
 TEST_CASE("NXDN host e2e loopback enforces stream lock until active stream terminates", "[nxdn][host][control][net][e2e]")
 {
     const uint16_t hostPort = reserveLoopbackPort();

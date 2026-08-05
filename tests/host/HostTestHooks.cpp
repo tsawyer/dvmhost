@@ -83,6 +83,16 @@ void HostTestHooks::dmrSetRFCall(dmr::Slot& slot, uint32_t srcId, uint32_t dstId
     slot.m_rfTGHang.start();
 }
 
+/* Returns DMR slot to RF listening state. */
+
+void HostTestHooks::dmrClearRFCall(dmr::Slot& slot)
+{
+    slot.m_rfState = RS_RF_LISTENING;
+    slot.m_rfLastSrcId = 0U;
+    slot.m_rfLastDstId = 0U;
+    slot.m_rfTGHang.stop();
+}
+
 /* Forces DMR slot into RF rejected state. */
 
 void HostTestHooks::dmrSetRFRejected(dmr::Slot& slot)
@@ -279,6 +289,16 @@ void HostTestHooks::nxdnSetRFCall(nxdn::Control& control, uint32_t srcId, uint32
     control.m_rfLastSrcId = srcId;
     control.m_rfLastDstId = dstId;
     control.m_rfTGHang.start();
+}
+
+/* Returns NXDN control to RF listening state. */
+
+void HostTestHooks::nxdnClearRFCall(nxdn::Control& control)
+{
+    control.m_rfState = RS_RF_LISTENING;
+    control.m_rfLastSrcId = 0U;
+    control.m_rfLastDstId = 0U;
+    control.m_rfTGHang.stop();
 }
 
 /* Forces NXDN control into RF rejected state. */
