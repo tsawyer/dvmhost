@@ -723,6 +723,11 @@ void Slot::clock()
             if (!s_authoritative && m_permittedDstId != 0U) {
                 m_permittedDstId = 0U;
             }
+
+            // has the talkgroup hang timer expired while the modem is in a non-listening state?
+            if (m_rfState != RS_RF_LISTENING) {
+                processFrameLoss(RF_LOSS_TYPE_TG_HANG_NOT_LISTENING);
+            }
         }
     }
 
