@@ -107,12 +107,12 @@ uint16_t reserveLoopbackPort()
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class NXDNTestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the NXDNTestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~NXDNTestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -154,13 +154,17 @@ public:
 /**
  * @brief Lightweight network test double for NXDN ingress stream-lock tests.
  */
-class TestNetwork final : public network::Network {
+class NXDNTestNetwork final : public network::Network {
 public:
-    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
-        network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, false, true, false, true, true, false, false, false, false),
+    NXDNTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+        network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, false, false, true, false, true, true, false, false, false, false),
         m_resetNXDNCount(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = false;
+        m_p25Enabled = false;
+        m_nxdnEnabled = true;
+        m_analogEnabled = false;
     }
 
     bool activateLoopback(const std::string& remoteAddress, uint16_t remotePort)
@@ -262,14 +266,14 @@ public:
      */
     explicit NXDNHostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new NXDNTestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
-        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
+        m_network(withNetwork ? new NXDNTestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
@@ -288,7 +292,7 @@ public:
         g_RPC = nullptr;
     }
 
-    TestNetwork* network() const
+    NXDNTestNetwork* network() const
     {
         return m_network;
     }
@@ -318,7 +322,7 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
-    TestNetwork* m_network;
+    NXDNTestNetwork* m_network;
     nxdn::Control* m_control;
 };
 
@@ -382,7 +386,7 @@ TEST_CASE("NXDN host e2e loopback enforces stream lock until active stream termi
     const uint32_t streamB = 0x620102U;
 
     NXDNHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 8008U);
+    NXDNTestNetwork sender(senderPort, 8008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));

@@ -130,8 +130,6 @@ uint16_t reserveLoopbackPort()
     return ntohs(address.sin_port);
 }
 
-}
-
 /**
  * @brief Builds a P25 RF frame.
  * @param payload The payload data to include in the frame.
@@ -144,6 +142,8 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
     ::memcpy(frame + 2U, payload, p25::defines::P25_LDU_FRAME_LENGTH_BYTES);
 }
 
+}
+
 // ---------------------------------------------------------------------------
 //  Class Declaration
 // ---------------------------------------------------------------------------
@@ -151,12 +151,12 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class P25TestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the P25TestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~P25TestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -202,18 +202,22 @@ public:
 /**
  * @brief Lightweight network test double that records P25 reset calls.
  */
-class TestNetwork final : public network::Network {
+class P25TestNetwork final : public network::Network {
 public:
     /**
-     * @brief Initializes a new instance of the TestNetwork class.
+     * @brief Initializes a new instance of the P25TestNetwork class.
      * @param localPort The local port number.
      * @param peerId The peer ID.
      */
-    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
-        network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, true, false, false, true, true, false, false, false, false),
+    P25TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+        network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, false, true, false, false, true, true, false, false, false, false),
         m_resetP25Count(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = false;
+        m_p25Enabled = true;
+        m_nxdnEnabled = false;
+        m_analogEnabled = false;
     }
 
     /**
@@ -370,14 +374,14 @@ public:
      */
     explicit P25HostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new P25TestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
-        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
+        m_network(withNetwork ? new P25TestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
@@ -397,7 +401,7 @@ public:
         g_RPC = nullptr;
     }
 
-    TestNetwork* network() const
+    P25TestNetwork* network() const
     {
         return m_network;
     }
@@ -428,7 +432,7 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
-    TestNetwork* m_network;
+    P25TestNetwork* m_network;
     p25::Control* m_control;
 };
 
@@ -468,7 +472,7 @@ TEST_CASE("P25 watchdog expiry resets network stream state", "[p25][host][contro
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 host net hang expiry clears active network voice state", "[p25][host][control]")
@@ -498,7 +502,7 @@ TEST_CASE("P25 net hang expiry resets network stream state", "[p25][host][contro
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 recovers inconsistent net state via network reset", "[p25][host][control][net][stream]")
@@ -520,7 +524,7 @@ TEST_CASE("P25 recovers inconsistent net state via network reset", "[p25][host][
     (void)HostTestHooks::p25TerminateNetCall(*harness.m_control, control, p25::defines::DUID::TDU);
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
 }
 
 TEST_CASE("P25 host e2e loopback handles missed frames without dropping active call", "[p25][host][control][net][e2e]")
@@ -589,7 +593,67 @@ TEST_CASE("P25 host e2e loopback times out stale call and resets stream state", 
     harness.m_control->clock();
 
     REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
-    REQUIRE(harness.network()->resetP25Count() == 0U);
+    REQUIRE(harness.network()->resetP25Count() == 1U);
+}
+
+TEST_CASE("P25 host e2e loopback times out a stream before call state starts", "[p25][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 6007U;
+    const uint32_t staleStream = 0x500101U;
+    const uint32_t nextStream = 0x500102U;
+
+    P25HostHarness harness(true, true, hostPort, hostPeerId);
+    P25TestNetwork sender(senderPort, 6008U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    REQUIRE(sender.sendP25LDU1Frame(hostPeerId, staleStream, 400U, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxP25StreamId() == staleStream) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(harness.network()->rxP25StreamId() == staleStream);
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(HostTestHooks::p25NetworkWatchdog(*harness.m_control).isRunning());
+
+    HostTestHooks::p25NetworkWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25NetworkWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxP25StreamId() == 0U);
+
+    REQUIRE(sender.sendP25LDU1Frame(hostPeerId, nextStream, 500U, 1301U, 2301U));
+    REQUIRE(sender.sendP25LDU2Frame(hostPeerId, nextStream, 501U, 1301U, 2301U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::p25NetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::p25NetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxP25StreamId() == nextStream);
 }
 
 TEST_CASE("P25 host e2e loopback enforces stream lock until active stream terminates", "[p25][host][control][net][e2e]")
@@ -605,7 +669,7 @@ TEST_CASE("P25 host e2e loopback enforces stream lock until active stream termin
     const uint32_t streamB = 0x500102U;
 
     P25HostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 6008U);
+    P25TestNetwork sender(senderPort, 6008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));

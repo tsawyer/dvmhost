@@ -1021,10 +1021,10 @@ void Control::clock()
         m_rfCallTermSrcId = 0U;
     }
 
-    if (m_netState == RS_NET_AUDIO || m_netState == RS_NET_DATA) {
+    if (m_networkWatchdog.isRunning()) {
         m_networkWatchdog.clock(ms);
 
-        if (m_networkWatchdog.isRunning() && m_networkWatchdog.hasExpired()) {
+        if (m_networkWatchdog.hasExpired()) {
             if (m_netState == RS_NET_AUDIO) {
                 if (m_voice->m_netFrames > 0.0F) {
                     ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
@@ -1475,6 +1475,8 @@ void Control::processNetwork()
         m_network->resetP25();
         return;
     }
+
+    m_networkWatchdog.start();
 
     if (duid == DUID::PDU) {
         frameLength = length;

@@ -166,12 +166,12 @@ void buildDMRVoiceSyncPayload(uint8_t* payload)
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class DMRTestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the DMRTestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~DMRTestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -213,18 +213,22 @@ public:
 /**
  * @brief Lightweight network test double that records DMR reset calls.
  */
-class TestNetwork final : public network::Network {
+class DMRTestNetwork final : public network::Network {
 public:
     /**
-     * @brief Initializes a new instance of the TestNetwork class.
+     * @brief Initializes a new instance of the DMRTestNetwork class.
      * @param localPort The local port number.
      * @param peerId The peer ID.
      */
-    TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
+    DMRTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, true, false, false, false, true, true, false, false, false, false),
         m_resetDMRCount(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = true;
+        m_p25Enabled = false;
+        m_nxdnEnabled = false;
+        m_analogEnabled = false;
     }
 
     /**
@@ -388,14 +392,14 @@ public:
      */
     explicit DMRHostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new DMRTestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 4096U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
         m_tidLookup("", 0U, false, false),
         m_idenLookup("", 0U),
         m_rssiMapper(),
-        m_network(withNetwork ? new TestNetwork(networkLocalPort, networkPeerId) : nullptr),
+        m_network(withNetwork ? new DMRTestNetwork(networkLocalPort, networkPeerId) : nullptr),
         m_control(nullptr)
     {
         g_RPC = &m_rpc;
@@ -415,7 +419,7 @@ public:
         g_RPC = nullptr;
     }
 
-    TestNetwork* network() const
+    DMRTestNetwork* network() const
     {
         return m_network;
     }
@@ -428,7 +432,7 @@ public:
     lookups::TalkgroupRulesLookup m_tidLookup;
     lookups::IdenTableLookup m_idenLookup;
     lookups::RSSIInterpolator m_rssiMapper;
-    TestNetwork* m_network;
+    DMRTestNetwork* m_network;
     dmr::Control* m_control;
 };
 
@@ -444,7 +448,7 @@ TEST_CASE("DMR host e2e loopback handles missed frames without dropping active c
     const uint32_t streamId = 0x610001U;
 
     DMRHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 7002U);
+    DMRTestNetwork sender(senderPort, 7002U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
@@ -493,7 +497,7 @@ TEST_CASE("DMR host e2e loopback handles dropped call terminator and returns idl
     const uint32_t streamId = 0x610002U;
 
     DMRHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 7004U);
+    DMRTestNetwork sender(senderPort, 7004U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
@@ -540,7 +544,7 @@ TEST_CASE("DMR host e2e loopback times out stale call and resets stream state", 
     const uint32_t streamId = 0x610003U;
 
     DMRHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 7006U);
+    DMRTestNetwork sender(senderPort, 7006U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
@@ -582,7 +586,7 @@ TEST_CASE("DMR host e2e loopback enforces stream lock until active stream termin
     const uint32_t streamB = 0x610102U;
 
     DMRHostHarness harness(true, true, hostPort, hostPeerId);
-    TestNetwork sender(senderPort, 7008U);
+    DMRTestNetwork sender(senderPort, 7008U);
 
     REQUIRE(harness.network() != nullptr);
     REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
