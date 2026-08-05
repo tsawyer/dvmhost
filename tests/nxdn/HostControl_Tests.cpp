@@ -583,3 +583,39 @@ TEST_CASE("NXDN processFrame accepts a synthetic RF voice call", "[nxdn][host][c
     REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId() == 2001U);
 }
+
+TEST_CASE("NXDN rfTGHang expiry ends active RF call and returns to listening", "[nxdn][host][control][rf]")
+{
+    NXDNHostHarness harness;
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1001U, 2001U));
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).start();
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnRFTGHang(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFTGHang(*harness.m_control).isRunning());
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+}
+
+TEST_CASE("NXDN rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[nxdn][host][control][rf]")
+{
+    NXDNHostHarness harness;
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1101U, 2101U));
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1101U, 2101U));
+    REQUIRE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+
+    HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+}

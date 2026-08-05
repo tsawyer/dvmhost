@@ -935,3 +935,52 @@ TEST_CASE("P25 processFrame accepts calibration-based RF LDU2 frame after LDU1",
     REQUIRE(harness.m_control->getLastSrcId() == 1U);
     REQUIRE(harness.m_control->getLastDstId() == 1U);
 }
+
+TEST_CASE("P25 rfTGHang expiry ends active RF call and returns to listening", "[p25][host][control][rf]")
+{
+    P25HostHarness harness;
+    harness.m_control->reset();
+
+    uint8_t ldu1[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    buildP25RFFrame(CAL_P25_LDU1_1K, ldu1);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu1, p25::defines::DUID::LDU1);
+
+    REQUIRE(harness.m_control->processFrame(ldu1, sizeof(ldu1)));
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::p25RFTGHang(*harness.m_control).start();
+    HostTestHooks::p25RFTGHang(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25RFTGHang(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::p25RFTGHang(*harness.m_control).isRunning());
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+}
+
+TEST_CASE("P25 rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[p25][host][control][rf]")
+{
+    P25HostHarness harness;
+    harness.m_control->reset();
+
+    uint8_t ldu1[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    uint8_t ldu2[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    buildP25RFFrame(CAL_P25_LDU1_1K, ldu1);
+    buildP25RFFrame(CAL_P25_LDU2_1K, ldu2);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu1, p25::defines::DUID::LDU1);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu2, p25::defines::DUID::LDU2);
+
+    REQUIRE(harness.m_control->processFrame(ldu1, sizeof(ldu1)));
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::p25RFTGHang(*harness.m_control).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+
+    REQUIRE(harness.m_control->processFrame(ldu2, sizeof(ldu2)));
+    REQUIRE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+
+    HostTestHooks::p25RFLossWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25RFLossWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+}

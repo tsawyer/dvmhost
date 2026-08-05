@@ -774,3 +774,41 @@ TEST_CASE("DMR processFrame accepts a synthetic RF voice call on the targeted sl
     REQUIRE(HostTestHooks::dmrRFState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId(1U) == 2001U);
 }
+
+TEST_CASE("DMR rfTGHang expiry ends active RF call and returns slot to listening", "[dmr][host][control][rf]")
+{
+    DMRHostHarness harness;
+    dmr::Slot* slot = HostTestHooks::dmrSlot1(*harness.m_control);
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1001U, 2001U));
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_AUDIO);
+
+    HostTestHooks::dmrRFTGHang(*slot).start();
+    HostTestHooks::dmrRFTGHang(*slot).clock(expireTimerTicks(HostTestHooks::dmrRFTGHang(*slot)));
+    slot->clock();
+
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::dmrRFTGHang(*slot).isRunning());
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+}
+
+TEST_CASE("DMR rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[dmr][host][control][rf]")
+{
+    DMRHostHarness harness;
+    dmr::Slot* slot = HostTestHooks::dmrSlot1(*harness.m_control);
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1101U, 2101U));
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_AUDIO);
+
+    HostTestHooks::dmrRFTGHang(*slot).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1101U, 2101U));
+    REQUIRE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+
+    HostTestHooks::dmrRFLossWatchdog(*slot).clock(expireTimerTicks(HostTestHooks::dmrRFLossWatchdog(*slot)));
+    slot->clock();
+
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+}
