@@ -167,6 +167,50 @@ void MetadataNetwork::close()
 //  Private Class Members
 // ---------------------------------------------------------------------------
 
+/* Finds a packet buffer entry in the map. */
+
+MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findPacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId)
+{
+    pktMap.lock(false);
+
+    auto it = pktMap.find(peerId);
+    PacketBufferEntryPtr pkt = (it != pktMap.end()) ? it->second : nullptr;
+
+    pktMap.unlock();
+    return pkt;
+}
+
+/* Finds or creates a packet buffer entry in the map. */
+
+MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findOrCreatePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId, const char* name, uint32_t streamId)
+{
+    pktMap.lock(false);
+
+    auto& entries = pktMap.get();
+    auto it = entries.find(peerId);
+    if (it == entries.end()) {
+        PacketBufferEntryPtr pkt = std::make_shared<PacketBufferEntry>();
+        pkt->buffer = std::make_unique<PacketBuffer>(true, name);
+        pkt->streamId = streamId;
+
+        it = entries.insert({ peerId, pkt }).first;
+    }
+
+    PacketBufferEntryPtr pkt = it->second;
+
+    pktMap.unlock();
+    return pkt;
+}
+
+/* Erases a packet buffer entry from the map. */
+
+void MetadataNetwork::erasePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId)
+{
+    pktMap.lock(false);
+    pktMap.get().erase(peerId);
+    pktMap.unlock();
+}
+
 /* Process a data frames from the network. */
 
 void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
@@ -1039,12 +1083,12 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                 }
                             }
 
-                            mdNetwork->m_peerKeyUpdatePkt.insert(peerId, MetadataNetwork::PacketBufferEntry());
-                            MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerKeyUpdatePkt[peerId];
-                            pkt.buffer = new PacketBuffer(true, "Remote EKC, Key Update");
-                            pkt.streamId = streamId;
-                            pkt.locked = false;
-                            pkt.timeout = 0U;
+                            PacketBufferEntryPtr pkt = findOrCreatePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId, "Remote EKC, Key Update", streamId);
+                            if (pkt == nullptr || !pkt->buffer) {
+                                LogError(LOG_REPL, "PEER %u Remote EKC, Key Update, failed to initialize packet buffer", peerId);
+                                erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
+                                break;
+                            }
 
                             LogInfoEx(LOG_REPL, "PEER %u Remote EKC, Key Update, authenticated transfer streamId = %u", peerId, streamId);
                             break;
@@ -1062,45 +1106,44 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
 
                             // Utils::dump(1U, "MetadataNetwork::taskNetworkRx(), KEYS_UPDATE, Raw Payload", rawPayload, req->length);
 
-                            MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerKeyUpdatePkt[peerId];
-                            if (!pkt.locked && pkt.streamId != streamId) {
-                                LogError(LOG_REPL, "PEER %u Remote EKC, Key Update, stream ID mismatch, expected %u, got %u", peerId, pkt.streamId, streamId);
-                                pkt.buffer->clear();
-                                delete pkt.buffer;
-                                pkt.streamId = 0U;
-                                mdNetwork->m_peerKeyUpdatePkt.erase(peerId);
+                            PacketBufferEntryPtr pkt = findPacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
+                            if (pkt == nullptr || !pkt->buffer) {
                                 break;
                             }
 
-                            if (pkt.streamId != streamId) {
-                                // otherwise drop the packet
+                            std::unique_lock<std::mutex> pktLock(pkt->mutex, std::defer_lock);
+                            uint32_t timeout = 0U;
+                            while (!pktLock.try_lock() && timeout < TIMEOUT_MAX_REPL) {
+                                timeout++;
+                                Thread::sleep(1U);
+                            }
+
+                            if (!pktLock.owns_lock()) {
+                                LogError(LOG_STP, "PEER %u Remote EKC, Key Update, timeout waiting for packet buffer to unlock", peerId);
+                                if (pkt->buffer) {
+                                    pkt->buffer->clear();
+                                    pkt->buffer.reset();
+                                }
+                                pkt->streamId = 0U;
+                                erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
                                 break;
                             }
 
-                            if (pkt.locked) {
-                                while (pkt.locked && pkt.timeout < TIMEOUT_MAX_REPL) {
-                                    pkt.timeout++;
-                                    Thread::sleep(1U);
+                            if (pkt->streamId != streamId) {
+                                LogError(LOG_REPL, "PEER %u Remote EKC, Key Update, stream ID mismatch, expected %u, got %u", peerId, pkt->streamId, streamId);
+                                if (pkt->buffer) {
+                                    pkt->buffer->clear();
+                                    pkt->buffer.reset();
                                 }
-
-                                if (pkt.timeout >= TIMEOUT_MAX_REPL) {
-                                    LogError(LOG_STP, "PEER %u Remote EKC, Key Update, timeout waiting for packet buffer to unlock", peerId);
-                                    pkt.buffer->clear();
-                                    delete pkt.buffer;
-                                    pkt.streamId = 0U;
-                                    mdNetwork->m_peerKeyUpdatePkt.erase(peerId);
-                                    break;
-                                }
+                                pkt->streamId = 0U;
+                                erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
+                                break;
                             }
-
-                            pkt.locked = true;
-                            pkt.timeout = 0U;
 
                             uint32_t decompressedLen = 0U;
                             uint8_t* decompressed = nullptr;
 
-                            if (pkt.buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
-                                mdNetwork->m_peerKeyUpdatePkt.lock();
+                            if (pkt->buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
                                 std::ostringstream s;
                                 s << network->m_cryptoLookup->filename();
 
@@ -1108,14 +1151,13 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                 std::ofstream file(filename, std::ofstream::out);
                                 if (file.fail()) {
                                     LogError(LOG_PEER, "Cannot open the crypto container file - %s", filename.c_str());
-                                    pkt.buffer->clear();
-                                    delete pkt.buffer;
-                                    pkt.streamId = 0U;
+                                    pkt->buffer->clear();
+                                    pkt->buffer.reset();
+                                    pkt->streamId = 0U;
                                     if (decompressed != nullptr) {
                                         delete[] decompressed;
                                     }
-                                    mdNetwork->m_peerKeyUpdatePkt.unlock();
-                                    mdNetwork->m_peerKeyUpdatePkt.erase(peerId);
+                                    erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
                                     break;
                                 }
 
@@ -1128,16 +1170,13 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                 network->m_cryptoLookup->stop(true);
                                 network->m_cryptoLookup->reload();
 
-                                pkt.buffer->clear();
-                                delete pkt.buffer;
-                                pkt.streamId = 0U;
+                                pkt->buffer->clear();
+                                pkt->buffer.reset();
+                                pkt->streamId = 0U;
                                 if (decompressed != nullptr) {
                                     delete[] decompressed;
                                 }
-                                mdNetwork->m_peerKeyUpdatePkt.unlock();
-                                mdNetwork->m_peerKeyUpdatePkt.erase(peerId);
-                            } else {
-                                pkt.locked = false;
+                                erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
                             }
                         }
                     }
@@ -1159,54 +1198,44 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
 
                                 // Utils::dump(1U, "MetadataNetwork::taskNetworkRx(), REPL_ACT_PEER_LIST, Raw Payload", rawPayload, req->length);
 
-                                if (mdNetwork->m_peerReplicaActPkt.find(peerId) == mdNetwork->m_peerReplicaActPkt.end()) {
-                                    mdNetwork->m_peerReplicaActPkt.insert(peerId, MetadataNetwork::PacketBufferEntry());
-
-                                    MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerReplicaActPkt[peerId];
-                                    pkt.buffer = new PacketBuffer(true, "Peer Replication, Active Peer List");
-                                    pkt.streamId = streamId;
-
-                                    pkt.locked = false;
-                                } else {
-                                    MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerReplicaActPkt[peerId];
-                                    if (!pkt.locked && pkt.streamId != streamId) {
-                                        LogError(LOG_REPL, "PEER %u (%s) Peer Replication, Active Peer List, stream ID mismatch, expected %u, got %u", peerId,
-                                            connection->identWithQualifier().c_str(), pkt.streamId, streamId);
-                                        pkt.buffer->clear();
-                                        pkt.streamId = streamId;
-                                    }
-
-                                    if (pkt.streamId != streamId) {
-                                        // otherwise drop the packet
-                                        break;
-                                    }
+                                PacketBufferEntryPtr pkt = findOrCreatePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId, "Peer Replication, Active Peer List", streamId);
+                                if (pkt == nullptr || !pkt->buffer) {
+                                    LogError(LOG_REPL, "PEER %u (%s) Peer Replication, Active Peer List, failed to initialize packet buffer", peerId,
+                                        connection->identWithQualifier().c_str());
+                                    erasePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId);
+                                    break;
                                 }
 
-                                MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerReplicaActPkt[peerId];
-                                if (pkt.locked) {
-                                    while (pkt.locked && pkt.timeout < TIMEOUT_MAX_REPL) {
-                                        pkt.timeout++;
-                                        Thread::sleep(1U);
-                                    }
-
-                                    if (pkt.timeout >= TIMEOUT_MAX_REPL) {
-                                        LogError(LOG_STP, "PEER %u (%s) Peer Replication, Active Peer List, timeout waiting for packet buffer to unlock", peerId,
-                                            connection->identWithQualifier().c_str());
-                                        pkt.buffer->clear();
-                                        pkt.streamId = 0U;
-                                        mdNetwork->m_peerReplicaActPkt.erase(peerId);
-                                        break;
-                                    }
+                                std::unique_lock<std::mutex> pktLock(pkt->mutex, std::defer_lock);
+                                uint32_t timeout = 0U;
+                                while (!pktLock.try_lock() && timeout < TIMEOUT_MAX_REPL) {
+                                    timeout++;
+                                    Thread::sleep(1U);
                                 }
 
-                                pkt.locked = true;
-                                pkt.timeout = 0U;
+                                if (!pktLock.owns_lock()) {
+                                    LogError(LOG_STP, "PEER %u (%s) Peer Replication, Active Peer List, timeout waiting for packet buffer to unlock", peerId,
+                                        connection->identWithQualifier().c_str());
+                                    if (pkt->buffer) {
+                                        pkt->buffer->clear();
+                                        pkt->buffer.reset();
+                                    }
+                                    pkt->streamId = 0U;
+                                    erasePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId);
+                                    break;
+                                }
+
+                                if (pkt->streamId != streamId) {
+                                    LogError(LOG_REPL, "PEER %u (%s) Peer Replication, Active Peer List, stream ID mismatch, expected %u, got %u", peerId,
+                                        connection->identWithQualifier().c_str(), pkt->streamId, streamId);
+                                    pkt->buffer->clear();
+                                    pkt->streamId = streamId;
+                                }
 
                                 uint32_t decompressedLen = 0U;
                                 uint8_t* decompressed = nullptr;
 
-                                if (pkt.buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
-                                    mdNetwork->m_peerReplicaActPkt.lock();
+                                if (pkt->buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
                                     std::string payload(decompressed + 8U, decompressed + decompressedLen);
 
                                     // parse JSON body
@@ -1214,27 +1243,26 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                     std::string err = json::parse(v, payload);
                                     if (!err.empty()) {
                                         LogError(LOG_REPL, "PEER %u (%s) error parsing active peer list, %s", peerId, connection->identWithQualifier().c_str(), err.c_str());
-                                        pkt.buffer->clear();
-                                        pkt.streamId = 0U;
+                                        pkt->buffer->clear();
+                                        pkt->buffer.reset();
+                                        pkt->streamId = 0U;
                                         if (decompressed != nullptr) {
                                             delete[] decompressed;
                                         }
-                                        mdNetwork->m_peerReplicaActPkt.unlock();
-                                        mdNetwork->m_peerReplicaActPkt.erase(peerId);
+                                        erasePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId);
                                         break;
                                     }
                                     else  {
                                         // ensure parsed JSON is an array
                                         if (!v.is<json::array>()) {
                                             LogError(LOG_REPL, "PEER %u (%s) error parsing active peer list, data was not valid", peerId, connection->identWithQualifier().c_str());
-                                            pkt.buffer->clear();
-                                            delete pkt.buffer;
-                                            pkt.streamId = 0U;
+                                            pkt->buffer->clear();
+                                            pkt->buffer.reset();
+                                            pkt->streamId = 0U;
                                             if (decompressed != nullptr) {
                                                 delete[] decompressed;
                                             }
-                                            mdNetwork->m_peerReplicaActPkt.unlock();
-                                            mdNetwork->m_peerReplicaActPkt.erase(peerId);
+                                            erasePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId);
                                             break;
                                         }
                                         else {
@@ -1244,16 +1272,13 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                         }
                                     }
 
-                                    pkt.buffer->clear();
-                                    delete pkt.buffer;
-                                    pkt.streamId = 0U;
+                                    pkt->buffer->clear();
+                                    pkt->buffer.reset();
+                                    pkt->streamId = 0U;
                                     if (decompressed != nullptr) {
                                         delete[] decompressed;
                                     }
-                                    mdNetwork->m_peerReplicaActPkt.unlock();
-                                    mdNetwork->m_peerReplicaActPkt.erase(peerId);
-                                } else {
-                                    pkt.locked = false;
+                                    erasePacketBufferEntry(mdNetwork->m_peerReplicaActPkt, peerId);
                                 }
                             }
                             else {
@@ -1360,54 +1385,44 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
 
                                 // Utils::dump(1U, "MetadataNetwork::taskNetworkRx(), NET_TREE_LIST, Raw Payload", rawPayload, req->length);
 
-                                if (mdNetwork->m_peerTreeListPkt.find(peerId) == mdNetwork->m_peerTreeListPkt.end()) {
-                                    mdNetwork->m_peerTreeListPkt.insert(peerId, MetadataNetwork::PacketBufferEntry());
-
-                                    MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerTreeListPkt[peerId];
-                                    pkt.buffer = new PacketBuffer(true, "Network Tree, Tree List");
-                                    pkt.streamId = streamId;
-
-                                    pkt.locked = false;
-                                } else {
-                                    MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerTreeListPkt[peerId];
-                                    if (!pkt.locked && pkt.streamId != streamId) {
-                                        LogError(LOG_STP, "PEER %u (%s) Network Tree, Tree List, stream ID mismatch, expected %u, got %u", peerId,
-                                            connection->identWithQualifier().c_str(), pkt.streamId, streamId);
-                                        pkt.buffer->clear();
-                                        pkt.streamId = streamId;
-                                    }
-
-                                    if (pkt.streamId != streamId) {
-                                        // otherwise drop the packet
-                                        break;
-                                    }
+                                PacketBufferEntryPtr pkt = findOrCreatePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId, "Network Tree, Tree List", streamId);
+                                if (pkt == nullptr || !pkt->buffer) {
+                                    LogError(LOG_STP, "PEER %u (%s) Network Tree, Tree List, failed to initialize packet buffer", peerId,
+                                        connection->identWithQualifier().c_str());
+                                    erasePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId);
+                                    break;
                                 }
 
-                                MetadataNetwork::PacketBufferEntry& pkt = mdNetwork->m_peerTreeListPkt[peerId];
-                                if (pkt.locked) {
-                                    while (pkt.locked && pkt.timeout < TIMEOUT_MAX_REPL) {
-                                        pkt.timeout++;
-                                        Thread::sleep(1U);
-                                    }
-
-                                    if (pkt.timeout >= TIMEOUT_MAX_REPL) {
-                                        LogError(LOG_STP, "PEER %u (%s) Network Tree, Tree List, timeout waiting for packet buffer to unlock", peerId,
-                                            connection->identWithQualifier().c_str());
-                                        pkt.buffer->clear();
-                                        pkt.streamId = 0U;
-                                        mdNetwork->m_peerTreeListPkt.erase(peerId);
-                                        break;
-                                    }
+                                std::unique_lock<std::mutex> pktLock(pkt->mutex, std::defer_lock);
+                                uint32_t timeout = 0U;
+                                while (!pktLock.try_lock() && timeout < TIMEOUT_MAX_REPL) {
+                                    timeout++;
+                                    Thread::sleep(1U);
                                 }
 
-                                pkt.locked = true;
-                                pkt.timeout = 0U;
+                                if (!pktLock.owns_lock()) {
+                                    LogError(LOG_STP, "PEER %u (%s) Network Tree, Tree List, timeout waiting for packet buffer to unlock", peerId,
+                                        connection->identWithQualifier().c_str());
+                                    if (pkt->buffer) {
+                                        pkt->buffer->clear();
+                                        pkt->buffer.reset();
+                                    }
+                                    pkt->streamId = 0U;
+                                    erasePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId);
+                                    break;
+                                }
+
+                                if (pkt->streamId != streamId) {
+                                    LogError(LOG_STP, "PEER %u (%s) Network Tree, Tree List, stream ID mismatch, expected %u, got %u", peerId,
+                                        connection->identWithQualifier().c_str(), pkt->streamId, streamId);
+                                    pkt->buffer->clear();
+                                    pkt->streamId = streamId;
+                                }
 
                                 uint32_t decompressedLen = 0U;
                                 uint8_t* decompressed = nullptr;
 
-                                if (pkt.buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
-                                    mdNetwork->m_peerTreeListPkt.lock();
+                                if (pkt->buffer->decode(rawPayload, &decompressed, &decompressedLen)) {
                                     std::string payload(decompressed + 8U, decompressed + decompressedLen);
 
                                     // parse JSON body
@@ -1415,27 +1430,26 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                     std::string err = json::parse(v, payload);
                                     if (!err.empty()) {
                                         LogError(LOG_STP, "PEER %u (%s) error parsing network tree list, %s", peerId, connection->identWithQualifier().c_str(), err.c_str());
-                                        pkt.buffer->clear();
-                                        pkt.streamId = 0U;
+                                        pkt->buffer->clear();
+                                        pkt->buffer.reset();
+                                        pkt->streamId = 0U;
                                         if (decompressed != nullptr) {
                                             delete[] decompressed;
                                         }
-                                        mdNetwork->m_peerTreeListPkt.unlock();
-                                        mdNetwork->m_peerTreeListPkt.erase(peerId);
+                                        erasePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId);
                                         break;
                                     }
                                     else  {
                                         // ensure parsed JSON is an array
                                         if (!v.is<json::array>()) {
                                             LogError(LOG_STP, "PEER %u (%s) error parsing network tree list, data was not valid", peerId, connection->identWithQualifier().c_str());
-                                            pkt.buffer->clear();
-                                            delete pkt.buffer;
-                                            pkt.streamId = 0U;
+                                            pkt->buffer->clear();
+                                            pkt->buffer.reset();
+                                            pkt->streamId = 0U;
                                             if (decompressed != nullptr) {
                                                 delete[] decompressed;
                                             }
-                                            mdNetwork->m_peerTreeListPkt.unlock();
-                                            mdNetwork->m_peerTreeListPkt.erase(peerId);
+                                            erasePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId);
                                             break;
                                         }
                                         else {
@@ -1459,16 +1473,13 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                                         }
                                     }
 
-                                    pkt.buffer->clear();
-                                    delete pkt.buffer;
-                                    pkt.streamId = 0U;
+                                    pkt->buffer->clear();
+                                    pkt->buffer.reset();
+                                    pkt->streamId = 0U;
                                     if (decompressed != nullptr) {
                                         delete[] decompressed;
                                     }
-                                    mdNetwork->m_peerTreeListPkt.unlock();
-                                    mdNetwork->m_peerTreeListPkt.erase(peerId);
-                                } else {
-                                    pkt.locked = false;
+                                    erasePacketBufferEntry(mdNetwork->m_peerTreeListPkt, peerId);
                                 }
                             }
                             else {
