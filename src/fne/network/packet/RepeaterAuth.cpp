@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Digital Voice Modem - Converged FNE Software
+ * GPLv2 Open Source. Use is subject to license terms.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
+ *
+ */
+#include "fne/Defines.h"
+#include "common/edac/SHA256.h"
+#include "common/Log.h"
+#include "network/TrafficNetwork.h"
+#include "fne/ActivityLog.h"
+#include "HostFNE.h"
+
+using namespace network;
+
+// ---------------------------------------------------------------------------
+//  Public Class Members
+// ---------------------------------------------------------------------------
+
+/* Handles NET_FUNC::RPTK packets. */
+
+void TrafficNetwork::PacketHandler::repeaterAuth(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now)
+{
+    if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+        std::lock_guard<std::mutex> peerGuard(TrafficNetwork::getPeerStateLock(peerId));
+
+        FNEPeerConnection* connection = network->m_peers[peerId];
+        if (connection != nullptr) {
+            connection->lastPing(now);
+
+            if (connection->connectionState() == NET_STAT_WAITING_AUTHORISATION) {
+                // get the hash from the frame message
+                DECLARE_UINT8_ARRAY(hash, req->length - 8U);
+                ::memcpy(hash, req->buffer + 8U, req->length - 8U);
+
+                // generate our own hash
+                uint8_t salt[4U];
+                ::memset(salt, 0x00U, 4U);
+                SET_UINT32(connection->salt(), salt, 0U);
+
+                std::string passwordForPeer = network->m_password;
+
+                // check if the peer is in the peer ACL list
+                bool validAcl = true;
+                if (network->m_peerListLookup->getACL()) {
+                    if (!network->m_peerListLookup->isPeerAllowed(peerId) && !network->m_peerListLookup->isPeerListEmpty()) {
+                        LogWarning(LOG_MASTER, "PEER %u RPTK, failed peer ACL check", peerId);
+                        validAcl = false;
+                    } else {
+                        lookups::PeerId peerEntry = network->m_peerListLookup->find(peerId);
+                        if (peerEntry.peerDefault()) {
+                            validAcl = false; // default peer IDs are a no-no as they have no data thus fail ACL check
+                        } else {
+                            passwordForPeer = peerEntry.peerPassword();
+                            if (passwordForPeer.length() == 0) {
+                                passwordForPeer = network->m_password;
+                            }
+                        }
+                    }
+
+                    if (network->m_peerListLookup->isPeerListEmpty()) {
+                        LogWarning(LOG_MASTER, "Peer List ACL enabled, but we have an empty peer list? Passing all peers.");
+                        validAcl = true;
+                    }
+                }
+
+                if (validAcl) {
+                    size_t size = passwordForPeer.size();
+                    uint8_t* in = new uint8_t[size + sizeof(uint32_t)];
+                    ::memcpy(in, salt, sizeof(uint32_t));
+                    for (size_t i = 0U; i < size; i++)
+                        in[i + sizeof(uint32_t)] = passwordForPeer.at(i);
+
+                    uint8_t out[32U];
+                    edac::SHA256 sha256;
+                    sha256.buffer(in, (uint32_t)(size + sizeof(uint32_t)), out);
+
+                    delete[] in;
+
+                    // validate hash
+                    bool validHash = false;
+                    if (req->length - 8U == 32U) {
+                        validHash = true;
+                        for (uint8_t i = 0; i < 32U; i++) {
+                            if (hash[i] != out[i]) {
+                                validHash = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (validHash) {
+                        connection->connectionState(NET_STAT_WAITING_CONFIG);
+                        network->writePeerACK(peerId, streamId);
+                        LogInfoEx(LOG_MASTER, "PEER %u RPTK ACK, completed the login exchange", peerId);
+                        network->m_peers[peerId] = connection;
+                    }
+                    else {
+                        LogWarning(LOG_MASTER, "PEER %u RPTK NAK, failed the login exchange", peerId);
+                        network->writePeerNAK(peerId, TAG_REPEATER_AUTH, NET_CONN_NAK_FNE_UNAUTHORIZED, req->address, req->addrLen);
+                        network->disconnectPeer(peerId, connection);
+                    }
+                } else {
+                    network->writePeerNAK(peerId, TAG_REPEATER_AUTH, NET_CONN_NAK_PEER_ACL, req->address, req->addrLen);
+                    network->disconnectPeer(peerId, connection);
+                }
+            }
+            else {
+                // perform source address/port validation
+                if (connection->address() != udp::Socket::address(req->address) ||
+                    connection->port() != udp::Socket::port(req->address)) {
+                    LogError(LOG_MASTER, "PEER %u RPTK NAK, IP address/port mismatch on RPTK attempt while in an incorrect state, old = %s:%u, new = %s:%u, connectionState = %u", peerId,
+                        connection->address().c_str(), connection->port(), udp::Socket::address(req->address).c_str(), udp::Socket::port(req->address), connection->connectionState());
+
+                    network->writePeerNAK(peerId, TAG_REPEATER_LOGIN, NET_CONN_NAK_FNE_UNAUTHORIZED, req->address, req->addrLen);
+                    return;
+                }
+
+                LogWarning(LOG_MASTER, "PEER %u RPTK NAK, login exchange while in an incorrect state, connectionState = %u", peerId, connection->connectionState());
+                network->writePeerNAK(peerId, TAG_REPEATER_AUTH, NET_CONN_NAK_BAD_CONN_STATE, req->address, req->addrLen);
+                network->disconnectPeer(peerId, connection);
+            }
+        }
+    }
+    else {
+        network->writePeerNAK(peerId, TAG_REPEATER_AUTH, NET_CONN_NAK_BAD_CONN_STATE, req->address, req->addrLen);
+        network->erasePeer(peerId);
+        LogWarning(LOG_MASTER, "PEER %u RPTK NAK, having no connection", peerId);
+    }
+}

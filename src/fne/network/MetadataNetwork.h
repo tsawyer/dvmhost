@@ -35,6 +35,12 @@ class HOST_SW_API HostFNE;
 namespace network
 {
     // ---------------------------------------------------------------------------
+    //  Constants
+    // ---------------------------------------------------------------------------
+
+    const uint32_t TIMEOUT_MAX_REPL = 5000U; // 5 seconds
+
+    // ---------------------------------------------------------------------------
     //  Class Declaration
     // ---------------------------------------------------------------------------
 
@@ -160,6 +166,78 @@ namespace network
          * @param peerId Peer ID of the packet buffer entry.
          */
         static void erasePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId);
+
+        using PacketHandlerFunc = void (*)(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+        /**
+         * @brief Implements the packet handler functions for the MetadataNetwork class.
+         */
+        class PacketHandler {
+        public:
+            /**
+             * @brief Handles NET_FUNC::TRANSFER packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void transfer(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+            /**
+             * @brief Handles NET_FUNC::ANNOUNCE packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void announce(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+            /**
+             * @brief Handles NET_FUNC::KEYS_INVENTORY packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void keysInventory(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+            /**
+             * @brief Handles NET_FUNC::KEYS_UPDATE packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void keysUpdate(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+            /**
+             * @brief Handles NET_FUNC::REPL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void replication(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+            /**
+             * @brief Handles NET_FUNC::NET_TREE packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void networkTree(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+        };
 
         /**
          * @brief Entry point to process a given network packet.

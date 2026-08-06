@@ -48,6 +48,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <array>
 
 // ---------------------------------------------------------------------------
 //  Class Prototypes
@@ -94,6 +95,9 @@ namespace network
     #define INFLUXDB_ERRSTR_RID_NOT_PERMITTED "RID not permitted for talkgroup"
     #define INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS "illegal/unknown RID attempted access"
     #define INFLUXDB_ERRSTR_CALL_NOT_PERMITTED "call not permitted for talkgroup"
+
+    const uint32_t MAX_HARD_CONN_CAP = 250U;
+    const size_t PEER_STATE_LOCK_STRIPES = 256U;
 
     // ---------------------------------------------------------------------------
     //  Class Prototypes
@@ -452,12 +456,139 @@ namespace network
         bool m_reportPeerPing;
         bool m_verbose;
 
+        static std::array<std::mutex, PEER_STATE_LOCK_STRIPES> s_peerStateLocks;
+
+        /**
+         * @brief Gets the mutex for a specific peer ID.
+         * @param peerId The ID of the peer.
+         * @return A reference to the mutex associated with the peer ID.
+         */
+        static std::mutex& getPeerStateLock(uint32_t peerId)
+        {
+            return s_peerStateLocks[peerId % PEER_STATE_LOCK_STRIPES];
+        }
+
         /**
          * @brief Entry point to parrot handler thread.
          * @param arg Instance of the thread_t structure.
          * @returns void* (Ignore)
          */
         static void* threadParrotHandler(void* arg);
+
+        using PacketHandlerFunc = void (*)(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+        /**
+         * @brief Implements the packet handler functions for the MetadataNetwork class.
+         */
+        class PacketHandler {
+        public:
+            /**
+             * @brief Handles NET_FUNC::PROTOCOL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void protocol(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::RPTL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void repeaterLogin(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+            /**
+             * @brief Handles NET_FUNC::RPTK packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void repeaterAuth(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+            /**
+             * @brief Handles NET_FUNC::RPTC packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void repeaterConfig(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+            /**
+             * @brief Handles NET_FUNC::RPT_DISC packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void repeaterDisconnect(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::PING packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void ping(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::GRANT_REQ packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void grantRequest(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::INCALL_CTRL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void inCallControl(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+
+            /**
+             * @brief Handles NET_FUNC::KEY_REQ packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void keyRequest(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+            /**
+             * @brief Handles NET_FUNC::KEY_LLA_REQ packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID.
+             * @param ssrc RTP synchronization source ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             */
+            static void llaKeyRequest(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
+        };
+
         /**
          * @brief Entry point to process a given network packet.
          * @param req Instance of the NetPacketRequest structure.
