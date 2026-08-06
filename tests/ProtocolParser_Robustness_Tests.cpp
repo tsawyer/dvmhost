@@ -30,7 +30,16 @@ using namespace nxdn::channel;
 using namespace p25::defines;
 using namespace p25::lc::tsbk;
 
+// ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
 namespace {
+
+/**
+ * @brief Generate a pseudo-random number using xorshift32.
+ * @param state Reference to the current state of the random number generator.
+ * @returns uint32_t Pseudo-random number.
+ */
 uint32_t nextRand(uint32_t& state)
 {
     // Deterministic xorshift32 for reproducible fuzz vectors.
@@ -40,12 +49,19 @@ uint32_t nextRand(uint32_t& state)
     return state;
 }
 
+/**
+ * @brief Fill a buffer with pseudo-random data.
+ * @param buffer Pointer to the buffer to fill.
+ * @param len Length of the buffer in bytes.
+ * @param state Reference to the current state of the random number generator.
+ */
 void fillPseudoRandom(uint8_t* buffer, uint32_t len, uint32_t& state)
 {
     for (uint32_t i = 0U; i < len; ++i) {
         buffer[i] = static_cast<uint8_t>(nextRand(state) & 0xFFU);
     }
 }
+
 } // namespace
 
 TEST_CASE("Parsers tolerate malformed inputs without throwing", "[robustness][fuzz][parser]")

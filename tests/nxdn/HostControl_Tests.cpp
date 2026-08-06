@@ -98,7 +98,7 @@ uint16_t reserveLoopbackPort()
     return ntohs(address.sin_port);
 }
 
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
 //  Class Declaration

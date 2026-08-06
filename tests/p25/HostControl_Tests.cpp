@@ -142,7 +142,7 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
     ::memcpy(frame + 2U, payload, p25::defines::P25_LDU_FRAME_LENGTH_BYTES);
 }
 
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
 //  Class Declaration

@@ -157,7 +157,7 @@ void buildDMRVoiceSyncPayload(uint8_t* payload)
     dmr::Sync::addDMRAudioSync(payload, false);
 }
 
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
 //  Class Declaration
