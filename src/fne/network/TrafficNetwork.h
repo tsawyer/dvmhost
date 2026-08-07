@@ -43,6 +43,8 @@
 #include "fne/network/HAParameters.h"
 #include "fne/CryptoContainer.h"
 
+#include "fne/sqlite3/sqlite3.h"
+
 #include <string>
 #include <cstdint>
 #include <unordered_map>
@@ -404,14 +406,20 @@ namespace network
         bool m_disallowU2U;
         std::vector<uint32_t> m_dropU2UPeerTable;
 
+        bool m_enableMetrics;
+        bool m_metricsLogRawData;
+
         bool m_enableInfluxDB;
         std::string m_influxServerAddress;
         uint16_t m_influxServerPort;
         std::string m_influxServerToken;
         std::string m_influxOrg;
         std::string m_influxBucket;
-        bool m_influxLogRawData;
         influxdb::ServerInfo m_influxServer;
+
+        bool m_enableSQLite;
+        std::string m_sqliteDBFile;
+        sqlite3* m_sqliteDB;
 
         bool m_jitterBufferEnabled;
         uint16_t m_jitterMaxSize;
@@ -447,10 +455,6 @@ namespace network
         uint32_t m_sndcpStartAddr;
         uint32_t m_sndcpEndAddr;
 
-        int32_t m_totalActiveCalls;
-        uint64_t m_totalCallsProcessed;
-        uint64_t m_totalCallCollisions;
-
         bool m_logDenials;
         bool m_logUpstreamCallStartEnd;
         bool m_reportPeerPing;
@@ -479,7 +483,7 @@ namespace network
         using PacketHandlerFunc = void (*)(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
 
         /**
-         * @brief Implements the packet handler functions for the MetadataNetwork class.
+         * @brief Implements the packet handler functions for the TrafficNetwork class.
          */
         class PacketHandler {
         public:
@@ -992,6 +996,192 @@ namespace network
          * @param keyLength Length of key in bytes.
          */
         void processLLAResponse(uint32_t srcId, p25::kmm::KeyItem* ki, uint8_t keyLength);
+
+        /*
+        ** Metrics Helpers
+        */
+
+        /**
+         * @brief Implements the packet handler functions for the TrafficNetwork class.
+         */
+        class MetricsLogging {
+        public:
+            /**
+             * @brief Initializes metric sinks for the specified TrafficNetwork instance.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void initialize(TrafficNetwork* network);
+            /**
+             * @brief Finalizes metric sinks for the specified TrafficNetwork instance.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void finalize(TrafficNetwork* network);
+
+            /**
+             * @brief Increments the active call counter.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void incrementActiveCalls(TrafficNetwork* network);
+            /**
+             * @brief Decrements the active call counter with floor at zero.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void decrementActiveCalls(TrafficNetwork* network);
+            /**
+             * @brief Resets the active call counter to zero.
+             */
+            static void resetActiveCalls();
+            /**
+             * @brief Increments the total processed calls counter.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void incrementCallsProcessed(TrafficNetwork* network);
+            /**
+             * @brief Increments the total call collisions counter.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void incrementCallCollisions(TrafficNetwork* network);
+            /**
+             * @brief Resets the total processed calls counter to zero.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void resetCallsProcessed(TrafficNetwork* network);
+            /**
+             * @brief Resets the total call collisions counter to zero.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void resetCallCollisions(TrafficNetwork* network);
+            /**
+             * @brief Gets the active call counter.
+             * @return Active call counter value.
+             */
+            static int32_t getTotalActiveCalls();
+            /**
+             * @brief Gets the total processed calls counter.
+             * @return Total processed calls counter value.
+             */
+            static uint64_t getTotalCallsProcessed();
+            /**
+             * @brief Gets the total call collisions counter.
+             * @return Total call collisions counter value.
+             */
+            static uint64_t getTotalCallCollisions();
+
+            /**
+             * @brief Logs a activity transfer event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param identity Peer identity string.
+             * @param msg Activity payload.
+             */
+            static void logActivity(TrafficNetwork* network, uint32_t peerId, const std::string& identity, const std::string& msg);
+
+            /**
+             * @brief Logs a activity transfer event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param identity Peer identity string.
+             * @param msg Activity payload.
+             */
+            static void logDiag(TrafficNetwork* network, uint32_t peerId, const std::string& identity, const std::string& msg);
+            /**
+             * @brief Logs a call event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param mode Call mode.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param srcId Source ID.
+             * @param dstId Destination ID.
+             * @param durationMs Call duration in milliseconds.
+             */
+            static void logCallEvent(TrafficNetwork* network, const char* mode, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, uint64_t durationMs);
+            /**
+             * @brief Logs a call event with slot number.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param mode Call mode.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param srcId Source ID.
+             * @param dstId Destination ID.
+             * @param durationMs Call duration in milliseconds.
+             * @param slotNo Slot number.
+             */
+            static void logCallEvent(TrafficNetwork* network, const char* mode, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, uint64_t durationMs, uint8_t slotNo);
+            /**
+             * @brief Logs a call error event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param srcId Source ID.
+             * @param dstId Destination ID.
+             * @param message Error message.
+             */
+            static void logCallErrorEvent(TrafficNetwork* network, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, const std::string& message);
+            /**
+             * @brief Logs a call error event with slot number.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param srcId Source ID.
+             * @param dstId Destination ID.
+             * @param message Error message.
+             * @param slotNo Slot number.
+             */
+            static void logCallErrorEvent(TrafficNetwork* network, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, const std::string& message, uint8_t slotNo);
+            /**
+             * @brief Logs a P25 TSBK raw event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param lco LCO tag value.
+             * @param tsbk TSBK description.
+             * @param raw Raw payload string.
+             */
+            static void logTSBKEvent(TrafficNetwork* network, uint32_t peerId, const std::string& lco, const std::string& tsbk, const std::string& raw);
+            /**
+             * @brief Logs a DMR CSBK raw event.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param lco LCO tag value.
+             * @param csbk CSBK description.
+             * @param raw Raw payload string.
+             */
+            static void logCSBKEvent(TrafficNetwork* network, uint32_t peerId, const std::string& lco, const std::string& csbk, const std::string& raw);
+
+        private:
+            static int32_t s_totalActiveCalls;
+            static uint64_t s_totalCallsProcessed;
+            static uint64_t s_totalCallCollisions;
+
+            /**
+             * @brief Checks if the SQLite database for the specified TrafficNetwork instance is blank.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @return True if the SQLite database is blank, false otherwise.
+             */
+            static bool isSQLiteBlank(TrafficNetwork* network);
+            /**
+             * @brief Initializes the SQLite database for the specified TrafficNetwork instance.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void initializeSQLite(TrafficNetwork* network);
+            /**
+             * @brief Ensures SQLite tables required for persisted metrics counters exist.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @return True if the table exists (or was created), false on error.
+             */
+            static bool ensureSQLiteCounterTable(TrafficNetwork* network);
+            /**
+             * @brief Loads persisted metrics counters from SQLite.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void loadSQLiteCounters(TrafficNetwork* network);
+            /**
+             * @brief Persists a single metrics counter to SQLite.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param key Counter key.
+             * @param value Counter value.
+             */
+            static void persistSQLiteCounter(TrafficNetwork* network, const char* key, uint64_t value);
+        };
     };
 } // namespace network
 

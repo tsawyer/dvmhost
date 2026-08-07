@@ -66,16 +66,8 @@ void MetadataNetwork::PacketHandler::transfer(TrafficNetwork* network, MetadataN
 
                             ::ActivityLog("%.9u (%8s) %s", pktPeerId, connection->identWithQualifier().c_str(), payload.c_str());
 
-                            // report activity log to InfluxDB
-                            if (network->m_enableInfluxDB) {
-                                influxdb::QueryBuilder()
-                                    .meas("activity")
-                                        .tag("peerId", std::to_string(pktPeerId))
-                                            .field("identity", connection->identity())
-                                            .field("msg", payload)
-                                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                                    .requestAsync(network->m_influxServer);
-                            }
+                            // report activity log to metrics
+                            TrafficNetwork::MetricsLogging::logActivity(network, pktPeerId, connection->identity(), payload);
 
                             // repeat traffic to the connected SysView peers
                             if (network->m_peers.size() > 0U) {
@@ -134,16 +126,8 @@ void MetadataNetwork::PacketHandler::transfer(TrafficNetwork* network, MetadataN
                             ::Log(9999U, {nullptr, nullptr, 0U, nullptr}, "%.9u (%8s) %s", peerId, connection->identWithQualifier().c_str(), payload.c_str());
                             g_disableTimeDisplay = currState;
 
-                            // report diagnostic log to InfluxDB
-                            if (network->m_enableInfluxDB) {
-                                influxdb::QueryBuilder()
-                                    .meas("diag")
-                                        .tag("peerId", std::to_string(peerId))
-                                            .field("identity", connection->identity())
-                                            .field("msg", payload)
-                                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                                    .requestAsync(network->m_influxServer);
-                            }
+                            // report diagnostic log to metrics
+                            TrafficNetwork::MetricsLogging::logDiag(network, peerId, connection->identity(), payload);
                         }
                         else {
                             network->writePeerNAK(peerId, network->createStreamId(), TAG_TRANSFER_DIAG_LOG, NET_CONN_NAK_FNE_UNAUTHORIZED);

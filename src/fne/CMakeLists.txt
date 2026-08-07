@@ -22,6 +22,8 @@ file(GLOB dvmfne_SRC
     "src/fne/network/*.cpp"
     "src/fne/restapi/*.h"
     "src/fne/restapi/*.cpp"
+    "src/fne/sqlite3/*.h"
+    "src/fne/sqlite3/*.c"
     "src/fne/xml/*.h"
     "src/fne/win32/*.h"
     "src/fne/*.h"

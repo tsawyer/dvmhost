@@ -111,7 +111,7 @@ typedef unsigned long long  ulong64_t;
 
 #define VERSION_MAJOR       "05"
 #define VERSION_MINOR       "06"
-#define VERSION_REV         "A"
+#define VERSION_REV         "B"
 
 #define __NETVER__ "DVM_R" VERSION_MAJOR VERSION_REV VERSION_MINOR
 #define __VER__ VERSION_MAJOR "." VERSION_MINOR VERSION_REV " (R" VERSION_MAJOR VERSION_REV VERSION_MINOR ")"

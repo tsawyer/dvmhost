@@ -246,18 +246,8 @@ bool P25PacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                         lookups::RadioId rid = m_network->m_ridLookup->find(status->assembler.dataHeader.getLLId());
                         if (!rid.radioDefault()) {
                             if (!rid.radioEnabled()) {
-                                // report error event to InfluxDB
-                                if (m_network->m_enableInfluxDB) {
-                                    influxdb::QueryBuilder()
-                                        .meas("call_error_event")
-                                            .tag("peerId", std::to_string(peerId))
-                                            .tag("streamId", std::to_string(streamId))
-                                            .tag("srcId", std::to_string(status->assembler.dataHeader.getLLId()))
-                                            .tag("dstId", std::to_string(status->assembler.dataHeader.getLLId()))
-                                                .field("message", INFLUXDB_ERRSTR_DISABLED_SRC_RID)
-                                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                                        .requestAsync(m_network->m_influxServer);
-                                }
+                                // report error event to metrics
+                                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, status->assembler.dataHeader.getLLId(), status->assembler.dataHeader.getLLId(), std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID));
 
                                 m_status.erase(peerId);
                                 delete status;
@@ -287,19 +277,8 @@ bool P25PacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                         LogInfoEx((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Data Call End, peer = %u, srcId = %u, dstId = %u, blocks = %u, duration = %u, streamId = %u, fromUpstream = %u",
                             peerId, srcId, dstId, status->assembler.dataHeader.getBlocksToFollow(), duration / 1000, streamId, fromUpstream);
 
-                        // report call event to InfluxDB
-                        if (m_network->m_enableInfluxDB) {
-                            influxdb::QueryBuilder()
-                                .meas("call_event")
-                                    .tag("peerId", std::to_string(peerId))
-                                    .tag("mode", "P25")
-                                    .tag("streamId", std::to_string(streamId))
-                                    .tag("srcId", std::to_string(srcId))
-                                    .tag("dstId", std::to_string(dstId))
-                                        .field("duration", duration)
-                                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                                .requestAsync(m_network->m_influxServer);
-                        }
+                        // report call event to metrics
+                        TrafficNetwork::MetricsLogging::logCallEvent(m_network, "P25", peerId, streamId, srcId, dstId, duration);
 
                         m_status.erase(peerId);
                         delete status;

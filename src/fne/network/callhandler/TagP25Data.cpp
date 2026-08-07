@@ -300,9 +300,7 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                     m_rejectedCallStreams.unlock();
 
                     if (!tg.config().parrot()) {
-                        m_network->m_totalActiveCalls--;
-                        if (m_network->m_totalActiveCalls < 0)
-                            m_network->m_totalActiveCalls = 0;
+                        TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                     }
 
                     m_network->eraseStreamPktSeq(peerId, streamId);
@@ -389,24 +387,11 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                         m_rejectedCallStreams.unlock();
 
                         if (!tg.config().parrot()) {
-                            m_network->m_totalActiveCalls--;
-                            if (m_network->m_totalActiveCalls < 0)
-                                m_network->m_totalActiveCalls = 0;
+                            TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                         }
 
-                        // report call event to InfluxDB
-                        if (m_network->m_enableInfluxDB) {
-                            influxdb::QueryBuilder()
-                                .meas("call_event")
-                                    .tag("peerId", std::to_string(peerId))
-                                    .tag("mode", "P25")
-                                    .tag("streamId", std::to_string(streamId))
-                                    .tag("srcId", std::to_string(srcId))
-                                    .tag("dstId", std::to_string(dstId))
-                                        .field("duration", duration)
-                                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                                .requestAsync(m_network->m_influxServer);
-                        }
+                        // report call event to metrics
+                        TrafficNetwork::MetricsLogging::logCallEvent(m_network, "P25", peerId, streamId, srcId, dstId, duration);
 
                         m_network->eraseStreamPktSeq(peerId, streamId);
                     }
@@ -518,7 +503,7 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                         m_rejectedCallStreams[dstId].push_back(streamId);
                                         m_rejectedCallStreams.unlock();
 
-                                        m_network->m_totalCallCollisions++;
+                                        TrafficNetwork::MetricsLogging::incrementCallCollisions(m_network);
 
                                         return false;
                                     }
@@ -580,8 +565,8 @@ bool TagP25Data::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                     m_rejectedCallStreams.unlock();
 
                     if (!tg.config().parrot()) {
-                        m_network->m_totalCallsProcessed++;
-                        m_network->m_totalActiveCalls++;
+                        TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+                        TrafficNetwork::MetricsLogging::incrementActiveCalls(m_network);
                     }
 
                     // is this a private call?
@@ -1251,8 +1236,8 @@ bool TagP25Data::processTSDUFrom(uint8_t* buffer, uint32_t peerId, uint8_t duid)
 
         std::unique_ptr<lc::TSBK> tsbk = lc::tsbk::TSBKFactory::createTSBK(data);
         if (tsbk != nullptr) {
-            // report tsbk event to InfluxDB
-            if (m_network->m_enableInfluxDB && m_network->m_influxLogRawData) {
+            // report tsbk event to metrics
+            if (m_network->m_enableMetrics && m_network->m_metricsLogRawData) {
                 const uint8_t* raw = tsbk->getDecodedRaw();
                 if (raw != nullptr) {
                     std::stringstream ss;
@@ -1261,14 +1246,7 @@ bool TagP25Data::processTSDUFrom(uint8_t* buffer, uint32_t peerId, uint8_t duid)
                         (int)raw[5] << (int)raw[6]  << (int)raw[7] << (int)raw[8] <<
                         (int)raw[9] << (int)raw[10] << (int)raw[11];
 
-                    influxdb::QueryBuilder()
-                        .meas("tsbk_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("lco", __INT_HEX_STR(tsbk->getLCO()))
-                            .tag("tsbk", tsbk->toString())
-                                .field("raw", ss.str())
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
+                    TrafficNetwork::MetricsLogging::logTSBKEvent(m_network, peerId, std::string(__INT_HEX_STR(tsbk->getLCO())), tsbk->toString(), ss.str());
                 }
             }
 
@@ -1657,18 +1635,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         lookups::RadioId rid = m_network->m_ridLookup->find(control.getSrcId());
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(control.getSrcId()))
-                            .tag("dstId", std::to_string(control.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID));
 
                 if (m_network->m_logDenials)
                     LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1732,18 +1700,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     m_rejectedCallStreams.lock(false);
     std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[control.getDstId()];
     if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
-        // report error event to InfluxDB
-        if (m_network->m_enableInfluxDB) {
-            influxdb::QueryBuilder()
-                .meas("call_error_event")
-                    .tag("peerId", std::to_string(peerId))
-                    .tag("streamId", std::to_string(streamId))
-                    .tag("srcId", std::to_string(control.getSrcId()))
-                    .tag("dstId", std::to_string(control.getDstId()))
-                        .field("message", std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED))
-                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                .requestAsync(m_network->m_influxServer);
-        }
+        // report error event to metrics
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED));
 
         if (m_network->m_logDenials)
             LogError(LOG_P25, INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1778,18 +1736,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         lookups::RadioId rid = m_network->m_ridLookup->find(control.getDstId());
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(control.getSrcId()))
-                            .tag("dstId", std::to_string(control.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_DST_RID))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_DST_RID));
 
                 if (m_network->m_logDenials)
                     LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1803,18 +1751,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             // if this is a default radio -- and we are rejecting undefined radios
             // report call error
             if (m_network->m_rejectUnknownRID) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(control.getSrcId()))
-                            .tag("dstId", std::to_string(control.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS));
 
                 if (m_network->m_logDenials)
                     LogWarning(LOG_P25, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
@@ -1900,18 +1838,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(control.getDstId());
     if (tg.isInvalid()) {
         //LogDebugEx(LOG_NET, "TagP25Data::validate()", "dstId = %u, invalid dropped", control.getDstId());
-        // report error event to InfluxDB
-        if (m_network->m_enableInfluxDB) {
-            influxdb::QueryBuilder()
-                .meas("call_error_event")
-                    .tag("peerId", std::to_string(peerId))
-                    .tag("streamId", std::to_string(streamId))
-                    .tag("srcId", std::to_string(control.getSrcId()))
-                    .tag("dstId", std::to_string(control.getDstId()))
-                        .field("message", std::string(INFLUXDB_ERRSTR_INV_TALKGROUP))
-                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                .requestAsync(m_network->m_influxServer);
-        }
+        // report error event to metrics
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_INV_TALKGROUP));
 
         if (m_network->m_logDenials)
             LogError(LOG_P25, INFLUXDB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1927,18 +1855,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
                 //LogDebugEx(LOG_P25, "TagP25Data::validate()", "tgId = %u, duid = $%02X, strapping = %u, algId = $%02X", control.getDstId(), (uint8_t)duid, tg.config().strapping(), control.getAlgId());
                 if (control.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
-                    // report error event to InfluxDB
-                    if (m_network->m_enableInfluxDB) {
-                        influxdb::QueryBuilder()
-                            .meas("call_error_event")
-                                .tag("peerId", std::to_string(peerId))
-                                .tag("streamId", std::to_string(streamId))
-                                .tag("srcId", std::to_string(control.getSrcId()))
-                                .tag("dstId", std::to_string(control.getDstId()))
-                                    .field("message", std::string(INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR))
-                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                            .requestAsync(m_network->m_influxServer);
-                    }
+                    // report error event to metrics
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR));
 
                     if (m_network->m_logDenials)
                         LogError(LOG_P25, INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1952,18 +1870,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             // is the TG unstrapped but the LC is reporting encrypted?
             if (tg.config().strapping() == lookups::TG_STRAPPING_CLEAR) {
                 if (control.getAlgId() != P25DEF::ALGO_UNENCRYPT) {
-                    // report error event to InfluxDB
-                    if (m_network->m_enableInfluxDB) {
-                        influxdb::QueryBuilder()
-                            .meas("call_error_event")
-                                .tag("peerId", std::to_string(peerId))
-                                .tag("streamId", std::to_string(streamId))
-                                .tag("srcId", std::to_string(control.getSrcId()))
-                                .tag("dstId", std::to_string(control.getDstId()))
-                                    .field("message", std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC))
-                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                            .requestAsync(m_network->m_influxServer);
-                    }
+                    // report error event to metrics
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC));
 
                     if (m_network->m_logDenials)
                         LogError(LOG_P25, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -1989,18 +1897,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
 
     // fail call if the reject flag is set
     if (rejectUnknownBadCall) {
-        // report error event to InfluxDB
-        if (m_network->m_enableInfluxDB) {
-            influxdb::QueryBuilder()
-                .meas("call_error_event")
-                    .tag("peerId", std::to_string(peerId))
-                    .tag("streamId", std::to_string(streamId))
-                    .tag("srcId", std::to_string(control.getSrcId()))
-                    .tag("dstId", std::to_string(control.getDstId()))
-                        .field("message", std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS))
-                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                .requestAsync(m_network->m_influxServer);
-        }
+        // report error event to metrics
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS));
 
         if (m_network->m_logDenials)
             LogWarning(LOG_P25, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
@@ -2012,18 +1910,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
 
     // is the TGID active?
     if (!tg.config().active()) {
-        // report error event to InfluxDB
-        if (m_network->m_enableInfluxDB) {
-            influxdb::QueryBuilder()
-                .meas("call_error_event")
-                    .tag("peerId", std::to_string(peerId))
-                    .tag("streamId", std::to_string(streamId))
-                    .tag("srcId", std::to_string(control.getSrcId()))
-                    .tag("dstId", std::to_string(control.getDstId()))
-                        .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_TALKGROUP))
-                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                .requestAsync(m_network->m_influxServer);
-        }
+        // report error event to metrics
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_TALKGROUP));
 
         if (m_network->m_logDenials)
             LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
@@ -2040,18 +1928,8 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             // does the transmitting RID have permission?
             std::vector<uint32_t> permittedRIDs = tg.config().permittedRIDs();
             if (std::find(permittedRIDs.begin(), permittedRIDs.end(), control.getSrcId()) == permittedRIDs.end()) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(control.getSrcId()))
-                            .tag("dstId", std::to_string(control.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_RID_NOT_PERMITTED))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_RID_NOT_PERMITTED));
 
                 if (m_network->m_logDenials)
                     LogError(LOG_P25, INFLUXDB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());

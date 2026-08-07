@@ -132,13 +132,17 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_forceListUpdate(false),
     m_disallowU2U(false),
     m_dropU2UPeerTable(),
+    m_enableMetrics(false),
+    m_metricsLogRawData(false),
     m_enableInfluxDB(false),
     m_influxServerAddress("127.0.0.1"),
     m_influxServerPort(8086U),
     m_influxServerToken(),
     m_influxOrg("dvm"),
     m_influxBucket("dvm"),
-    m_influxLogRawData(false),
+    m_enableSQLite(false),
+    m_sqliteDBFile("metrics.db"),
+    m_sqliteDB(nullptr),
     m_jitterBufferEnabled(false),
     m_jitterMaxSize(4U),
     m_jitterMaxWait(40000U),
@@ -153,9 +157,6 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_vtunQueueMaxBytes(262144U),
     m_sndcpStartAddr(__IP_FROM_STR("10.10.1.10")),
     m_sndcpEndAddr(__IP_FROM_STR("10.10.1.254")),
-    m_totalActiveCalls(0U),
-    m_totalCallsProcessed(0U),
-    m_totalCallCollisions(0U),
     m_logDenials(false),
     m_logUpstreamCallStartEnd(true),
     m_reportPeerPing(reportPeerPing),
@@ -198,6 +199,8 @@ TrafficNetwork::~TrafficNetwork()
     if (m_kmfServicesEnabled) {
         m_p25OTARService->close();
     }
+
+    TrafficNetwork::MetricsLogging::finalize(this);
 
     delete m_p25OTARService;
 
@@ -242,15 +245,28 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         m_disallowExtAdjStsBcast = true;
     }
 
-    m_enableInfluxDB = conf["enableInflux"].as<bool>(false);
-    m_influxServerAddress = conf["influxServerAddress"].as<std::string>("127.0.0.1");
-    m_influxServerPort = conf["influxServerPort"].as<uint16_t>(8086U);
-    m_influxServerToken = conf["influxServerToken"].as<std::string>();
-    m_influxOrg = conf["influxOrg"].as<std::string>("dvm");
-    m_influxBucket = conf["influxBucket"].as<std::string>("dvm");
-    m_influxLogRawData = conf["influxLogRawData"].as<bool>(false);
+    yaml::Node metricsConf = conf["metrics"];
+    m_enableMetrics = metricsConf["enable"].as<bool>(false);
+    m_metricsLogRawData = metricsConf["logRawData"].as<bool>(false);
+
+    yaml::Node influxConf = metricsConf["influx"];
+    m_enableInfluxDB = influxConf["enable"].as<bool>(false);
+    m_influxServerAddress = influxConf["influxServerAddress"].as<std::string>("127.0.0.1");
+    m_influxServerPort = influxConf["influxServerPort"].as<uint16_t>(8086U);
+    m_influxServerToken = influxConf["influxServerToken"].as<std::string>();
+    m_influxOrg = influxConf["influxOrg"].as<std::string>("dvm");
+    m_influxBucket = influxConf["influxBucket"].as<std::string>("dvm");
     if (m_enableInfluxDB) {
         m_influxServer = influxdb::ServerInfo(m_influxServerAddress, m_influxServerPort, m_influxOrg, m_influxServerToken, m_influxBucket);
+    }
+
+    yaml::Node sqliteConf = metricsConf["sqlite"];
+    m_enableSQLite = sqliteConf["enable"].as<bool>(false);
+    m_sqliteDBFile = sqliteConf["file"].as<std::string>("metrics.db");
+    TrafficNetwork::MetricsLogging::initialize(this);
+
+    if (m_enableInfluxDB && m_enableSQLite) {
+        LogWarning(LOG_MASTER, "Both InfluxDB and SQLite metrics logging are enabled. This could cause performance penalties, are you sure?");
     }
 
     m_parrotOnlyOriginating = conf["parrotOnlyToOrginiatingPeer"].as<bool>(false);
@@ -442,13 +458,18 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         LogInfo("    Restrict private call to registered units: %s", m_restrictPVCallToRegOnly ? "yes" : "no");
         LogInfo("    Traffic Terminators Filtered by Destination ID: %s", m_filterTerminators ? "yes" : "no");
         LogInfo("    Disallow Unit-to-Unit: %s", m_disallowU2U ? "yes" : "no");
+        LogInfo("    Metrics Reporting Enabled: %s", m_enableMetrics ? "yes" : "no");
+        LogInfo("    Metrics Log Raw TSBK/CSBK/RCCH: %s", m_metricsLogRawData ? "yes" : "no");
         LogInfo("    InfluxDB Reporting Enabled: %s", m_enableInfluxDB ? "yes" : "no");
         if (m_enableInfluxDB) {
             LogInfo("    InfluxDB Address: %s", m_influxServerAddress.c_str());
             LogInfo("    InfluxDB Port: %u", m_influxServerPort);
             LogInfo("    InfluxDB Organization: %s", m_influxOrg.c_str());
             LogInfo("    InfluxDB Bucket: %s", m_influxBucket.c_str());
-            LogInfo("    InfluxDB Log Raw TSBK/CSBK/RCCH: %s", m_influxLogRawData ? "yes" : "no");
+        }
+        LogInfo("    SQLite Metrics Logging Enabled: %s", m_enableSQLite ? "yes" : "no");
+        if (m_enableSQLite) {
+            LogInfo("    SQLite DB File: %s", m_sqliteDBFile.c_str());
         }
         LogInfo("    Global Jitter Buffer Enabled: %s", m_jitterBufferEnabled ? "yes" : "no");
         if (m_jitterBufferEnabled) {
@@ -716,8 +737,7 @@ void TrafficNetwork::clock(uint32_t ms)
         m_tagDMR->packetData()->cleanupStale();
         m_tagP25->packetData()->cleanupStale();
 
-        m_totalActiveCalls = 0U; // bryanb: this is techincally incorrect and should be better implemented
-                                 // but for now it will suffice to reset the active call count on maintainence cycle
+        MetricsLogging::resetActiveCalls();
 
         m_maintainenceTimer.start();
     }

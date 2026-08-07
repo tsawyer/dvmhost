@@ -235,20 +235,40 @@ master:
     # List of peers that unit to unit calls are dropped for.
     dropUnitToUnit: []
 
-    # Flag indicating whether or not InfluxDB logging and metrics recording is enabled.
-    enableInflux: false
-    # Hostname/IP address of the InfluxDB instance to connect to.
-    influxServerAddress: 127.0.0.1
-    # Port number of the InfluxDB instance to connect to.
-    influxServerPort: 8086
-    # API Token to access the InfluxDB instance API.
-    influxServerToken: "APITOKEN"
-    # Organization Name on InfluxDB instance API.
-    influxOrg: "dvm"
-    # Data Bucket Name on InfluxDB instance API.
-    influxBucket: "dvm"
-    # Flag indicating whether TSBK/CSBK/RCCH messages will be logged to InfluxDB.
-    influxLogRawData: false
+    #
+    # Database Metrics and Logging
+    #
+    metrics:
+        # Flag indicating whether or not metrics recording is enabled.
+        enable: false
+        # Flag indicating whether TSBK/CSBK/RCCH messages will be logged to InfluxDB.
+        logRawData: false
+
+        #
+        # InfluxDB Configuration
+        #
+        influx:
+          # Flag indicating whether or not InfluxDB logging and metrics recording is enabled.
+          enable: false
+          # Hostname/IP address of the InfluxDB instance to connect to.
+          serverAddress: 127.0.0.1
+          # Port number of the InfluxDB instance to connect to.
+          serverPort: 8086
+          # API Token to access the InfluxDB instance API.
+          serverToken: "APITOKEN"
+          # Organization Name on InfluxDB instance API.
+          org: "dvm"
+          # Data Bucket Name on InfluxDB instance API.
+          bucket: "dvm"
+
+        #
+        # SQLite Configuration
+        #
+        sqlite:
+          # Flag indicating whether or not SQLite logging and metrics recording is enabled.
+          enable: false
+          # Full path to the SQLite database file.
+          file: "metrics.db"
 
     #
     # Crypto Container Configuration

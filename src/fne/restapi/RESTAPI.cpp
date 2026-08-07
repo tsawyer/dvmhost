@@ -2044,11 +2044,11 @@ void RESTAPI::restAPI_GetStats(const HTTPPayload& request, HTTPPayload& reply, c
         response["tableLastLoad"].set<json::object>(tableLastLoad);
 
         // total calls processed
-        uint32_t totalCallsProcessed = m_network->m_totalCallsProcessed;
+        uint32_t totalCallsProcessed = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallsProcessed();
         response["totalCallsProcessed"].set<uint32_t>(totalCallsProcessed);
-        uint32_t totalCallCollisions = m_network->m_totalCallCollisions;
+        uint32_t totalCallCollisions = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallCollisions();
         response["totalCallCollisions"].set<uint32_t>(totalCallCollisions);
-        int32_t totalActiveCalls = m_network->m_totalActiveCalls;
+        int32_t totalActiveCalls = TrafficNetwork::MetricsLogging::getTotalActiveCalls();
         response["totalActiveCalls"].set<int32_t>(totalActiveCalls);
 
         // table totals
@@ -2080,7 +2080,7 @@ void RESTAPI::restAPI_GetResetTotalCalls(const HTTPPayload& request, HTTPPayload
 
     LogInfoEx(LOG_REST, "request to reset total calls processed");
     if (m_network != nullptr) {
-        m_network->m_totalCallsProcessed = 0U;
+        TrafficNetwork::MetricsLogging::resetCallsProcessed(m_network);
     }
 
     reply.payload(response);
@@ -2099,7 +2099,7 @@ void RESTAPI::restAPI_GetResetActiveCalls(const HTTPPayload& request, HTTPPayloa
 
     LogInfoEx(LOG_REST, "request to reset total active calls");
     if (m_network != nullptr) {
-        m_network->m_totalActiveCalls = 0U;
+        TrafficNetwork::MetricsLogging::resetActiveCalls();
     }
 
     reply.payload(response);
@@ -2118,7 +2118,7 @@ void RESTAPI::restAPI_GetResetCallCollisions(const HTTPPayload& request, HTTPPay
 
     LogInfoEx(LOG_REST, "request to reset total call collisions");
     if (m_network != nullptr) {
-        m_network->m_totalCallCollisions = 0U;
+        TrafficNetwork::MetricsLogging::resetCallCollisions(m_network);
     }
 
     reply.payload(response);
