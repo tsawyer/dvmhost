@@ -735,6 +735,8 @@ bool ControlSignaling::processNetwork(uint8_t* data, uint32_t len, lc::LC& contr
     switch (duid) {
         case DUID::TSDU:
             if (m_p25->m_netState == RS_NET_IDLE) {
+                m_p25->m_networkWatchdog.stop();
+
                 std::unique_ptr<lc::TSBK> tsbk = TSBKFactory::createTSBK(data);
                 if (tsbk == nullptr) {
                     return false;
