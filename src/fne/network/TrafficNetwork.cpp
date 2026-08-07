@@ -995,6 +995,10 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
     return nullptr;
 }
 
+/*
+** Packet Processing
+*/
+
 /* Process a data frames from the network. */
 
 void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
@@ -1061,7 +1065,6 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                 return;
             }
 
-            // process incoming message function opcodes
             static const std::unordered_map<uint8_t, PacketHandlerFunc> handlers = {
                 { NET_FUNC::PROTOCOL, &TrafficNetwork::PacketHandler::protocol },
 
@@ -1080,6 +1083,7 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
                 { NET_FUNC::KEY_LLA_REQ, &TrafficNetwork::PacketHandler::llaKeyRequest },
             };
 
+            // dispatch to the appropriate handler based on the function opcode
             uint8_t func = req->fneHeader.getFunction();
             auto it = handlers.find(func);
             if (it != handlers.end()) {
@@ -1101,6 +1105,10 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
         delete req;
     }
 }
+
+/*
+** General Helper Functions
+*/
 
 /* Checks if the passed peer ID is blocked from unit-to-unit traffic. */
 

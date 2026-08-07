@@ -463,10 +463,7 @@ namespace network
          * @param peerId The ID of the peer.
          * @return A reference to the mutex associated with the peer ID.
          */
-        static std::mutex& getPeerStateLock(uint32_t peerId)
-        {
-            return s_peerStateLocks[peerId % PEER_STATE_LOCK_STRIPES];
-        }
+        static std::mutex& getPeerStateLock(uint32_t peerId) { return s_peerStateLocks[peerId % PEER_STATE_LOCK_STRIPES]; }
 
         /**
          * @brief Entry point to parrot handler thread.
@@ -474,6 +471,10 @@ namespace network
          * @returns void* (Ignore)
          */
         static void* threadParrotHandler(void* arg);
+
+        /*
+        ** Packet Processing
+        */
 
         using PacketHandlerFunc = void (*)(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now);
 
@@ -594,6 +595,10 @@ namespace network
          * @param req Instance of the NetPacketRequest structure.
          */
         static void taskNetworkRx(NetPacketRequest* req);
+
+        /*
+        ** General Helper Functions
+        */
 
         /**
          * @brief Checks if the passed peer ID is blocked from unit-to-unit traffic.

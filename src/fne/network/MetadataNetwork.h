@@ -167,6 +167,10 @@ namespace network
          */
         static void erasePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId);
 
+        /*
+        ** Packet Processing
+        */
+
         using PacketHandlerFunc = void (*)(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
 
         /**

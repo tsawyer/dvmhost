@@ -203,6 +203,10 @@ void MetadataNetwork::erasePacketBufferEntry(PacketBufferMap& pktMap, uint32_t p
     pktMap.unlock();
 }
 
+/*
+** Packet Processing
+*/
+
 /* Process a data frames from the network. */
 
 void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
@@ -249,7 +253,7 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                 { NET_FUNC::NET_TREE, &MetadataNetwork::PacketHandler::networkTree }
             };
 
-            // dispatch to the appropriate handler based on the function code
+            // dispatch to the appropriate handler based on the function opcode
             auto it = handlers.find(req->fneHeader.getFunction());
             if (it != handlers.end()) {
                 it->second(network, mdNetwork, req, peerId, ssrc, streamId);

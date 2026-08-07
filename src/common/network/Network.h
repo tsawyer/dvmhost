@@ -27,6 +27,7 @@
 #include <string>
 #include <cstdint>
 #include <functional>
+#include <unordered_map>
 
 namespace network
 {
@@ -122,6 +123,17 @@ namespace network
     };
 
     // ---------------------------------------------------------------------------
+    //  Constants
+    // ---------------------------------------------------------------------------
+
+    #define DEFAULT_RETRY_TIME 10U // 10 seconds
+    #define DUPLICATE_CONN_RETRY_TIME 3600U // 60 minutes
+
+    #define MAX_RETRY_BEFORE_RECONNECT 4U
+    #define MAX_RETRY_HA_RECONNECT 2U
+    #define MAX_RETRY_DUP_RECONNECT 2U
+
+    // ---------------------------------------------------------------------------
     //  Class Declaration
     // ---------------------------------------------------------------------------
 
@@ -135,7 +147,7 @@ namespace network
          * @brief Initializes a new instance of the Network class.
          * @param address Network Hostname/IP address to connect to.
          * @param port Network port number.
-         * @param localPort 
+         * @param localPort Local network port number to bind to.
          * @param peerId Unique ID on the network.
          * @param password Network authentication password.
          * @param duplex Flag indicating full-duplex operation.
@@ -422,6 +434,148 @@ namespace network
          *  (This is called once the master responds to a key LLA request.)
          */
         std::function<void(uint32_t rsi, p25::kmm::KeyItem ki, uint8_t keyLength)> m_llaKeyRespCallback;
+
+        using PacketHandlerFunc = bool (*)(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+            const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+        /**
+         * @brief Implements the packet handler functions for the MetadataNetwork class.
+         */
+        class PacketHandler {
+        public:
+            /**
+             * @brief Handles NET_FUNC::PROTOCOL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool protocol(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::MASTER packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool master(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::INCALL_CTRL packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool inCallControl(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::NAK packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool nak(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+            /**
+             * @brief Handles NET_FUNC::ACK packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool ack(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::KEY_RSP packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool keyResponse(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+            /**
+             * @brief Handles NET_FUNC::KEY_LLA_RSP packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool llaKeyResponse(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::MST_DISC packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool masterDisconnect(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+
+            /**
+             * @brief Handles NET_FUNC::PONG packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param now Current time in milliseconds.
+             * @param fneHeader RTP FNE Header.
+             * @param rtpHeader RTP Header.
+             * @param buffer Buffer containing message to send to peer.
+             * @param length Length of buffer.
+             * @returns bool True, if the packet was handled, otherwise false.
+             */
+            static bool pong(Network* network, uint32_t peerId, uint32_t streamId, uint64_t now,
+                const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader, const uint8_t* buffer, int length);
+        };
 
         /**
          * @brief Helper to verify the given RTP sequence for the given RTP stream.
