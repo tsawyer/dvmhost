@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -31,6 +32,10 @@ using namespace network;
 #define SQLITE_BATCH_SIZE 256U
 #define SQLITE_MAX_QUEUE_DEPTH 32768U
 #define SQLITE_BATCH_WAIT_MS 10U
+
+static const uint64_t NS_PER_SECOND = 1000000000ULL;
+static const uint64_t NS_PER_MINUTE = 60ULL * NS_PER_SECOND;
+static const uint64_t NS_PER_DAY = 86400ULL * NS_PER_SECOND;
 
 // ---------------------------------------------------------------------------
 //  Static Class Members
@@ -164,6 +169,9 @@ namespace {
         SQLiteStatements statements;
         bool stopRequested;
         uint64_t droppedCount;
+        uint32_t retentionDays;
+        uint32_t pruneIntervalMinutes;
+        uint64_t nextPruneNs;
 
         /**
          * @brief Default constructor for SQLiteWriterState. Initializes all members to default values.
@@ -177,7 +185,10 @@ namespace {
             db(nullptr),
             statements(),
             stopRequested(false),
-            droppedCount(0U)
+            droppedCount(0U),
+            retentionDays(0U),
+            pruneIntervalMinutes(0U),
+            nextPruneNs(0U)
         {
             /* stub */
         }
@@ -432,6 +443,127 @@ namespace {
     }
 
     /**
+     * @brief Calculates the next prune time in nanoseconds from now for the given interval.
+     * @param intervalMinutes Prune interval in minutes.
+     * @return Next prune timestamp in nanoseconds since epoch, or 0 if interval is disabled.
+     */
+    static uint64_t calculateNextPruneNs(uint32_t intervalMinutes)
+    {
+        if (intervalMinutes == 0U) {
+            return 0U;
+        }
+
+        uint64_t now = nowNs();
+        uint64_t delta = (uint64_t)intervalMinutes * NS_PER_MINUTE;
+        if (std::numeric_limits<uint64_t>::max() - now < delta) {
+            return std::numeric_limits<uint64_t>::max();
+        }
+
+        return now + delta;
+    }
+
+    /**
+     * @brief Prunes SQLite metric event rows older than the specified number of retention days.
+     * @param db The SQLite database handle.
+     * @param retentionDays Number of days to retain.
+     * @param prunedRows Optional pointer to receive the number of rows deleted.
+     * @return true if prune operation succeeded or is disabled, false on SQLite errors.
+     */
+    static bool pruneSQLiteMetricEvents(sqlite3* db, uint32_t retentionDays, uint64_t* prunedRows)
+    {
+        if (prunedRows != nullptr) {
+            *prunedRows = 0U;
+        }
+
+        if (db == nullptr || retentionDays == 0U) {
+            return true;
+        }
+
+        uint64_t now = nowNs();
+        uint64_t windowNs = (uint64_t)retentionDays * NS_PER_DAY;
+        if (now <= windowNs) {
+            return true;
+        }
+
+        uint64_t cutoffNs = now - windowNs;
+
+        char* errMsg = nullptr;
+        if (sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+            LogError(LOG_MASTER, "SQLite metrics prune begin transaction failed: %s", (errMsg != nullptr) ? errMsg : "unknown error");
+            if (errMsg != nullptr) {
+                sqlite3_free(errMsg);
+            }
+            return false;
+        }
+
+        const char* tables[] = {
+            "activity",
+            "diag",
+            "call_event",
+            "call_error_event",
+            "tsbk_event",
+            "csbk_event"
+        };
+
+        uint64_t deleted = 0U;
+        bool ok = true;
+
+        for (const char* table : tables) {
+            sqlite3_stmt* stmt = nullptr;
+            std::string sql = "DELETE FROM ";
+            sql += table;
+            sql += " WHERE ts_ns < ?;";
+
+            if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+                LogError(LOG_MASTER, "SQLite metrics prune prepare failed for table %s: %s", table, sqlite3_errmsg(db));
+                ok = false;
+                if (stmt != nullptr) {
+                    sqlite3_finalize(stmt);
+                }
+                break;
+            }
+
+            if (sqlite3_bind_int64(stmt, 1, (sqlite3_int64)cutoffNs) != SQLITE_OK) {
+                LogError(LOG_MASTER, "SQLite metrics prune bind failed for table %s: %s", table, sqlite3_errmsg(db));
+                ok = false;
+                sqlite3_finalize(stmt);
+                break;
+            }
+
+            int rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) {
+                LogError(LOG_MASTER, "SQLite metrics prune delete failed for table %s: %s", table, sqlite3_errmsg(db));
+                ok = false;
+                sqlite3_finalize(stmt);
+                break;
+            }
+
+            deleted += (uint64_t)sqlite3_changes(db);
+            sqlite3_finalize(stmt);
+        }
+
+        if (ok) {
+            if (sqlite3_exec(db, "COMMIT;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+                LogError(LOG_MASTER, "SQLite metrics prune commit failed: %s", (errMsg != nullptr) ? errMsg : "unknown error");
+                if (errMsg != nullptr) {
+                    sqlite3_free(errMsg);
+                }
+                sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                return false;
+            }
+        } else {
+            sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return false;
+        }
+
+        if (prunedRows != nullptr) {
+            *prunedRows = deleted;
+        }
+
+        return true;
+    }
+
+    /**
      * @brief Enqueues a metric event to be written to the SQLite database by the writer thread.
      * @param network Pointer to the TrafficNetwork instance.
      * @param event The metric event to enqueue.
@@ -487,6 +619,29 @@ namespace {
         std::vector<MetricEvent> batch;
         batch.reserve(SQLITE_BATCH_SIZE);
 
+        auto runScheduledPrune = [&]() {
+            if (state->retentionDays == 0U || state->pruneIntervalMinutes == 0U || state->nextPruneNs == 0U) {
+                return;
+            }
+
+            uint64_t now = nowNs();
+            if (now < state->nextPruneNs) {
+                return;
+            }
+
+            uint64_t deleted = 0U;
+            if (pruneSQLiteMetricEvents(db, state->retentionDays, &deleted)) {
+                if (deleted > 0U) {
+                    LogInfoEx(LOG_MASTER, "SQLite metrics retention prune deleted %llu stale rows (retention=%u day(s))",
+                        (unsigned long long)deleted, state->retentionDays);
+                }
+            } else {
+                LogWarning(LOG_MASTER, "SQLite metrics retention prune failed (retention=%u day(s))", state->retentionDays);
+            }
+
+            state->nextPruneNs = calculateNextPruneNs(state->pruneIntervalMinutes);
+        };
+
         while (true) {
             // scope is intentional
             {
@@ -506,6 +661,7 @@ namespace {
             }
 
             if (batch.empty()) {
+                runScheduledPrune();
                 continue;
             }
 
@@ -541,6 +697,7 @@ namespace {
             }
 
             batch.clear();
+            runScheduledPrune();
         }
 
         return nullptr;
@@ -560,6 +717,7 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
     if (!network->m_enableMetrics)
         return;
 
+    // is SQLite metrics enabled?
     if (network->m_enableSQLite) {
         if (network->m_sqliteDB == nullptr) {
             if (sqlite3_open(network->m_sqliteDBFile.c_str(), &network->m_sqliteDB) != SQLITE_OK) {
@@ -573,11 +731,13 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
             }
         }
 
+        // is this a new SQLite metrics database?
         if (isSQLiteBlank(network)) {
             initializeSQLite(network);
         }
 
         if (network->m_sqliteDB != nullptr) {
+            // ensure the SQLite counter table exists
             if (!ensureSQLiteCounterTable(network)) {
                 sqlite3_close(network->m_sqliteDB);
                 network->m_sqliteDB = nullptr;
@@ -585,9 +745,24 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
                 return;
             }
 
+            // load existing SQLite metrics counters
             loadSQLiteCounters(network);
+
+            // perform an initial prune of old SQLite metric events if retention is configured
+            if (network->m_sqlitePruneAfterDays > 0U) {
+                uint64_t deleted = 0U;
+                if (pruneSQLiteMetricEvents(network->m_sqliteDB, network->m_sqlitePruneAfterDays, &deleted)) {
+                    if (deleted > 0U) {
+                        LogInfoEx(LOG_MASTER, "SQLite metrics startup prune deleted %llu stale rows (retention=%u day(s))",
+                            (unsigned long long)deleted, network->m_sqlitePruneAfterDays);
+                    }
+                } else {
+                    LogWarning(LOG_MASTER, "SQLite metrics startup prune failed (retention=%u day(s))", network->m_sqlitePruneAfterDays);
+                }
+            }
         }
 
+        // initialize the SQLite writer thread if the database is available
         if (network->m_sqliteDB != nullptr) {
             std::unique_lock<std::mutex> lock(g_sqliteWriterStatesMutex);
             auto it = g_sqliteWriterStates.find(network);
@@ -603,6 +778,11 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
                 }
 
                 state->db = network->m_sqliteDB;
+                state->retentionDays = network->m_sqlitePruneAfterDays;
+                state->pruneIntervalMinutes = network->m_sqlitePruneIntervalMinutes;
+                state->nextPruneNs = calculateNextPruneNs(state->pruneIntervalMinutes);
+
+                // start the SQLite writer thread
                 if (!Thread::runAsThread(state.get(), sqliteWriterThreadMain, &state->workerThread)) {
                     LogError(LOG_MASTER, "Failed to start SQLite metrics writer thread");
                     finalizeStatements(state->statements);
@@ -611,6 +791,7 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
                     network->m_enableSQLite = false;
                     return;
                 }
+
                 state->workerStarted = true;
                 g_sqliteWriterStates.emplace(network, std::move(state));
             }
@@ -626,6 +807,8 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
         return;
 
     std::unique_ptr<SQLiteWriterState> state;
+
+    // scope is intentional
     {
         std::unique_lock<std::mutex> lock(g_sqliteWriterStatesMutex);
         auto it = g_sqliteWriterStates.find(network);
@@ -636,12 +819,14 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
     }
 
     if (state != nullptr) {
+        // scope is intentional
         {
             std::unique_lock<std::mutex> lock(state->mutex);
             state->stopRequested = true;
         }
         state->cv.notify_one();
 
+        // wait for the SQLite writer thread to finish if it was started
         if (state->workerStarted) {
 #if defined(_WIN32)
             ::WaitForSingleObject(state->workerThread.thread, INFINITE);
@@ -652,9 +837,11 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
             state->workerStarted = false;
         }
 
+        // finalize the SQLite statements
         finalizeStatements(state->statements);
     }
 
+    // close the SQLite database if it is open
     if (network->m_sqliteDB != nullptr) {
         sqlite3_close(network->m_sqliteDB);
         network->m_sqliteDB = nullptr;
@@ -1195,13 +1382,9 @@ bool TrafficNetwork::MetricsLogging::ensureSQLiteCounterTable(TrafficNetwork* ne
         return false;
     }
 
-    const char* sql =
-        "CREATE TABLE IF NOT EXISTS metrics_counters ("
-        "key TEXT PRIMARY KEY,"
-        "value INTEGER NOT NULL"
-        ");";
+    std::string sql = "CREATE TABLE IF NOT EXISTS metrics_counters (key TEXT PRIMARY KEY, value INTEGER NOT NULL);";
 
-    if (sqlite3_exec(network->m_sqliteDB, sql, nullptr, nullptr, nullptr) != SQLITE_OK) {
+    if (sqlite3_exec(network->m_sqliteDB, sql.c_str(), nullptr, nullptr, nullptr) != SQLITE_OK) {
         LogError(LOG_MASTER, "Error creating SQLite metrics_counters table, error: %s", sqlite3_errmsg(network->m_sqliteDB));
         return false;
     }
@@ -1218,8 +1401,8 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
     }
 
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT key, value FROM metrics_counters WHERE key IN (?, ?);";
-    if (sqlite3_prepare_v2(network->m_sqliteDB, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    std::string sql = "SELECT key, value FROM metrics_counters WHERE key IN (?, ?);";
+    if (sqlite3_prepare_v2(network->m_sqliteDB, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         LogWarning(LOG_MASTER, "Unable to prepare SQLite counter load statement: %s", sqlite3_errmsg(network->m_sqliteDB));
         return;
     }

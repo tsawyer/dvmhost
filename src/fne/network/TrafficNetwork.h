@@ -420,6 +420,8 @@ namespace network
         bool m_enableSQLite;
         std::string m_sqliteDBFile;
         sqlite3* m_sqliteDB;
+        uint32_t m_sqlitePruneAfterDays;
+        uint32_t m_sqlitePruneIntervalMinutes;
 
         bool m_jitterBufferEnabled;
         uint16_t m_jitterMaxSize;

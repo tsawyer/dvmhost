@@ -269,6 +269,10 @@ master:
           enable: false
           # Full path to the SQLite database file.
           file: "metrics.db"
+          # Retention period for event tables in days. Set to 0 to disable automatic pruning.
+          pruneAfterDays: 30
+          # How often to run prune when enabled. Set to 0 to prune on startup only.
+          pruneIntervalMinutes: 60
 
     #
     # Crypto Container Configuration

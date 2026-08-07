@@ -143,6 +143,8 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_enableSQLite(false),
     m_sqliteDBFile("metrics.db"),
     m_sqliteDB(nullptr),
+    m_sqlitePruneAfterDays(30U),
+    m_sqlitePruneIntervalMinutes(60U),
     m_jitterBufferEnabled(false),
     m_jitterMaxSize(4U),
     m_jitterMaxWait(40000U),
@@ -263,6 +265,16 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
     yaml::Node sqliteConf = metricsConf["sqlite"];
     m_enableSQLite = sqliteConf["enable"].as<bool>(false);
     m_sqliteDBFile = sqliteConf["file"].as<std::string>("metrics.db");
+    m_sqlitePruneAfterDays = sqliteConf["pruneAfterDays"].as<uint32_t>(30U);
+    m_sqlitePruneIntervalMinutes = sqliteConf["pruneIntervalMinutes"].as<uint32_t>(60U);
+
+    if (m_sqlitePruneAfterDays == 0U) {
+        m_sqlitePruneIntervalMinutes = 0U;
+    } else if (m_sqlitePruneIntervalMinutes > 0U && m_sqlitePruneIntervalMinutes < 5U) {
+        LogWarning(LOG_MASTER, "SQLite prune interval is too low (%u minutes), clamping to 5 minutes.", m_sqlitePruneIntervalMinutes);
+        m_sqlitePruneIntervalMinutes = 5U;
+    }
+
     TrafficNetwork::MetricsLogging::initialize(this);
 
     if (m_enableInfluxDB && m_enableSQLite) {
@@ -470,6 +482,16 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         LogInfo("    SQLite Metrics Logging Enabled: %s", m_enableSQLite ? "yes" : "no");
         if (m_enableSQLite) {
             LogInfo("    SQLite DB File: %s", m_sqliteDBFile.c_str());
+            if (m_sqlitePruneAfterDays > 0U) {
+                LogInfo("    SQLite Metrics Retention: %u day(s)", m_sqlitePruneAfterDays);
+                if (m_sqlitePruneIntervalMinutes > 0U) {
+                    LogInfo("    SQLite Metrics Prune Interval: %u minute(s)", m_sqlitePruneIntervalMinutes);
+                } else {
+                    LogInfo("    SQLite Metrics Prune Interval: startup only");
+                }
+            } else {
+                LogWarning(LOG_MASTER, "SQLite Metrics pruning is disabled. This can result in extremely large database files depending on system traffic.");
+            }
         }
         LogInfo("    Global Jitter Buffer Enabled: %s", m_jitterBufferEnabled ? "yes" : "no");
         if (m_jitterBufferEnabled) {
