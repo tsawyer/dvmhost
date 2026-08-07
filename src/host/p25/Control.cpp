@@ -1499,8 +1499,6 @@ void Control::processNetwork()
         return;
     }
 
-    m_networkWatchdog.start();
-
     if (duid == DUID::PDU) {
         frameLength = length;
         data = std::unique_ptr<uint8_t[]>(new uint8_t[length]);
@@ -1528,6 +1526,8 @@ void Control::processNetwork()
 
             return;
         }
+
+        m_networkWatchdog.start();
 
         uint32_t blockLength = GET_UINT24(buffer, 8U);
         uint8_t totalBlocks = data[20U] + 1U;
@@ -1632,6 +1632,8 @@ void Control::processNetwork()
                 }
                 break;
             }
+
+            m_networkWatchdog.start();
 
             m_voice->processNetwork(data.get(), frameLength, control, lsd, duid, frameType);
             break;

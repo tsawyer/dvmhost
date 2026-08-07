@@ -85,7 +85,6 @@ void Voice::resetNet()
     m_pktLDU1Count = 0U;
     m_grpUpdtCount = 0U;
     m_roamLDU1Count = 0U;
-    m_p25->m_networkWatchdog.stop();
 
     m_netLastDUID = DUID::TDU;
 }
@@ -182,6 +181,11 @@ bool Voice::process(uint8_t* data, uint32_t len)
                 }
 
                 resetNet();
+                m_p25->m_netTimeoutTimer.stop();
+                m_p25->m_netTimeout = false;
+                m_p25->m_netTGHang.stop();
+                m_p25->m_networkWatchdog.stop();
+
                 m_p25->m_netState = RS_NET_IDLE;
                 if (m_p25->m_network != nullptr)
                     m_p25->m_network->resetP25();
