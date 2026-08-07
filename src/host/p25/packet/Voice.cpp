@@ -601,7 +601,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_pktLDU1Count = 0U;
             m_grpUpdtCount = 0U;
             m_roamLDU1Count = 0U;
-            m_p25->m_rfTimeout.start();
+            m_p25->m_rfTimeoutTimer.start();
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
@@ -1027,7 +1027,7 @@ bool Voice::process(uint8_t* data, uint32_t len)
             m_pktLDU1Count = 0U;
             m_grpUpdtCount = 0U;
             m_roamLDU1Count = 0U;
-            m_p25->m_rfTimeout.start();
+            m_p25->m_rfTimeoutTimer.start();
             m_lastDUID = DUID::HDU;
 
             m_rfLastHDU = lc::LC();
@@ -1130,7 +1130,8 @@ bool Voice::process(uint8_t* data, uint32_t len)
 
             m_lastDUID = duid;
 
-            m_p25->m_rfTimeout.stop();
+            m_p25->m_rfTimeoutTimer.stop();
+            m_p25->m_rfTimeout = false;
         }
         else {
             std::unique_ptr<lc::TDULC> tdulc = lc::tdulc::TDULCFactory::createTDULC(data + 2U);
@@ -1439,7 +1440,7 @@ void Voice::writeNetwork(const uint8_t *data, defines::DUID::E duid, defines::Fr
     if (m_p25->m_network == nullptr)
         return;
 
-    if (m_p25->m_rfTimeout.isRunning() && m_p25->m_rfTimeout.hasExpired())
+    if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())
         return;
 
     uint8_t controlByte = 0U;
@@ -1715,7 +1716,8 @@ void Voice::writeNet_TDU()
     resetWithNullAudio(m_netLDU1, false);
     resetWithNullAudio(m_netLDU2, false);
 
-    m_p25->m_netTimeout.stop();
+    m_p25->m_netTimeoutTimer.stop();
+    m_p25->m_netTimeout = false;
     m_p25->m_networkWatchdog.stop();
     resetNet();
     m_p25->m_netState = RS_NET_IDLE;
@@ -1877,7 +1879,8 @@ void Voice::writeNet_LDU1()
                         resetWithNullAudio(m_netLDU1, false);
                         resetWithNullAudio(m_netLDU2, false);
 
-                        m_p25->m_netTimeout.stop();
+                        m_p25->m_netTimeoutTimer.stop();
+                        m_p25->m_netTimeout = false;
                         m_p25->m_networkWatchdog.stop();
 
                         m_netLC = lc::LC();
@@ -1945,7 +1948,7 @@ void Voice::writeNet_LDU1()
         m_p25->m_netLastSrcId = srcId;
         m_p25->m_networkWatchdog.start();
         m_p25->m_netTGHang.start();
-        m_p25->m_netTimeout.start();
+        m_p25->m_netTimeoutTimer.start();
         m_netFrames = 0U;
         m_netLost = 0U;
         m_pktLDU1Count = 0U;

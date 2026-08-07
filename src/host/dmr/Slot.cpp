@@ -691,7 +691,7 @@ void Slot::clock()
 
     if (m_rfTimeoutTimer.isRunning() && m_rfTimeoutTimer.hasExpired()) {
         if (!m_rfTimeout) {
-            LogInfoEx(LOG_RF, "DMR Slot %u, user has timed out", m_slotNo);
+            LogInfoEx(LOG_RF, "DMR Slot %u, traffic timeout timer has expired, traffic will not transmit", m_slotNo);
             m_rfTimeout = true;
         }
     }
@@ -733,7 +733,7 @@ void Slot::clock()
 
     if (m_netTimeoutTimer.isRunning() && m_netTimeoutTimer.hasExpired()) {
         if (!m_netTimeout) {
-            LogInfoEx(LOG_NET, "DMR Slot %u, user has timed out", m_slotNo);
+            LogInfoEx(LOG_NET, "DMR Slot %u, traffic timeout timer has expired, traffic will not transmit", m_slotNo);
             m_netTimeout = true;
         }
     }

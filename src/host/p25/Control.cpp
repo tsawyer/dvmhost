@@ -110,10 +110,10 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_ccRunning(false),
     m_ccPrevRunning(false),
     m_ccHalted(false),
-    m_rfTimeout(1000U, timeout),
+    m_rfTimeoutTimer(1000U, timeout),
     m_rfTGHang(1000U, tgHang),
     m_rfLossWatchdog(1000U, 0U, 1500U),
-    m_netTimeout(1000U, timeout),
+    m_netTimeoutTimer(1000U, timeout),
     m_netTGHang(1000U, 2U),
     m_networkWatchdog(1000U, 0U, 1500U),
     m_adjSiteUpdate(1000U, 75U),
@@ -137,6 +137,8 @@ Control::Control(bool authoritative, uint32_t nac, uint32_t callHang, uint32_t q
     m_minRSSI(0U),
     m_aveRSSI(0U),
     m_rssiCount(0U),
+    m_rfTimeout(false),
+    m_netTimeout(false),
     m_ccNotifyActiveTG(false),
     m_disableAdjSiteBroadcast(false),
     m_notifyCC(true),
@@ -925,9 +927,16 @@ void Control::clock()
     }
 
     // handle timeouts and hang timers
-    m_rfTimeout.clock(ms);
-    m_netTimeout.clock(ms);
+    m_rfTimeoutTimer.clock(ms);
+    m_netTimeoutTimer.clock(ms);
     m_rfVoiceCallTermTimeout.clock(ms);
+
+    if (m_rfTimeoutTimer.isRunning() && m_rfTimeoutTimer.hasExpired()) {
+        if (!m_rfTimeout) {
+            LogInfoEx(LOG_RF, "traffic timeout timer has expired, traffic will not transmit");
+            m_rfTimeout = true;
+        }
+    }
 
     if (m_rfTGHang.isRunning()) {
         m_rfTGHang.clock(ms);
@@ -964,6 +973,13 @@ void Control::clock()
         }
     }
 
+    if (m_netTimeoutTimer.isRunning() && m_netTimeoutTimer.hasExpired()) {
+        if (!m_netTimeout) {
+            LogInfoEx(LOG_NET, "timeout timer has expired, traffic will not transmit");
+            m_netTimeout = true;
+        }
+    }
+
     if (m_authoritative) {
         if (m_netTGHang.isRunning()) {
             m_netTGHang.clock(ms);
@@ -991,7 +1007,8 @@ void Control::clock()
                     m_data->resetReceivedBlocks();
                     m_netState = RS_NET_IDLE;
                     m_tailOnIdle = true;
-                    m_netTimeout.stop();
+                    m_netTimeoutTimer.stop();
+                    m_netTimeout = false;
                 }
 
                 m_netLastDstId = 0U;
@@ -1047,7 +1064,8 @@ void Control::clock()
             m_voice->resetNet();
             m_data->resetReceivedBlocks();
 
-            m_netTimeout.stop();
+            m_netTimeoutTimer.stop();
+            m_netTimeout = false;
         }
     }
 
@@ -1365,10 +1383,10 @@ void Control::addFrame(const uint8_t* data, uint32_t length, bool net, bool imm)
     std::lock_guard<std::mutex> lock(s_queueLock);
 
     if (!net) {
-        if (m_rfTimeout.isRunning() && m_rfTimeout.hasExpired())
+        if (m_rfTimeoutTimer.isRunning() && m_rfTimeoutTimer.hasExpired())
             return;
     } else {
-        if (m_netTimeout.isRunning() && m_netTimeout.hasExpired())
+        if (m_netTimeoutTimer.isRunning() && m_netTimeoutTimer.hasExpired())
             return;
     }
 
@@ -1774,7 +1792,8 @@ void Control::processFrameLoss(RPT_RF_LOSS_TYPE type)
 
         m_tailOnIdle = true;
 
-        m_rfTimeout.stop();
+        m_rfTimeoutTimer.stop();
+        m_rfTimeout = false;
         m_txQueue.clear();
 
         if (m_network != nullptr)
@@ -1792,7 +1811,8 @@ void Control::processFrameLoss(RPT_RF_LOSS_TYPE type)
 
         m_data->resetRF();
 
-        m_rfTimeout.stop();
+        m_rfTimeoutTimer.stop();
+        m_rfTimeout = false;
         m_txQueue.clear();
     }
 

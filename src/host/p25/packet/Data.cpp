@@ -963,7 +963,7 @@ void Data::writeNetwork(const uint8_t currentBlock, const uint8_t* data, uint32_
     if (m_p25->m_network == nullptr)
         return;
 
-    if (m_p25->m_rfTimeout.isRunning() && m_p25->m_rfTimeout.hasExpired())
+    if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())
         return;
 
     m_p25->m_network->writeP25PDU(m_rfAssembler->dataHeader, currentBlock, data, len, lastBlock);
