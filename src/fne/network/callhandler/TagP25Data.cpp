@@ -1636,10 +1636,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID));
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_DISABLED_SRC_RID));
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+                    LogError(LOG_P25, DB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1701,10 +1701,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[control.getDstId()];
     if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
         // report error event to metrics
-        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED));
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_CALL_NOT_PERMITTED));
 
         if (m_network->m_logDenials)
-            LogError(LOG_P25, INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+            LogError(LOG_P25, DB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
         m_rejectedCallStreams.unlock();
 
@@ -1737,10 +1737,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_DST_RID));
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_DISABLED_DST_RID));
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+                    LogError(LOG_P25, DB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1752,10 +1752,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             // report call error
             if (m_network->m_rejectUnknownRID) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS));
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS));
 
                 if (m_network->m_logDenials)
-                    LogWarning(LOG_P25, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
+                    LogWarning(LOG_P25, DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1839,10 +1839,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     if (tg.isInvalid()) {
         //LogDebugEx(LOG_NET, "TagP25Data::validate()", "dstId = %u, invalid dropped", control.getDstId());
         // report error event to metrics
-        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_INV_TALKGROUP));
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_INV_TALKGROUP));
 
         if (m_network->m_logDenials)
-            LogError(LOG_P25, INFLUXDB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+            LogError(LOG_P25, DB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
         // report In-Call Control to the peer sending traffic
         m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1856,10 +1856,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
                 //LogDebugEx(LOG_P25, "TagP25Data::validate()", "tgId = %u, duid = $%02X, strapping = %u, algId = $%02X", control.getDstId(), (uint8_t)duid, tg.config().strapping(), control.getAlgId());
                 if (control.getAlgId() == P25DEF::ALGO_UNENCRYPT) {
                     // report error event to metrics
-                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR));
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_ENC_TALKGROUP_CLR));
 
                     if (m_network->m_logDenials)
-                        LogError(LOG_P25, INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+                        LogError(LOG_P25, DB_ERRSTR_ENC_TALKGROUP_CLR ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                     // report In-Call Control to the peer sending traffic
                     m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId(), 0U, true);
@@ -1871,10 +1871,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             if (tg.config().strapping() == lookups::TG_STRAPPING_CLEAR) {
                 if (control.getAlgId() != P25DEF::ALGO_UNENCRYPT) {
                     // report error event to metrics
-                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC));
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_CLR_TALKGROUP_ENC));
 
                     if (m_network->m_logDenials)
-                        LogError(LOG_P25, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+                        LogError(LOG_P25, DB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                     // report In-Call Control to the peer sending traffic
                     m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId(), 0U, true);
@@ -1898,10 +1898,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     // fail call if the reject flag is set
     if (rejectUnknownBadCall) {
         // report error event to metrics
-        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS));
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS));
 
         if (m_network->m_logDenials)
-            LogWarning(LOG_P25, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
+            LogWarning(LOG_P25, DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", control.getSrcId(), control.getDstId());
 
         // report In-Call Control to the peer sending traffic
         m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1911,10 +1911,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
     // is the TGID active?
     if (!tg.config().active()) {
         // report error event to metrics
-        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_TALKGROUP));
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_DISABLED_TALKGROUP));
 
         if (m_network->m_logDenials)
-            LogError(LOG_P25, INFLUXDB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+            LogError(LOG_P25, DB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
         // report In-Call Control to the peer sending traffic
         m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());
@@ -1929,10 +1929,10 @@ bool TagP25Data::validate(uint32_t peerId, lc::LC& control, DUID::E duid, const 
             std::vector<uint32_t> permittedRIDs = tg.config().permittedRIDs();
             if (std::find(permittedRIDs.begin(), permittedRIDs.end(), control.getSrcId()) == permittedRIDs.end()) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(INFLUXDB_ERRSTR_RID_NOT_PERMITTED));
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, control.getSrcId(), control.getDstId(), std::string(DB_ERRSTR_RID_NOT_PERMITTED));
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_P25, INFLUXDB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
+                    LogError(LOG_P25, DB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, control.getSrcId(), control.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, NET_ICC::REJECT_TRAFFIC, control.getDstId());

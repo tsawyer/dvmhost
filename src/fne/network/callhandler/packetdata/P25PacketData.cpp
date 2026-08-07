@@ -247,7 +247,7 @@ bool P25PacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                         if (!rid.radioDefault()) {
                             if (!rid.radioEnabled()) {
                                 // report error event to metrics
-                                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, status->assembler.dataHeader.getLLId(), status->assembler.dataHeader.getLLId(), std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID));
+                                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, status->assembler.dataHeader.getLLId(), status->assembler.dataHeader.getLLId(), std::string(DB_ERRSTR_DISABLED_SRC_RID));
 
                                 m_status.erase(peerId);
                                 delete status;

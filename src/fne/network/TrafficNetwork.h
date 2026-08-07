@@ -87,16 +87,16 @@ namespace network
         STATE_NXDN = 3U,        //!< NXDN
     };
 
-    #define INFLUXDB_ERRSTR_DISABLED_SRC_RID "disabled source RID"
-    #define INFLUXDB_ERRSTR_DISABLED_DST_RID "disabled destination RID"
-    #define INFLUXDB_ERRSTR_INV_TALKGROUP "illegal/invalid talkgroup"
-    #define INFLUXDB_ERRSTR_DISABLED_TALKGROUP "disabled talkgroup"
-    #define INFLUXDB_ERRSTR_ENC_TALKGROUP_CLR "encrypted talkgroup with clear traffic"
-    #define INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC "clear talkgroup with encrypted traffic"
-    #define INFLUXDB_ERRSTR_INV_SLOT "invalid slot for talkgroup"
-    #define INFLUXDB_ERRSTR_RID_NOT_PERMITTED "RID not permitted for talkgroup"
-    #define INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS "illegal/unknown RID attempted access"
-    #define INFLUXDB_ERRSTR_CALL_NOT_PERMITTED "call not permitted for talkgroup"
+    #define DB_ERRSTR_DISABLED_SRC_RID "disabled source RID"
+    #define DB_ERRSTR_DISABLED_DST_RID "disabled destination RID"
+    #define DB_ERRSTR_INV_TALKGROUP "illegal/invalid talkgroup"
+    #define DB_ERRSTR_DISABLED_TALKGROUP "disabled talkgroup"
+    #define DB_ERRSTR_ENC_TALKGROUP_CLR "encrypted talkgroup with clear traffic"
+    #define DB_ERRSTR_CLR_TALKGROUP_ENC "clear talkgroup with encrypted traffic"
+    #define DB_ERRSTR_INV_SLOT "invalid slot for talkgroup"
+    #define DB_ERRSTR_RID_NOT_PERMITTED "RID not permitted for talkgroup"
+    #define DB_ERRSTR_ILLEGAL_RID_ACCESS "illegal/unknown RID attempted access"
+    #define DB_ERRSTR_CALL_NOT_PERMITTED "call not permitted for talkgroup"
 
     const uint32_t MAX_HARD_CONN_CAP = 250U;
     const size_t PEER_STATE_LOCK_STRIPES = 256U;

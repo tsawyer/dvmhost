@@ -1159,10 +1159,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
     if (!rid.radioDefault()) {
         if (!rid.radioEnabled()) {
             // report error event to metrics
-            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID), data.getSlotNo());
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_SRC_RID), data.getSlotNo());
 
             if (m_network->m_logDenials)
-                LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
@@ -1247,10 +1247,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
     std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[data.getDstId()];
     if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
         // report error event to metrics
-        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED), data.getSlotNo());
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_CALL_NOT_PERMITTED), data.getSlotNo());
 
         if (m_network->m_logDenials)
-            LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+            LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
         m_rejectedCallStreams.unlock();
 
@@ -1267,10 +1267,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_DST_RID), data.getSlotNo());
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_DST_RID), data.getSlotNo());
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                    LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
                 return false;
             }
@@ -1280,10 +1280,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
             // report call error
             if (m_network->m_rejectUnknownRID) {
                 // report error event to metrics
-                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS), data.getSlotNo());
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS), data.getSlotNo());
 
                 if (m_network->m_logDenials)
-                    LogWarning(LOG_DMR, "DMR slot %s, " INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSlotNo(), data.getSrcId(), data.getDstId());
+                    LogWarning(LOG_DMR, "DMR slot %s, " DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSlotNo(), data.getSrcId(), data.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
@@ -1297,10 +1297,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
         lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(data.getDstId());
         if (tg.isInvalid()) {
             // report error event to metrics
-            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_INV_TALKGROUP), data.getSlotNo());
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_INV_TALKGROUP), data.getSlotNo());
 
             if (m_network->m_logDenials)
-                LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(),  data.getSlotNo());
@@ -1329,10 +1329,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
         // fail call if the reject flag is set
         if (rejectUnknownBadCall) {
             // report error event to metrics
-            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS), data.getSlotNo());
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS), data.getSlotNo());
 
             if (m_network->m_logDenials)
-                LogWarning(LOG_DMR, "DMR slot %s, " INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSlotNo(), data.getSrcId(), data.getDstId());
+                LogWarning(LOG_DMR, "DMR slot %s, " DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSlotNo(), data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
@@ -1342,10 +1342,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
         // check the DMR slot number
         if (tg.source().tgSlot() != data.getSlotNo()) {
             // report error event to metrics
-            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_INV_SLOT), data.getSlotNo());
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_INV_SLOT), data.getSlotNo());
 
             if (m_network->m_logDenials)
-                LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_INV_SLOT ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_INV_SLOT ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
@@ -1355,10 +1355,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
         // is the TGID active?
         if (!tg.config().active()) {
             // report error event to metrics
-            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_DISABLED_TALKGROUP), data.getSlotNo());
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_TALKGROUP), data.getSlotNo());
 
             if (m_network->m_logDenials)
-                LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
@@ -1373,10 +1373,10 @@ bool TagDMRData::validate(uint32_t peerId, data::NetData& data, lc::CSBK* csbk, 
                 std::vector<uint32_t> permittedRIDs = tg.config().permittedRIDs();
                 if (std::find(permittedRIDs.begin(), permittedRIDs.end(), data.getSrcId()) == permittedRIDs.end()) {
                     // report error event to metrics
-                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(INFLUXDB_ERRSTR_RID_NOT_PERMITTED));
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_RID_NOT_PERMITTED));
 
                     if (m_network->m_logDenials)
-                        LogError(LOG_DMR, "DMR Slot %u, " INFLUXDB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
+                        LogError(LOG_DMR, "DMR Slot %u, " DB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", data.getSlotNo(), peerId, data.getSrcId(), data.getDstId());
 
                     // report In-Call Control to the peer sending traffic
                     m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_DMR, NET_ICC::REJECT_TRAFFIC, data.getDstId(), data.getSlotNo());
