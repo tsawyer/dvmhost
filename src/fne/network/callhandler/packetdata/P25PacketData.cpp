@@ -230,6 +230,7 @@ bool P25PacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                     }
 
                     LogInfoEx((fromUpstream) ? LOG_PEER : LOG_MASTER, "P25, Data Call Start, peer = %u, llId = %u, streamId = %u, fromUpstream = %u", peerId, status->llId, streamId, fromUpstream);
+                    TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
                     continue;
                 }
 
