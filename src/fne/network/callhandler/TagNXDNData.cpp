@@ -359,6 +359,8 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                         m_status[dstId].callTakeover = false; // reset takeover flag
                         m_status.unlock();
 
+                        TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
+
                         status = m_status[dstId];
                     }
 
@@ -377,6 +379,7 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                                 m_status[dstId].srcId = srcId;
                             }
                             m_status.unlock();
+                            TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
                         }
                         else {
                             if (status.srcId != 0U && status.srcId != srcId) {
@@ -447,6 +450,8 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                                     m_status[dstId].srcId = srcId;
                                     m_status[dstId].ssrc = ssrc;
                                     m_status.unlock();
+
+                                    TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
                                 }
                             }
                         }

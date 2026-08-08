@@ -1045,6 +1045,11 @@ namespace network
              */
             static void incrementCallCollisions(TrafficNetwork* network);
             /**
+             * @brief Increments the total call switches counter.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void incrementCallSwitches(TrafficNetwork* network);
+            /**
              * @brief Resets the total processed calls counter to zero.
              * @param network Pointer to the TrafficNetwork instance.
              */
@@ -1054,6 +1059,11 @@ namespace network
              * @param network Pointer to the TrafficNetwork instance.
              */
             static void resetCallCollisions(TrafficNetwork* network);
+            /**
+             * @brief Resets the total call switches counter to zero.
+             * @param network Pointer to the TrafficNetwork instance.
+             */
+            static void resetCallSwitches(TrafficNetwork* network);
             /**
              * @brief Gets the active call counter.
              * @return Active call counter value.
@@ -1069,6 +1079,11 @@ namespace network
              * @return Total call collisions counter value.
              */
             static uint64_t getTotalCallCollisions();
+            /**
+             * @brief Gets the total call switches counter.
+             * @return Total call switches counter value.
+             */
+            static uint64_t getTotalCallSwitches();
 
             /**
              * @brief Logs a activity transfer event.
@@ -1170,6 +1185,7 @@ namespace network
             static std::atomic<int32_t> s_totalActiveCalls;
             static std::atomic<uint64_t> s_totalCallsProcessed;
             static std::atomic<uint64_t> s_totalCallCollisions;
+            static std::atomic<uint64_t> s_totalCallSwitches;
 
             /**
              * @brief Checks if the SQLite database for the specified TrafficNetwork instance is blank.

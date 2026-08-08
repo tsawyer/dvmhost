@@ -421,6 +421,14 @@ private:
     void restAPI_GetResetCallCollisions(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
 
     /**
+     * @brief REST API endpoint; implements put reset call switches request.
+     * @param request HTTP request.
+     * @param reply HTTP reply.
+     * @param match HTTP request matcher.
+     */
+    void restAPI_GetResetCallSwitches(const HTTPPayload& request, HTTPPayload& reply, const restapi::RequestMatch& match);
+
+    /**
      * @brief REST API endpoint; implements get unit registration list request.
      * @param request HTTP request.
      * @param reply HTTP reply.

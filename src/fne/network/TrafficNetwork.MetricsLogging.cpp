@@ -44,10 +44,12 @@ static const uint64_t NS_PER_DAY = 86400ULL * NS_PER_SECOND;
 std::atomic<int32_t> TrafficNetwork::MetricsLogging::s_totalActiveCalls {0};
 std::atomic<uint64_t> TrafficNetwork::MetricsLogging::s_totalCallsProcessed {0U};
 std::atomic<uint64_t> TrafficNetwork::MetricsLogging::s_totalCallCollisions {0U};
+std::atomic<uint64_t> TrafficNetwork::MetricsLogging::s_totalCallSwitches {0U};
 
 namespace {
     static const char* SQLITE_COUNTER_CALLS_PROCESSED = "total_calls_processed";
     static const char* SQLITE_COUNTER_CALL_COLLISIONS = "total_call_collisions";
+    static const char* SQLITE_COUNTER_CALL_SWITCHES = "total_call_switches";
 
     /**
      * @brief Get the current time in nanoseconds since the epoch.
@@ -969,6 +971,15 @@ void TrafficNetwork::MetricsLogging::incrementCallCollisions(TrafficNetwork* net
     persistSQLiteCounter(network, SQLITE_COUNTER_CALL_COLLISIONS, value);
 }
 
+/* Increments the total call switches counter. */
+
+void TrafficNetwork::MetricsLogging::incrementCallSwitches(TrafficNetwork* network)
+{
+    uint64_t value = s_totalCallSwitches.fetch_add(1U, std::memory_order_relaxed) + 1U;
+
+    persistSQLiteCounter(network, SQLITE_COUNTER_CALL_SWITCHES, value);
+}
+
 /* Resets the total processed calls counter to zero. */
 
 void TrafficNetwork::MetricsLogging::resetCallsProcessed(TrafficNetwork* network)
@@ -985,6 +996,15 @@ void TrafficNetwork::MetricsLogging::resetCallCollisions(TrafficNetwork* network
     s_totalCallCollisions.store(0U, std::memory_order_relaxed);
 
     persistSQLiteCounter(network, SQLITE_COUNTER_CALL_COLLISIONS, 0U);
+}
+
+/* Resets the total call switches counter to zero. */
+
+void TrafficNetwork::MetricsLogging::resetCallSwitches(TrafficNetwork* network)
+{
+    s_totalCallSwitches.store(0U, std::memory_order_relaxed);
+
+    persistSQLiteCounter(network, SQLITE_COUNTER_CALL_SWITCHES, 0U);
 }
 
 /* Gets the active call counter. */
@@ -1006,6 +1026,13 @@ uint64_t TrafficNetwork::MetricsLogging::getTotalCallsProcessed()
 uint64_t TrafficNetwork::MetricsLogging::getTotalCallCollisions()
 {
     return s_totalCallCollisions.load(std::memory_order_relaxed);
+}
+
+/* Gets the total call switches counter. */
+
+uint64_t TrafficNetwork::MetricsLogging::getTotalCallSwitches()
+{
+    return s_totalCallSwitches.load(std::memory_order_relaxed);
 }
 
 /* Logs a activity transfer event. */
@@ -1566,7 +1593,7 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
     }
 
     sqlite3_stmt* stmt = nullptr;
-    std::string sql = "SELECT key, value FROM metrics_counters WHERE key IN (?, ?);";
+    std::string sql = "SELECT key, value FROM metrics_counters WHERE key IN (?, ?, ?);";
     if (sqlite3_prepare_v2(network->m_sqliteDB, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         LogWarning(LOG_MASTER, "Unable to prepare SQLite counter load statement: %s", sqlite3_errmsg(network->m_sqliteDB));
         return;
@@ -1574,11 +1601,14 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
 
     sqlite3_bind_text(stmt, 1, SQLITE_COUNTER_CALLS_PROCESSED, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, SQLITE_COUNTER_CALL_COLLISIONS, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, SQLITE_COUNTER_CALL_SWITCHES, -1, SQLITE_STATIC);
 
     uint64_t loadedProcessed = 0U;
     uint64_t loadedCollisions = 0U;
+    uint64_t loadedSwitches = 0U;
     bool hasProcessed = false;
     bool hasCollisions = false;
+    bool hasSwitches = false;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         const char* key = (const char*)sqlite3_column_text(stmt, 0);
@@ -1593,6 +1623,9 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
         } else if (::strcmp(key, SQLITE_COUNTER_CALL_COLLISIONS) == 0) {
             loadedCollisions = value;
             hasCollisions = true;
+        } else if (::strcmp(key, SQLITE_COUNTER_CALL_SWITCHES) == 0) {
+            loadedSwitches = value;
+            hasSwitches = true;
         }
     }
 
@@ -1603,6 +1636,9 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
     }
     if (hasCollisions) {
         s_totalCallCollisions.store(loadedCollisions, std::memory_order_relaxed);
+    }
+    if (hasSwitches) {
+        s_totalCallSwitches.store(loadedSwitches, std::memory_order_relaxed);
     }
 }
 

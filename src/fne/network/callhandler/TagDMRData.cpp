@@ -332,6 +332,8 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                     m_status[dstId].callTakeover = false; // reset takeover flag
                     m_status.unlock();
 
+                    TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
+
                     status = m_status[dstId];
                 }
 
@@ -349,6 +351,7 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                 peerId, ssrc, srcId, dstId, slotNo, streamId, status.peerId, status.srcId, status.dstId, status.slotNo, status.streamId, fromUpstream);
                             m_status[dstId].srcId = srcId;
                         }
+                        TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
                         m_status.unlock();
                     }
                     else {
@@ -420,6 +423,8 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                 m_status[dstId].srcId = srcId;
                                 m_status[dstId].ssrc = ssrc;
                                 m_status.unlock();
+
+                                TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
                             }
                         }
                     }
