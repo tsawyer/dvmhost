@@ -12,13 +12,13 @@
 #include "common/Thread.h"
 #include "network/TrafficNetwork.h"
 
+#include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
-#include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -159,9 +159,9 @@ namespace {
             diag(nullptr),
             callEvent(nullptr),
             callErrorEvent(nullptr),
+            callCollisionEvent(nullptr),
             tsbkEvent(nullptr),
             csbkEvent(nullptr),
-            callCollisionEvent(nullptr),
             counterUpsert(nullptr)
         {
             /* stub */
@@ -173,17 +173,110 @@ namespace {
     // ---------------------------------------------------------------------------
 
     /**
+     * @brief Lock-free queue for metric events.
+     */
+    struct LockFreeMetricQueue {
+        std::vector<std::atomic<MetricEvent*>> slots;
+        std::atomic<size_t> head;
+        std::atomic<size_t> tail;
+        std::atomic<size_t> pendingCount;
+        size_t maxDepth;
+
+        /**
+         * @brief Constructor for LockFreeMetricQueue.
+         * @param depth The maximum depth of the queue.
+         */
+        explicit LockFreeMetricQueue(size_t depth) :
+            slots(depth),
+            head(0U),
+            tail(0U),
+            pendingCount(0U),
+            maxDepth(depth)
+        {
+            for (auto& slot : slots) {
+                slot.store(nullptr, std::memory_order_relaxed);
+            }
+        }
+
+        /**
+         * @brief Attempts to push a metric event into the queue.
+         * @param event The metric event to push.
+         * @return True if the event was successfully pushed, false otherwise.
+         */
+        bool tryPush(MetricEvent&& event)
+        {
+            const size_t capacity = slots.size();
+            if (capacity == 0U || maxDepth == 0U) {
+                return false;
+            }
+
+            size_t tailValue = tail.load(std::memory_order_relaxed);
+
+            // attempt to reserve a slot in the queue
+            while (true) {
+                const size_t headValue = head.load(std::memory_order_acquire);
+                const size_t pending = tailValue - headValue;
+                if (pending >= maxDepth) {
+                    return false;
+                }
+
+                if (tail.compare_exchange_weak(tailValue, tailValue + 1U, std::memory_order_relaxed, std::memory_order_relaxed)) {
+                    const size_t slotIndex = tailValue % capacity;
+                    MetricEvent* owned = new MetricEvent(std::move(event));
+                    slots[slotIndex].store(owned, std::memory_order_release);
+                    pendingCount.fetch_add(1U, std::memory_order_release);
+                    return true;
+                }
+            }
+        }
+
+        /**
+         * @brief Attempts to pop a metric event from the queue.
+         * @param out The metric event to populate with the popped event.
+         * @return True if an event was successfully popped, false otherwise.
+         */
+        bool tryPop(MetricEvent& out)
+        {
+            const size_t capacity = slots.size();
+            if (capacity == 0U) {
+                return false;
+            }
+
+            const size_t headValue = head.load(std::memory_order_relaxed);
+            const size_t tailValue = tail.load(std::memory_order_acquire);
+            if (headValue >= tailValue) {
+                return false;
+            }
+
+            const size_t slotIndex = headValue % capacity;
+            MetricEvent* item = slots[slotIndex].load(std::memory_order_acquire);
+            if (item == nullptr) {
+                return false;
+            }
+
+            out = std::move(*item);
+            delete item;
+            slots[slotIndex].store(nullptr, std::memory_order_release);
+            head.store(headValue + 1U, std::memory_order_release);
+            pendingCount.fetch_sub(1U, std::memory_order_release);
+            return true;
+        }
+    };
+
+    // ---------------------------------------------------------------------------
+    //  Structure Declaration
+    // ---------------------------------------------------------------------------
+
+    /**
      * @brief Holds the state for the SQLite writer, including the queue, worker thread, and prepared statements.
      */
     struct SQLiteWriterState {
-        std::mutex mutex;
-        std::condition_variable cv;
-        std::deque<MetricEvent> queue;
+        LockFreeMetricQueue queue;
         thread_t workerThread;
-        bool workerStarted;
+        std::atomic<bool> workerStarted;
         sqlite3* db;
         SQLiteStatements statements;
-        bool stopRequested;
+        std::atomic<bool> stopRequested;
         uint64_t droppedCount;
         uint32_t retentionDays;
         uint32_t pruneIntervalMinutes;
@@ -193,9 +286,7 @@ namespace {
          * @brief Default constructor for SQLiteWriterState. Initializes all members to default values.
          */
         SQLiteWriterState() :
-            mutex(),
-            cv(),
-            queue(),
+            queue(SQLITE_MAX_QUEUE_DEPTH),
             workerThread(),
             workerStarted(false),
             db(nullptr),
@@ -637,6 +728,7 @@ namespace {
         {
             std::unique_lock<std::mutex> stateLock(g_sqliteWriterStatesMutex, std::try_to_lock);
             if (!stateLock.owns_lock()) {
+                LogError(LOG_MASTER, "SQLite metrics could not acquire state lock!");
                 return;
             }
 
@@ -652,34 +744,24 @@ namespace {
         uint64_t droppedCount = 0U;
         bool emitDropWarning = false;
 
-        std::unique_lock<std::mutex> lock(state->mutex, std::try_to_lock);
-        if (!lock.owns_lock()) {
+        if (state->stopRequested.load(std::memory_order_acquire)) {
             return;
         }
 
-        if (state->stopRequested) {
-            return;
-        }
-
-        if (state->queue.size() >= SQLITE_MAX_QUEUE_DEPTH) {
+        if (!state->queue.tryPush(std::move(event))) {
             state->droppedCount++;
             if ((state->droppedCount % 1000U) == 1U) {
-                queueDepth = state->queue.size();
+                queueDepth = state->queue.pendingCount.load(std::memory_order_acquire);
                 droppedCount = state->droppedCount;
                 emitDropWarning = true;
             }
-            lock.unlock();
 
             if (emitDropWarning) {
-                LogWarning(LOG_MASTER, "SQLite metrics queue full (%zu), dropped %llu events",
-                    queueDepth, (unsigned long long)droppedCount);
+                LogWarning(LOG_MASTER, "SQLite metrics queue full (%zu/%zu), dropped %llu events",
+                    queueDepth, state->queue.maxDepth, (unsigned long long)droppedCount);
             }
             return;
         }
-
-        state->queue.push_back(std::move(event));
-        lock.unlock();
-        state->cv.notify_one();
     }
 
     /**
@@ -704,6 +786,7 @@ namespace {
         std::vector<MetricEvent> batch;
         batch.reserve(SQLITE_BATCH_SIZE);
 
+        // helper function to run the scheduled prune of old SQLite metric events
         auto runScheduledPrune = [&]() {
             if (state->retentionDays == 0U || state->pruneIntervalMinutes == 0U || state->nextPruneNs == 0U) {
                 return;
@@ -728,28 +811,26 @@ namespace {
         };
 
         while (true) {
-            // scope is intentional
-            {
-                std::unique_lock<std::mutex> lock(state->mutex);
-                state->cv.wait_for(lock, std::chrono::milliseconds(SQLITE_BATCH_WAIT_MS), [&]() {
-                    return state->stopRequested || !state->queue.empty();
-                });
+            MetricEvent event;
 
-                while (!state->queue.empty() && batch.size() < SQLITE_BATCH_SIZE) {
-                    batch.push_back(std::move(state->queue.front()));
-                    state->queue.pop_front();
-                }
-
-                if (state->stopRequested && batch.empty() && state->queue.empty()) {
-                    break;
-                }
+            // drain the queue into the batch up to the maximum batch size
+            while (state->queue.tryPop(event) && batch.size() < SQLITE_BATCH_SIZE) {
+                batch.push_back(std::move(event));
             }
 
+            // check if we should exit the writer thread
+            if (state->stopRequested.load(std::memory_order_acquire) && batch.empty() && state->queue.pendingCount.load(std::memory_order_acquire) == 0U) {
+                break;
+            }
+
+            // if the batch is empty, run the scheduled prune and wait before trying again
             if (batch.empty()) {
                 runScheduledPrune();
+                std::this_thread::sleep_for(std::chrono::milliseconds(SQLITE_BATCH_WAIT_MS));
                 continue;
             }
 
+            // begin a new SQLite transaction
             char* errMsg = nullptr;
             if (sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
                 LogError(LOG_MASTER, "SQLite metrics begin transaction failed: %s", (errMsg != nullptr) ? errMsg : "unknown error");
@@ -782,6 +863,8 @@ namespace {
             }
 
             batch.clear();
+
+            // run the scheduled prune after processing the current batch
             runScheduledPrune();
         }
 
@@ -867,7 +950,7 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
                     return;
                 }
 
-                state->workerStarted = true;
+                state->workerStarted.store(true, std::memory_order_release);
                 g_sqliteWriterStates.emplace(network, std::move(state));
             }
         }
@@ -894,22 +977,17 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
     }
 
     if (state != nullptr) {
-        // scope is intentional
-        {
-            std::unique_lock<std::mutex> lock(state->mutex);
-            state->stopRequested = true;
-        }
-        state->cv.notify_one();
+        state->stopRequested.store(true, std::memory_order_release);
 
         // wait for the SQLite writer thread to finish if it was started
-        if (state->workerStarted) {
+        if (state->workerStarted.load(std::memory_order_acquire)) {
 #if defined(_WIN32)
             ::WaitForSingleObject(state->workerThread.thread, INFINITE);
             ::CloseHandle(state->workerThread.thread);
 #else
             ::pthread_join(state->workerThread.thread, nullptr);
 #endif
-            state->workerStarted = false;
+            state->workerStarted.store(false, std::memory_order_release);
         }
 
         // finalize the SQLite statements
