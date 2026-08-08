@@ -17,7 +17,6 @@
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -789,17 +788,27 @@ namespace {
             uint64_t deleted = 0U;
             if (pruneSQLiteMetricEvents(db, state->retentionDays, &deleted)) {
                 if (deleted > 0U) {
-                    LogInfoEx(LOG_MASTER, "SQLite metrics retention prune deleted %llu stale rows (retention=%u day(s))",
+                    LogInfoEx(LOG_MASTER, "SQLite metrics retention prune deleted %llu stale rows, retention = %u day(s)",
                         (unsigned long long)deleted, state->retentionDays);
                 }
             } else {
-                LogWarning(LOG_MASTER, "SQLite metrics retention prune failed (retention=%u day(s))", state->retentionDays);
+                LogWarning(LOG_MASTER, "SQLite metrics retention prune failed, retention = %u day(s)", state->retentionDays);
             }
 
             state->nextPruneNs = calculateNextPruneNs(state->pruneIntervalMinutes);
         };
 
         while (true) {
+            size_t queueDepth = state->queue.pendingCount.load(std::memory_order_acquire);
+            if (queueDepth == 0U) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(SQLITE_BATCH_WAIT_MS));
+                continue;
+            }
+
+            if (queueDepth > (state->queue.maxDepth * 3U / 4U)) {
+                LogWarning(LOG_MASTER, "High pressure on SQLite metrics queue depth, queueDepth = %zu, maxDepth = %zu", queueDepth, state->queue.maxDepth);
+            }
+
             MetricEvent event;
 
             // drain the queue into the batch up to the maximum batch size
