@@ -397,6 +397,7 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                                     m_rejectedCallStreams.unlock();
 
                                     TrafficNetwork::MetricsLogging::incrementCallCollisions(m_network);
+                                    TrafficNetwork::MetricsLogging::logCallCollisionEvent(m_network, peerId, streamId, srcId, dstId, slotNo, status.peerId, status.streamId, status.srcId, status.dstId, status.slotNo);
 
                                     return false;
                                 }

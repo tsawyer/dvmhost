@@ -1132,6 +1132,22 @@ namespace network
              */
             static void logCallErrorEvent(TrafficNetwork* network, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, const std::string& message, uint8_t slotNo);
             /**
+             * @brief Logs a call collision event with slot number.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @param peerId Peer ID.
+             * @param streamId Stream ID.
+             * @param srcId Source ID.
+             * @param dstId Destination ID.
+             * @param slotNo Slot number.
+             * @param rxPeerId Received peer ID.
+             * @param rxStreamId Received stream ID.
+             * @param rxSrcId Received source ID.
+             * @param rxDstId Received destination ID.
+             * @param rxSlot Received slot number.
+             */
+            static void logCallCollisionEvent(TrafficNetwork* network, uint32_t peerId, uint32_t streamId, uint32_t srcId, uint32_t dstId, uint8_t slotNo,
+                uint32_t rxPeerId, uint32_t rxStreamId, uint32_t rxSrcId, uint32_t rxDstId, uint8_t rxSlot);
+            /**
              * @brief Logs a P25 TSBK raw event.
              * @param network Pointer to the TrafficNetwork instance.
              * @param peerId Peer ID.
@@ -1172,6 +1188,12 @@ namespace network
              * @return True if the table exists (or was created), false on error.
              */
             static bool ensureSQLiteCounterTable(TrafficNetwork* network);
+            /**
+             * @brief Ensures all SQLite metrics tables and indexes exist.
+             * @param network Pointer to the TrafficNetwork instance.
+             * @return True if all schema objects exist (or were created), false on error.
+             */
+            static bool ensureSQLiteMetricTables(TrafficNetwork* network);
             /**
              * @brief Loads persisted metrics counters from SQLite.
              * @param network Pointer to the TrafficNetwork instance.

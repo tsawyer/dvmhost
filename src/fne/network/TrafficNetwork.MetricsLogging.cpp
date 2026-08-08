@@ -66,6 +66,7 @@ namespace {
         DIAG,
         CALL_EVENT,
         CALL_ERROR_EVENT,
+        CALL_COLLISION_EVENT,
         TSBK_EVENT,
         CSBK_EVENT,
         COUNTER_EVENT
@@ -98,6 +99,13 @@ namespace {
         std::string counterKey;
         uint64_t counterValue;
 
+        uint32_t rxPeerId;
+        uint32_t rxStreamId;
+        uint32_t rxSrcId;
+        uint32_t rxDstId;
+        uint8_t rxSlot;
+        bool hasRxSlot;
+
         /**
          * @brief Default constructor for MetricEvent. Initializes all members to default values.
          */
@@ -112,7 +120,13 @@ namespace {
             slotNo(0U),
             hasSlot(false),
             counterKey(),
-            counterValue(0U)
+            counterValue(0U),
+            rxPeerId(0U),
+            rxStreamId(0U),
+            rxSrcId(0U),
+            rxDstId(0U),
+            rxSlot(0U),
+            hasRxSlot(false)
         {
             /* stub */
         }
@@ -130,6 +144,7 @@ namespace {
         sqlite3_stmt* diag;
         sqlite3_stmt* callEvent;
         sqlite3_stmt* callErrorEvent;
+        sqlite3_stmt* callCollisionEvent;
         sqlite3_stmt* tsbkEvent;
         sqlite3_stmt* csbkEvent;
         sqlite3_stmt* counterUpsert;
@@ -144,6 +159,7 @@ namespace {
             callErrorEvent(nullptr),
             tsbkEvent(nullptr),
             csbkEvent(nullptr),
+            callCollisionEvent(nullptr),
             counterUpsert(nullptr)
         {
             /* stub */
@@ -233,6 +249,10 @@ namespace {
             sqlite3_finalize(stmts.callErrorEvent);
             stmts.callErrorEvent = nullptr;
         }
+        if (stmts.callCollisionEvent != nullptr) {
+            sqlite3_finalize(stmts.callCollisionEvent);
+            stmts.callCollisionEvent = nullptr;
+        }
         if (stmts.tsbkEvent != nullptr) {
             sqlite3_finalize(stmts.tsbkEvent);
             stmts.tsbkEvent = nullptr;
@@ -280,6 +300,8 @@ namespace {
         if (!prepareStatement(db, "INSERT INTO call_event(ts_ns, peer_id, mode, stream_id, src_id, dst_id, duration_ms, slot) VALUES(?, ?, ?, ?, ?, ?, ?, ?);", &stmts.callEvent))
             return false;
         if (!prepareStatement(db, "INSERT INTO call_error_event(ts_ns, peer_id, stream_id, src_id, dst_id, message, slot) VALUES(?, ?, ?, ?, ?, ?, ?);", &stmts.callErrorEvent))
+            return false;
+        if (!prepareStatement(db, "INSERT INTO call_collision_event(ts_ns, peer_id, stream_id, src_id, dst_id, slot, rx_peer_id, rx_stream_id, rx_src_id, rx_dst_id, rx_slot) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);", &stmts.callCollisionEvent))
             return false;
         if (!prepareStatement(db, "INSERT INTO tsbk_event(ts_ns, peer_id, lco, tsbk, raw) VALUES(?, ?, ?, ?, ?);", &stmts.tsbkEvent))
             return false;
@@ -396,6 +418,43 @@ namespace {
             }
             return execStepAndReset(stmt);
 
+        case MetricEventType::CALL_COLLISION_EVENT:
+            stmt = stmts.callCollisionEvent;
+            if (stmt == nullptr) return false;
+            if (sqlite3_bind_int64(stmt, 1, (sqlite3_int64)e.tsNs) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 2, (int)e.peerId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 3, (int)e.streamId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 4, (int)e.srcId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 5, (int)e.dstId) != SQLITE_OK) 
+                return false;
+            if (e.hasSlot) {
+                if (sqlite3_bind_int(stmt, 6, (int)e.slotNo) != SQLITE_OK) 
+                    return false;
+            } else {
+                if (sqlite3_bind_null(stmt, 6) != SQLITE_OK) 
+                    return false;
+            }
+            if (sqlite3_bind_int(stmt, 7, (int)e.rxPeerId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 8, (int)e.rxStreamId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 9, (int)e.rxSrcId) != SQLITE_OK) 
+                return false;
+            if (sqlite3_bind_int(stmt, 10, (int)e.rxDstId) != SQLITE_OK) 
+                return false;
+            if (e.hasRxSlot) {
+                if (sqlite3_bind_int(stmt, 11, (int)e.rxSlot) != SQLITE_OK) 
+                    return false;
+            } else {
+                if (sqlite3_bind_null(stmt, 11) != SQLITE_OK) 
+                    return false;
+            }
+            return execStepAndReset(stmt);
+
         case MetricEventType::TSBK_EVENT:
             stmt = stmts.tsbkEvent;
             if (stmt == nullptr) return false;
@@ -499,6 +558,7 @@ namespace {
             "diag",
             "call_event",
             "call_error_event",
+            "call_collision_event",
             "tsbk_event",
             "csbk_event"
         };
@@ -754,20 +814,10 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
             }
         }
 
-        // is this a new SQLite metrics database?
-        if (isSQLiteBlank(network)) {
-            initializeSQLite(network);
-        }
+        // ensure SQLite metrics schema is present for both new and existing databases
+        initializeSQLite(network);
 
         if (network->m_sqliteDB != nullptr) {
-            // ensure the SQLite counter table exists
-            if (!ensureSQLiteCounterTable(network)) {
-                sqlite3_close(network->m_sqliteDB);
-                network->m_sqliteDB = nullptr;
-                network->m_enableSQLite = false;
-                return;
-            }
-
             // load existing SQLite metrics counters
             loadSQLiteCounters(network);
 
@@ -1168,6 +1218,57 @@ void TrafficNetwork::MetricsLogging::logCallErrorEvent(TrafficNetwork* network, 
     }
 }
 
+/* Logs a call collision event with slot number. */
+
+void TrafficNetwork::MetricsLogging::logCallCollisionEvent(TrafficNetwork* network, uint32_t peerId, uint32_t streamId, uint32_t srcId,
+    uint32_t dstId, uint8_t slotNo, uint32_t rxPeerId, uint32_t rxStreamId, uint32_t rxSrcId, uint32_t rxDstId, uint8_t rxSlot)
+{
+    if (network == nullptr || !network->m_enableMetrics)
+        return;
+
+    uint64_t ts = nowNs();
+
+    if (network->m_enableInfluxDB) {
+        influxdb::QueryBuilder()
+            .meas("call_collision_event")
+                .tag("peerId", std::to_string(peerId))
+                .tag("streamId", std::to_string(streamId))
+                .tag("srcId", std::to_string(srcId))
+                .tag("dstId", std::to_string(dstId))
+                .tag("rxPeerId", std::to_string(rxPeerId))
+                .tag("rxStreamId", std::to_string(rxStreamId))
+                .tag("rxSrcId", std::to_string(rxSrcId))
+                .tag("rxDstId", std::to_string(rxDstId))
+                    .field("slot", slotNo)
+                    .field("rxSlot", rxSlot)
+                .timestamp(ts)
+            .requestAsync(network->m_influxServer);
+    }
+
+    if (network->m_enableSQLite && network->m_sqliteDB != nullptr) {
+        MetricEvent e;
+        e.type = MetricEventType::CALL_COLLISION_EVENT;
+        e.tsNs = ts;
+        e.peerId = peerId;
+        e.streamId = streamId;
+        e.srcId = srcId;
+        e.dstId = dstId;
+        e.rxPeerId = rxPeerId;
+        e.rxStreamId = rxStreamId;
+        e.rxSrcId = rxSrcId;
+        e.rxDstId = rxDstId;
+        if (slotNo != 0U) {
+            e.hasSlot = true;
+            e.slotNo = slotNo;
+        }
+        if (rxSlot != 0U) {
+            e.hasRxSlot = true;
+            e.rxSlot = rxSlot;
+        }
+        enqueueSQLiteMetric(network, std::move(e));
+    }
+}
+
 /* Logs a P25 TSBK raw event. */
 
 void TrafficNetwork::MetricsLogging::logTSBKEvent(TrafficNetwork* network, uint32_t peerId, const std::string& lco, const std::string& tsbk,
@@ -1272,108 +1373,34 @@ void TrafficNetwork::MetricsLogging::initializeSQLite(TrafficNetwork* network)
         return;
     if (!network->m_enableSQLite)
         return;
+    if (network->m_sqliteDB == nullptr)
+        return;
 
-    std::string sql = R"(
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
+    if (sqlite3_exec(network->m_sqliteDB, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        LogError(LOG_MASTER, "Error setting SQLite journal_mode, error: %s", sqlite3_errmsg(network->m_sqliteDB));
+        sqlite3_close(network->m_sqliteDB);
+        network->m_sqliteDB = nullptr;
+        network->m_enableSQLite = false;
+        return;
+    }
 
-CREATE TABLE activity (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  identity TEXT NOT NULL,
-  msg TEXT NOT NULL
-);
+    if (sqlite3_exec(network->m_sqliteDB, "PRAGMA synchronous = NORMAL;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        LogError(LOG_MASTER, "Error setting SQLite synchronous mode, error: %s", sqlite3_errmsg(network->m_sqliteDB));
+        sqlite3_close(network->m_sqliteDB);
+        network->m_sqliteDB = nullptr;
+        network->m_enableSQLite = false;
+        return;
+    }
 
-CREATE INDEX idx_activity_time ON activity(ts_ns);
-CREATE INDEX idx_activity_peer_time ON activity(peer_id, ts_ns);
+    if (sqlite3_exec(network->m_sqliteDB, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        LogError(LOG_MASTER, "Error enabling SQLite foreign_keys, error: %s", sqlite3_errmsg(network->m_sqliteDB));
+        sqlite3_close(network->m_sqliteDB);
+        network->m_sqliteDB = nullptr;
+        network->m_enableSQLite = false;
+        return;
+    }
 
-CREATE TABLE diag (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  identity TEXT NOT NULL,
-  msg TEXT NOT NULL
-);
-
-CREATE INDEX idx_diag_time ON diag(ts_ns);
-CREATE INDEX idx_diag_peer_time ON diag(peer_id, ts_ns);
-
-CREATE TABLE call_event (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('Analog','DMR','NXDN','P25')),
-  stream_id INTEGER NOT NULL,
-  src_id INTEGER NOT NULL,
-  dst_id INTEGER NOT NULL,
-  duration_ms INTEGER NOT NULL,
-  slot INTEGER NULL
-);
-
-CREATE INDEX idx_call_event_time ON call_event(ts_ns);
-CREATE INDEX idx_call_event_mode_time ON call_event(mode, ts_ns);
-CREATE INDEX idx_call_event_peer_time ON call_event(peer_id, ts_ns);
-CREATE INDEX idx_call_event_dst_time ON call_event(dst_id, ts_ns);
-CREATE INDEX idx_call_event_stream ON call_event(stream_id);
-
-CREATE TABLE call_error_event (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  stream_id INTEGER NOT NULL,
-  src_id INTEGER NOT NULL,
-  dst_id INTEGER NOT NULL,
-  message TEXT NOT NULL,
-  slot INTEGER NULL
-);
-
-CREATE INDEX idx_call_error_time ON call_error_event(ts_ns);
-CREATE INDEX idx_call_error_peer_time ON call_error_event(peer_id, ts_ns);
-CREATE INDEX idx_call_error_message_time ON call_error_event(message, ts_ns);
-CREATE INDEX idx_call_error_stream ON call_error_event(stream_id);
-
-CREATE TABLE tsbk_event (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  lco TEXT NOT NULL,
-  tsbk TEXT NOT NULL,
-  raw TEXT NOT NULL
-);
-
-CREATE INDEX idx_tsbk_time ON tsbk_event(ts_ns);
-CREATE INDEX idx_tsbk_peer_time ON tsbk_event(peer_id, ts_ns);
-CREATE INDEX idx_tsbk_lco_time ON tsbk_event(lco, ts_ns);
-
-CREATE TABLE csbk_event (
-  id INTEGER PRIMARY KEY,
-  ts_ns INTEGER NOT NULL,
-  ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
-  peer_id INTEGER NOT NULL,
-  lco TEXT NOT NULL,
-  csbk TEXT NOT NULL,
-  raw TEXT NOT NULL
-);
-
-CREATE INDEX idx_csbk_time ON csbk_event(ts_ns);
-CREATE INDEX idx_csbk_peer_time ON csbk_event(peer_id, ts_ns);
-CREATE INDEX idx_csbk_lco_time ON csbk_event(lco, ts_ns);
-
-CREATE TABLE IF NOT EXISTS metrics_counters (
-    key TEXT PRIMARY KEY,
-    value INTEGER NOT NULL
-);
-)";
-
-    if (sqlite3_exec(network->m_sqliteDB, sql.c_str(), nullptr, nullptr, nullptr) != SQLITE_OK) {
-        LogError(LOG_MASTER, "Error creating SQLite tables, error: %s", sqlite3_errmsg(network->m_sqliteDB));
+    if (!ensureSQLiteMetricTables(network)) {
         sqlite3_close(network->m_sqliteDB);
         network->m_sqliteDB = nullptr;
         network->m_enableSQLite = false;
@@ -1396,6 +1423,138 @@ bool TrafficNetwork::MetricsLogging::ensureSQLiteCounterTable(TrafficNetwork* ne
     }
 
     return true;
+}
+
+/* Ensures all SQLite metric tables and indexes exist. */
+
+bool TrafficNetwork::MetricsLogging::ensureSQLiteMetricTables(TrafficNetwork* network)
+{
+        if (network == nullptr || network->m_sqliteDB == nullptr) {
+                return false;
+        }
+
+        // SQLite schema statements for creating metric tables and indexes
+        const char* schemaStatements[] = {
+            // Activity table and indexes
+R"(CREATE TABLE IF NOT EXISTS activity (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    identity TEXT NOT NULL,
+    msg TEXT NOT NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_activity_time ON activity(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_activity_peer_time ON activity(peer_id, ts_ns);",
+
+            // Diagnostic table and indexes
+R"(CREATE TABLE IF NOT EXISTS diag (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    identity TEXT NOT NULL,
+    msg TEXT NOT NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_diag_time ON diag(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_diag_peer_time ON diag(peer_id, ts_ns);",
+
+            // Call event table and indexes
+R"(CREATE TABLE IF NOT EXISTS call_event (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('Analog','DMR','NXDN','P25')),
+    stream_id INTEGER NOT NULL,
+    src_id INTEGER NOT NULL,
+    dst_id INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    slot INTEGER NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_call_event_time ON call_event(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_event_mode_time ON call_event(mode, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_event_peer_time ON call_event(peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_event_dst_time ON call_event(dst_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_event_stream ON call_event(stream_id);",
+
+            // Call error event table and indexes
+R"(CREATE TABLE IF NOT EXISTS call_error_event (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    stream_id INTEGER NOT NULL,
+    src_id INTEGER NOT NULL,
+    dst_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    slot INTEGER NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_call_error_time ON call_error_event(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_error_peer_time ON call_error_event(peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_error_message_time ON call_error_event(message, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_error_stream ON call_error_event(stream_id);",
+
+            // Call collision event table and indexes
+R"(CREATE TABLE IF NOT EXISTS call_collision_event (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    stream_id INTEGER NOT NULL,
+    src_id INTEGER NOT NULL,
+    dst_id INTEGER NOT NULL,
+    slot INTEGER NULL,
+    rx_peer_id INTEGER NOT NULL,
+    rx_stream_id INTEGER NOT NULL,
+    rx_src_id INTEGER NOT NULL,
+    rx_dst_id INTEGER NOT NULL,
+    rx_slot INTEGER NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_call_collision_time ON call_collision_event(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_collision_peer_time ON call_collision_event(peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_collision_stream ON call_collision_event(stream_id);",
+            "CREATE INDEX IF NOT EXISTS idx_call_collision_rx_peer_time ON call_collision_event(rx_peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_call_collision_rx_stream ON call_collision_event(rx_stream_id);",
+
+            // TSBK event table and indexes
+R"(CREATE TABLE IF NOT EXISTS tsbk_event (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    lco TEXT NOT NULL,
+    tsbk TEXT NOT NULL,
+    raw TEXT NOT NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_tsbk_time ON tsbk_event(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_tsbk_peer_time ON tsbk_event(peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_tsbk_lco_time ON tsbk_event(lco, ts_ns);",
+
+            // CSBK event table and indexes
+R"(CREATE TABLE IF NOT EXISTS csbk_event (
+    id INTEGER PRIMARY KEY,
+    ts_ns INTEGER NOT NULL,
+    ts_s REAL GENERATED ALWAYS AS (ts_ns / 1000000000.0) STORED,
+    peer_id INTEGER NOT NULL,
+    lco TEXT NOT NULL,
+    csbk TEXT NOT NULL,
+    raw TEXT NOT NULL
+);)",
+            "CREATE INDEX IF NOT EXISTS idx_csbk_time ON csbk_event(ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_csbk_peer_time ON csbk_event(peer_id, ts_ns);",
+            "CREATE INDEX IF NOT EXISTS idx_csbk_lco_time ON csbk_event(lco, ts_ns);"
+        };
+
+        // execute each schema statement to ensure the SQLite database has the necessary tables and indexes
+        for (const char* statement : schemaStatements) {
+            if (sqlite3_exec(network->m_sqliteDB, statement, nullptr, nullptr, nullptr) != SQLITE_OK) {
+                LogError(LOG_MASTER, "Error ensuring SQLite metrics schema, error: %s", sqlite3_errmsg(network->m_sqliteDB));
+                return false;
+            }
+        }
+
+        return ensureSQLiteCounterTable(network);
 }
 
 /* Loads persisted metrics counters from SQLite. */

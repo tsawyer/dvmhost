@@ -424,6 +424,7 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                                         m_rejectedCallStreams.unlock();
 
                                         TrafficNetwork::MetricsLogging::incrementCallCollisions(m_network);
+                                        TrafficNetwork::MetricsLogging::logCallCollisionEvent(m_network, peerId, streamId, srcId, dstId, 0U, status.peerId, status.streamId, status.srcId, status.dstId, 0U);
 
                                         return false;
                                     }
