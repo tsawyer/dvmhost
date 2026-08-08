@@ -11,6 +11,7 @@
 #include "common/Log.h"
 #include "common/Thread.h"
 #include "network/TrafficNetwork.h"
+#include "FNEMain.h"
 
 #include <atomic>
 #include <chrono>
@@ -798,6 +799,17 @@ namespace {
             state->nextPruneNs = calculateNextPruneNs(state->pruneIntervalMinutes);
         };
 
+        std::string threadName("fne:sqlite");
+        if (g_killed) {
+            delete th;
+            return nullptr;
+        }
+
+        LogInfoEx(LOG_HOST, "[ OK ] %s", threadName.c_str());
+#ifdef _GNU_SOURCE
+        ::pthread_setname_np(th->thread, threadName.c_str());
+#endif // _GNU_SOURCE
+
         while (true) {
             size_t queueDepth = state->queue.pendingCount.load(std::memory_order_acquire);
             if (queueDepth == 0U) {
@@ -865,6 +877,9 @@ namespace {
             // run the scheduled prune after processing the current batch
             runScheduledPrune();
         }
+
+        LogInfoEx(LOG_HOST, "[STOP] %s", threadName.c_str());
+        delete th;
 
         return nullptr;
     }
