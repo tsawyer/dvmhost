@@ -810,15 +810,10 @@ namespace {
         ::pthread_setname_np(th->thread, threadName.c_str());
 #endif // _GNU_SOURCE
 
-        while (true) {
+        while (!g_killed) {
             size_t queueDepth = state->queue.pendingCount.load(std::memory_order_acquire);
             if (queueDepth == 0U) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(SQLITE_BATCH_WAIT_MS));
-                if (g_killed) {
-                    delete th;
-                    return nullptr;
-                }
-
                 continue;
             }
 
