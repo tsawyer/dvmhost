@@ -209,7 +209,6 @@ bool DMRPacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
             }
 
             LogInfoEx((fromUpstream) ? LOG_PEER : LOG_MASTER, "DMR, Data Call Start, peer = %u, slot = %u, srcId = %u, dstId = %u, group = %u, streamId = %u, fromUpstream = %u", peerId, status->slotNo, status->srcId, status->dstId, gi, streamId, fromUpstream);
-            TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
             return true;
         }
 
@@ -259,6 +258,8 @@ bool DMRPacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
             uint32_t dstId = status->header.getDstId();
             LogInfoEx((fromUpstream) ? LOG_PEER : LOG_MASTER, "DMR, Data Call End, peer = %u, slot = %u, srcId = %u, dstId = %u, group = %u, blocks = %u, duration = %u, streamId = %u, fromUpstream = %u",
                 peerId, srcId, dstId, gi, status->header.getBlocksToFollow(), duration / 1000, streamId, fromUpstream);
+
+            TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
 
             // report call event to metrics
             TrafficNetwork::MetricsLogging::logCallEvent(m_network, "DMR", peerId, streamId, srcId, dstId, duration, slotNo);

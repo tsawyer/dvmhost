@@ -321,6 +321,8 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                         TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                     }
 
+                    TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+
                     // report call event to metrics
                     TrafficNetwork::MetricsLogging::logCallEvent(m_network, "NXDN", peerId, streamId, srcId, dstId, duration);
 
@@ -491,7 +493,6 @@ bool TagNXDNData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerI
                     m_rejectedCallStreams.unlock();
 
                     if (!tg.config().parrot()) {
-                        TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
                         TrafficNetwork::MetricsLogging::incrementActiveCalls(m_network);
                     }
 

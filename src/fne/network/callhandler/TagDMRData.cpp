@@ -284,6 +284,8 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                     TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                 }
 
+                TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+
                 // report call event to metrics
                 TrafficNetwork::MetricsLogging::logCallEvent(m_network, "DMR", peerId, streamId, srcId, dstId, duration, slotNo);
 
@@ -466,7 +468,6 @@ bool TagDMRData::processFrame(const uint8_t* data, uint32_t len, uint32_t peerId
                 m_rejectedCallStreams.unlock();
 
                 if (!tg.config().parrot()) {
-                    TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
                     TrafficNetwork::MetricsLogging::incrementActiveCalls(m_network);
                 }
 

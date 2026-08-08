@@ -183,6 +183,8 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                     TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                 }
 
+                TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+
                 // report call event to metrics
                 TrafficNetwork::MetricsLogging::logCallEvent(m_network, "Analog", peerId, streamId, srcId, dstId, duration);
 
