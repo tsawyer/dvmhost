@@ -301,8 +301,8 @@ namespace {
         }
     };
 
-    static std::mutex g_sqliteWriterStatesMutex;
-    static std::unordered_map<TrafficNetwork*, std::shared_ptr<SQLiteWriterState>> g_sqliteWriterStates;
+    static std::atomic<SQLiteWriterState*> g_sqliteWriterState;
+    static std::shared_ptr<SQLiteWriterState> g_sqliteWriterStateHolder;
 
     // ---------------------------------------------------------------------------
     //  Global Functions
@@ -724,20 +724,9 @@ namespace {
         if (network == nullptr)
             return;
 
-        std::shared_ptr<SQLiteWriterState> state;
-        {
-            std::unique_lock<std::mutex> stateLock(g_sqliteWriterStatesMutex, std::try_to_lock);
-            if (!stateLock.owns_lock()) {
-                LogError(LOG_MASTER, "SQLite metrics could not acquire state lock!");
-                return;
-            }
-
-            auto it = g_sqliteWriterStates.find(network);
-            if (it == g_sqliteWriterStates.end() || it->second == nullptr) {
-                return;
-            }
-
-            state = it->second;
+        SQLiteWriterState* state = g_sqliteWriterState.load(std::memory_order_acquire);
+        if (state == nullptr) {
+            return;
         }
 
         size_t queueDepth = 0U;
@@ -922,9 +911,8 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
 
         // initialize the SQLite writer thread if the database is available
         if (network->m_sqliteDB != nullptr) {
-            std::unique_lock<std::mutex> lock(g_sqliteWriterStatesMutex);
-            auto it = g_sqliteWriterStates.find(network);
-            if (it == g_sqliteWriterStates.end()) {
+            SQLiteWriterState* existingState = g_sqliteWriterState.load(std::memory_order_acquire);
+            if (existingState == nullptr) {
                 auto state = std::make_shared<SQLiteWriterState>();
                 if (!prepareStatements(network->m_sqliteDB, state->statements)) {
                     LogError(LOG_MASTER, "Failed to prepare SQLite metrics statements: %s", sqlite3_errmsg(network->m_sqliteDB));
@@ -951,7 +939,9 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
                 }
 
                 state->workerStarted.store(true, std::memory_order_release);
-                g_sqliteWriterStates.emplace(network, std::move(state));
+                SQLiteWriterState* rawState = state.get();
+                g_sqliteWriterStateHolder = std::move(state);
+                g_sqliteWriterState.store(rawState, std::memory_order_release);
             }
         }
     }
@@ -964,18 +954,7 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
     if (network == nullptr)
         return;
 
-    std::shared_ptr<SQLiteWriterState> state;
-
-    // scope is intentional
-    {
-        std::unique_lock<std::mutex> lock(g_sqliteWriterStatesMutex);
-        auto it = g_sqliteWriterStates.find(network);
-        if (it != g_sqliteWriterStates.end()) {
-            state = std::move(it->second);
-            g_sqliteWriterStates.erase(it);
-        }
-    }
-
+    SQLiteWriterState* state = g_sqliteWriterState.load(std::memory_order_acquire);
     if (state != nullptr) {
         state->stopRequested.store(true, std::memory_order_release);
 
