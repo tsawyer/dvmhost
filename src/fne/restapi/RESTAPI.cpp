@@ -2049,6 +2049,8 @@ void RESTAPI::restAPI_GetStats(const HTTPPayload& request, HTTPPayload& reply, c
         response["totalCallsProcessed"].set<uint32_t>(totalCallsProcessed);
         uint32_t totalCallCollisions = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallCollisions();
         response["totalCallCollisions"].set<uint32_t>(totalCallCollisions);
+        uint32_t totalCallSwitches = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallSwitches();
+        response["totalCallSwitches"].set<uint32_t>(totalCallSwitches);
         int32_t totalActiveCalls = TrafficNetwork::MetricsLogging::getTotalActiveCalls();
         response["totalActiveCalls"].set<int32_t>(totalActiveCalls);
 
