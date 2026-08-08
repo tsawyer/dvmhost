@@ -50,6 +50,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <array>
 
 // ---------------------------------------------------------------------------
@@ -1150,9 +1151,9 @@ namespace network
             static void logCSBKEvent(TrafficNetwork* network, uint32_t peerId, const std::string& lco, const std::string& csbk, const std::string& raw);
 
         private:
-            static int32_t s_totalActiveCalls;
-            static uint64_t s_totalCallsProcessed;
-            static uint64_t s_totalCallCollisions;
+            static std::atomic<int32_t> s_totalActiveCalls;
+            static std::atomic<uint64_t> s_totalCallsProcessed;
+            static std::atomic<uint64_t> s_totalCallCollisions;
 
             /**
              * @brief Checks if the SQLite database for the specified TrafficNetwork instance is blank.

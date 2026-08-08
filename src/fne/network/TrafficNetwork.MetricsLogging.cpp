@@ -41,15 +41,13 @@ static const uint64_t NS_PER_DAY = 86400ULL * NS_PER_SECOND;
 //  Static Class Members
 // ---------------------------------------------------------------------------
 
-int32_t TrafficNetwork::MetricsLogging::s_totalActiveCalls = 0;
-uint64_t TrafficNetwork::MetricsLogging::s_totalCallsProcessed = 0U;
-uint64_t TrafficNetwork::MetricsLogging::s_totalCallCollisions = 0U;
+std::atomic<int32_t> TrafficNetwork::MetricsLogging::s_totalActiveCalls {0};
+std::atomic<uint64_t> TrafficNetwork::MetricsLogging::s_totalCallsProcessed {0U};
+std::atomic<uint64_t> TrafficNetwork::MetricsLogging::s_totalCallCollisions {0U};
 
 namespace {
     static const char* SQLITE_COUNTER_CALLS_PROCESSED = "total_calls_processed";
     static const char* SQLITE_COUNTER_CALL_COLLISIONS = "total_call_collisions";
-
-    static std::mutex g_totalsMutex;
 
     /**
      * @brief Get the current time in nanoseconds since the epoch.
@@ -195,7 +193,7 @@ namespace {
     };
 
     static std::mutex g_sqliteWriterStatesMutex;
-    static std::unordered_map<TrafficNetwork*, std::unique_ptr<SQLiteWriterState>> g_sqliteWriterStates;
+    static std::unordered_map<TrafficNetwork*, std::shared_ptr<SQLiteWriterState>> g_sqliteWriterStates;
 
     // ---------------------------------------------------------------------------
     //  Global Functions
@@ -573,21 +571,46 @@ namespace {
         if (network == nullptr)
             return;
 
-        std::unique_lock<std::mutex> stateLock(g_sqliteWriterStatesMutex);
-        auto it = g_sqliteWriterStates.find(network);
-        if (it == g_sqliteWriterStates.end() || it->second == nullptr) {
+        std::shared_ptr<SQLiteWriterState> state;
+        {
+            std::unique_lock<std::mutex> stateLock(g_sqliteWriterStatesMutex, std::try_to_lock);
+            if (!stateLock.owns_lock()) {
+                return;
+            }
+
+            auto it = g_sqliteWriterStates.find(network);
+            if (it == g_sqliteWriterStates.end() || it->second == nullptr) {
+                return;
+            }
+
+            state = it->second;
+        }
+
+        size_t queueDepth = 0U;
+        uint64_t droppedCount = 0U;
+        bool emitDropWarning = false;
+
+        std::unique_lock<std::mutex> lock(state->mutex, std::try_to_lock);
+        if (!lock.owns_lock()) {
             return;
         }
 
-        SQLiteWriterState* state = it->second.get();
-        stateLock.unlock();
+        if (state->stopRequested) {
+            return;
+        }
 
-        std::unique_lock<std::mutex> lock(state->mutex);
         if (state->queue.size() >= SQLITE_MAX_QUEUE_DEPTH) {
             state->droppedCount++;
             if ((state->droppedCount % 1000U) == 1U) {
+                queueDepth = state->queue.size();
+                droppedCount = state->droppedCount;
+                emitDropWarning = true;
+            }
+            lock.unlock();
+
+            if (emitDropWarning) {
                 LogWarning(LOG_MASTER, "SQLite metrics queue full (%zu), dropped %llu events",
-                    state->queue.size(), (unsigned long long)state->droppedCount);
+                    queueDepth, (unsigned long long)droppedCount);
             }
             return;
         }
@@ -767,7 +790,7 @@ void TrafficNetwork::MetricsLogging::initialize(TrafficNetwork* network)
             std::unique_lock<std::mutex> lock(g_sqliteWriterStatesMutex);
             auto it = g_sqliteWriterStates.find(network);
             if (it == g_sqliteWriterStates.end()) {
-                auto state = std::unique_ptr<SQLiteWriterState>(new SQLiteWriterState());
+                auto state = std::make_shared<SQLiteWriterState>();
                 if (!prepareStatements(network->m_sqliteDB, state->statements)) {
                     LogError(LOG_MASTER, "Failed to prepare SQLite metrics statements: %s", sqlite3_errmsg(network->m_sqliteDB));
                     finalizeStatements(state->statements);
@@ -806,7 +829,7 @@ void TrafficNetwork::MetricsLogging::finalize(TrafficNetwork* network)
     if (network == nullptr)
         return;
 
-    std::unique_ptr<SQLiteWriterState> state;
+    std::shared_ptr<SQLiteWriterState> state;
 
     // scope is intentional
     {
@@ -854,8 +877,7 @@ void TrafficNetwork::MetricsLogging::incrementActiveCalls(TrafficNetwork* networ
 {
     (void)network;
 
-    std::lock_guard<std::mutex> lock(g_totalsMutex);
-    s_totalActiveCalls++;
+    s_totalActiveCalls.fetch_add(1, std::memory_order_relaxed);
 }
 
 /* Decrements the active call counter with floor at zero. */
@@ -864,10 +886,11 @@ void TrafficNetwork::MetricsLogging::decrementActiveCalls(TrafficNetwork* networ
 {
     (void)network;
 
-    std::lock_guard<std::mutex> lock(g_totalsMutex);
-    s_totalActiveCalls--;
-    if (s_totalActiveCalls < 0) {
-        s_totalActiveCalls = 0;
+    int32_t expected = s_totalActiveCalls.load(std::memory_order_relaxed);
+    while (expected > 0) {
+        if (s_totalActiveCalls.compare_exchange_weak(expected, expected - 1, std::memory_order_relaxed)) {
+            return;
+        }
     }
 }
 
@@ -875,20 +898,14 @@ void TrafficNetwork::MetricsLogging::decrementActiveCalls(TrafficNetwork* networ
 
 void TrafficNetwork::MetricsLogging::resetActiveCalls()
 {
-    std::lock_guard<std::mutex> lock(g_totalsMutex);
-    s_totalActiveCalls = 0;
+    s_totalActiveCalls.store(0, std::memory_order_relaxed);
 }
 
 /* Increments the total processed calls counter. */
 
 void TrafficNetwork::MetricsLogging::incrementCallsProcessed(TrafficNetwork* network)
 {
-    uint64_t value = 0U;
-    {
-        std::lock_guard<std::mutex> lock(g_totalsMutex);
-        s_totalCallsProcessed++;
-        value = s_totalCallsProcessed;
-    }
+    uint64_t value = s_totalCallsProcessed.fetch_add(1U, std::memory_order_relaxed) + 1U;
 
     persistSQLiteCounter(network, SQLITE_COUNTER_CALLS_PROCESSED, value);
 }
@@ -897,12 +914,7 @@ void TrafficNetwork::MetricsLogging::incrementCallsProcessed(TrafficNetwork* net
 
 void TrafficNetwork::MetricsLogging::incrementCallCollisions(TrafficNetwork* network)
 {
-    uint64_t value = 0U;
-    {
-        std::lock_guard<std::mutex> lock(g_totalsMutex);
-        s_totalCallCollisions++;
-        value = s_totalCallCollisions;
-    }
+    uint64_t value = s_totalCallCollisions.fetch_add(1U, std::memory_order_relaxed) + 1U;
 
     persistSQLiteCounter(network, SQLITE_COUNTER_CALL_COLLISIONS, value);
 }
@@ -911,10 +923,7 @@ void TrafficNetwork::MetricsLogging::incrementCallCollisions(TrafficNetwork* net
 
 void TrafficNetwork::MetricsLogging::resetCallsProcessed(TrafficNetwork* network)
 {
-    {
-        std::lock_guard<std::mutex> lock(g_totalsMutex);
-        s_totalCallsProcessed = 0U;
-    }
+    s_totalCallsProcessed.store(0U, std::memory_order_relaxed);
 
     persistSQLiteCounter(network, SQLITE_COUNTER_CALLS_PROCESSED, 0U);
 }
@@ -923,10 +932,7 @@ void TrafficNetwork::MetricsLogging::resetCallsProcessed(TrafficNetwork* network
 
 void TrafficNetwork::MetricsLogging::resetCallCollisions(TrafficNetwork* network)
 {
-    {
-        std::lock_guard<std::mutex> lock(g_totalsMutex);
-        s_totalCallCollisions = 0U;
-    }
+    s_totalCallCollisions.store(0U, std::memory_order_relaxed);
 
     persistSQLiteCounter(network, SQLITE_COUNTER_CALL_COLLISIONS, 0U);
 }
@@ -935,21 +941,21 @@ void TrafficNetwork::MetricsLogging::resetCallCollisions(TrafficNetwork* network
 
 int32_t TrafficNetwork::MetricsLogging::getTotalActiveCalls()
 {
-    return s_totalActiveCalls;
+    return s_totalActiveCalls.load(std::memory_order_relaxed);
 }
 
 /* Gets the total processed calls counter. */
 
 uint64_t TrafficNetwork::MetricsLogging::getTotalCallsProcessed()
 {
-    return s_totalCallsProcessed;
+    return s_totalCallsProcessed.load(std::memory_order_relaxed);
 }
 
 /* Gets the total call collisions counter. */
 
 uint64_t TrafficNetwork::MetricsLogging::getTotalCallCollisions()
 {
-    return s_totalCallCollisions;
+    return s_totalCallCollisions.load(std::memory_order_relaxed);
 }
 
 /* Logs a activity transfer event. */
@@ -1433,12 +1439,11 @@ void TrafficNetwork::MetricsLogging::loadSQLiteCounters(TrafficNetwork* network)
 
     sqlite3_finalize(stmt);
 
-    std::lock_guard<std::mutex> lock(g_totalsMutex);
     if (hasProcessed) {
-        s_totalCallsProcessed = loadedProcessed;
+        s_totalCallsProcessed.store(loadedProcessed, std::memory_order_relaxed);
     }
     if (hasCollisions) {
-        s_totalCallCollisions = loadedCollisions;
+        s_totalCallCollisions.store(loadedCollisions, std::memory_order_relaxed);
     }
 }
 
