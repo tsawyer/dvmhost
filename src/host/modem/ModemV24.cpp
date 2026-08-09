@@ -1680,7 +1680,8 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
 
             // decode RS (24,12,13) FEC
             try {
-                bool ret = m_rs.decode241213(m_rxCall->LDULC);
+                int8_t rsErrs = -1;
+                bool ret = m_rs.decode241213(m_rxCall->LDULC, &rsErrs);
                 if (!ret) {
                     LogError(LOG_MODEM, "V.24/DFSI LDU1, failed to decode RS (24,12,13) FEC");
 
@@ -1724,6 +1725,28 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     }
                 } else {
                     valid = true;
+
+                    // srcId/dstId/lco/mfId were latched above directly from the raw, pre-correction DFSI
+                    // wire bytes (mirrored into LDULC as they arrived). If the RS decoder just corrected
+                    // symbol errors, re-derive those fields from the now-corrected buffer instead of
+                    // trusting the raw bytes read before correction.
+                    if (rsErrs > 0) {
+                        lc::LC correctedLC = lc::LC();
+                        if (correctedLC.decodeLC(m_rxCall->LDULC, false)) {
+                            if (m_rxCall->lco != correctedLC.getLCO() || m_rxCall->mfId != correctedLC.getMFId() ||
+                                (correctedLC.isStandardMFId() && (m_rxCall->dstId != correctedLC.getDstId() || m_rxCall->srcId != correctedLC.getSrcId()))) {
+                                LogWarning(LOG_MODEM, "V.24/DFSI LDU1, %d FEC corrections changed LC content, srcId = %u (was %u), dstId = %u (was %u)",
+                                    rsErrs, correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
+                            }
+
+                            m_rxCall->lco = correctedLC.getLCO();
+                            m_rxCall->mfId = correctedLC.getMFId();
+                            if (correctedLC.isStandardMFId()) {
+                                m_rxCall->dstId = correctedLC.getDstId();
+                                m_rxCall->srcId = correctedLC.getSrcId();
+                            }
+                        }
+                    }
                 }
             }
             catch (...) {
@@ -1832,7 +1855,8 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
 
             // decode RS (24,16,9) FEC
             try {
-                bool ret = m_rs.decode24169(m_rxCall->LDULC);
+                int8_t rsErrs = -1;
+                bool ret = m_rs.decode24169(m_rxCall->LDULC, &rsErrs);
                 if (!ret) {
                     LogError(LOG_MODEM, "V.24/DFSI LDU2, failed to decode RS (24,16,9) FEC");
 
@@ -1853,6 +1877,29 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                     }
                 } else {
                     valid = true;
+
+                    // algId/kId/MI were latched above directly from the raw, pre-correction DFSI wire
+                    // bytes. If the RS decoder just corrected symbol errors, re-derive those fields from
+                    // the now-corrected buffer instead of trusting the raw bytes read before correction.
+                    if (rsErrs > 0) {
+                        uint8_t correctedAlgId = m_rxCall->LDULC[9U];
+                        uint32_t correctedKId = (m_rxCall->LDULC[10U] << 8) + m_rxCall->LDULC[11U];
+
+                        if (correctedAlgId != m_rxCall->algoId || correctedKId != m_rxCall->kId ||
+                            ::memcmp(m_rxCall->LDULC, m_rxCall->MI, MI_LENGTH_BYTES) != 0) {
+                            LogWarning(LOG_MODEM, "V.24/DFSI LDU2, %d FEC corrections changed Enc Sync content, algId = $%02X (was $%02X), kId = $%04X (was $%04X)",
+                                rsErrs, correctedAlgId, m_rxCall->algoId, correctedKId, m_rxCall->kId);
+                        }
+
+                        m_rxCall->algoId = correctedAlgId;
+                        if (m_rxCall->algoId != ALGO_UNENCRYPT) {
+                            ::memcpy(m_rxCall->MI, m_rxCall->LDULC, MI_LENGTH_BYTES);
+                            m_rxCall->kId = correctedKId;
+                        } else {
+                            ::memset(m_rxCall->MI, 0x00U, MI_LENGTH_BYTES);
+                            m_rxCall->kId = 0x0000U;
+                        }
+                    }
                 }
             }
             catch (...) {
@@ -2386,7 +2433,8 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
                 // decode RS (24,12,13) FEC
                 try {
-                    bool ret = m_rs.decode241213(m_rxCall->LDULC);
+                    int8_t rsErrs = -1;
+                    bool ret = m_rs.decode241213(m_rxCall->LDULC, &rsErrs);
                     if (!ret) {
                         LogError(LOG_MODEM, "TIA/DFSI LDU1, failed to decode RS (24,12,13) FEC");
 
@@ -2430,6 +2478,27 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                         }
                     } else {
                         valid = true;
+
+                        // srcId/dstId/lco/mfId were latched above directly from the raw, pre-correction DFSI
+                        // wire bytes. If the RS decoder just corrected symbol errors, re-derive those fields
+                        // from the now-corrected buffer instead of trusting the raw bytes read before correction.
+                        if (rsErrs > 0) {
+                            lc::LC correctedLC = lc::LC();
+                            if (correctedLC.decodeLC(m_rxCall->LDULC, false)) {
+                                if (m_rxCall->lco != correctedLC.getLCO() || m_rxCall->mfId != correctedLC.getMFId() ||
+                                    (correctedLC.isStandardMFId() && (m_rxCall->dstId != correctedLC.getDstId() || m_rxCall->srcId != correctedLC.getSrcId()))) {
+                                    LogWarning(LOG_MODEM, "TIA/DFSI LDU1, %d FEC corrections changed LC content, srcId = %u (was %u), dstId = %u (was %u)",
+                                        rsErrs, correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
+                                }
+
+                                m_rxCall->lco = correctedLC.getLCO();
+                                m_rxCall->mfId = correctedLC.getMFId();
+                                if (correctedLC.isStandardMFId()) {
+                                    m_rxCall->dstId = correctedLC.getDstId();
+                                    m_rxCall->srcId = correctedLC.getSrcId();
+                                }
+                            }
+                        }
                     }
                 }
                 catch (...) {
@@ -2538,7 +2607,8 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
 
                 // decode RS (24,16,9) FEC
                 try {
-                    bool ret = m_rs.decode24169(m_rxCall->LDULC);
+                    int8_t rsErrs = -1;
+                    bool ret = m_rs.decode24169(m_rxCall->LDULC, &rsErrs);
                     if (!ret) {
                         LogError(LOG_MODEM, "TIA/DFSI LDU2, failed to decode RS (24,16,9) FEC");
 
@@ -2559,6 +2629,29 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                         }
                     } else {
                         valid = true;
+
+                        // algId/kId/MI were latched above directly from the raw, pre-correction DFSI wire
+                        // bytes. If the RS decoder just corrected symbol errors, re-derive those fields from
+                        // the now-corrected buffer instead of trusting the raw bytes read before correction.
+                        if (rsErrs > 0) {
+                            uint8_t correctedAlgId = m_rxCall->LDULC[9U];
+                            uint32_t correctedKId = (m_rxCall->LDULC[10U] << 8) + m_rxCall->LDULC[11U];
+
+                            if (correctedAlgId != m_rxCall->algoId || correctedKId != m_rxCall->kId ||
+                                ::memcmp(m_rxCall->LDULC, m_rxCall->MI, MI_LENGTH_BYTES) != 0) {
+                                LogWarning(LOG_MODEM, "TIA/DFSI LDU2, %d FEC corrections changed Enc Sync content, algId = $%02X (was $%02X), kId = $%04X (was $%04X)",
+                                    rsErrs, correctedAlgId, m_rxCall->algoId, correctedKId, m_rxCall->kId);
+                            }
+
+                            m_rxCall->algoId = correctedAlgId;
+                            if (m_rxCall->algoId != ALGO_UNENCRYPT) {
+                                ::memcpy(m_rxCall->MI, m_rxCall->LDULC, MI_LENGTH_BYTES);
+                                m_rxCall->kId = correctedKId;
+                            } else {
+                                ::memset(m_rxCall->MI, 0x00U, MI_LENGTH_BYTES);
+                                m_rxCall->kId = 0x0000U;
+                            }
+                        }
                     }
                 }
                 catch (...) {
