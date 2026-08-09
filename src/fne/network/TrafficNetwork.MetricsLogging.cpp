@@ -217,6 +217,7 @@ namespace {
                 const size_t headValue = head.load(std::memory_order_acquire);
                 const size_t pending = tailValue - headValue;
                 if (pending >= maxDepth) {
+                    LogError(LOG_MASTER, "Failed to push SQLite metric event: queue is full, pending = %zu, maxDepth = %zu", pending, maxDepth);
                     return false;
                 }
 
