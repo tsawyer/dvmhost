@@ -671,6 +671,38 @@ bool Voice::process(uint8_t* data, uint32_t len)
                     m_rfUndecodableLC++;
                 }
                 else {
+                    // a P25 voice call does not change its srcId/dstId mid-transmission. Two independent
+                    // corroboration checks guard against a marginal-RF miscorrection silently redirecting
+                    // a call. Neither runs at call grant/establishment -- only once a call's identity is
+                    // already set -- so this never blocks a new (including unregistered/ad hoc) srcId from
+                    // originating a call:
+                    //  1) does this decode disagree with the call's last known-good LDU1, despite needing
+                    //     RS correction to get here (weaker signal -- the LDU1 LC is only protected by
+                    //     Hamming(10,6,3) + RS(24,12,13));
+                    //  2) does this decode's dstId disagree with the dstId carried in this call's HDU, which
+                    //     is far more strongly protected (Golay(18,6,8) + RS(36,20,17)) and, unlike the LDU1
+                    //     LC, is fixed for the life of the call -- so disagreement here is a protocol
+                    //     violation, not just a low-confidence guess, regardless of how "clean" (FEC-wise)
+                    //     this LDU1's decode was.
+                    bool fecMismatch = m_rfLC.getFECErrs() > 0 &&
+                        ((m_rfLastLDU1.getDstId() != 0U && m_rfLC.getDstId() != m_rfLastLDU1.getDstId()) ||
+                         (m_rfLastLDU1.getSrcId() != 0U && m_rfLC.getSrcId() != m_rfLastLDU1.getSrcId()));
+
+                    bool hduDstMismatch = m_rfLastHDUValid && m_rfLastHDU.getDstId() != 0U &&
+                        m_rfLC.getDstId() != m_rfLastHDU.getDstId();
+
+                    if (fecMismatch || hduDstMismatch) {
+                        uint32_t goodSrcId = m_rfLastLDU1.getSrcId();
+                        uint32_t goodDstId = hduDstMismatch ? m_rfLastHDU.getDstId() : m_rfLastLDU1.getDstId();
+
+                        LogWarning(LOG_RF, P25_LDU1_STR ", marginal LC decode disagrees with established call identity (%d FEC corrections%s), srcId = %u (was %u), dstId = %u (was %u), keeping established identity",
+                            m_rfLC.getFECErrs(), hduDstMismatch ? ", HDU dstId mismatch" : "",
+                            m_rfLC.getSrcId(), goodSrcId, m_rfLC.getDstId(), goodDstId);
+
+                        m_rfLC.setSrcId(goodSrcId);
+                        m_rfLC.setDstId(goodDstId);
+                    }
+
                     m_rfLastLDU1 = m_rfLC;
                 }
             }

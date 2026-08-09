@@ -340,6 +340,15 @@ namespace p25
             DECLARE_PROPERTY(ulong64_t, rsValue, RS);
             /** @} */
 
+            /** @name FEC Decode Confidence */
+            /**
+             * @brief Number of Reed-Solomon symbol errors corrected decoding the most recent
+             *  LDU1 Link Control or LDU2 Encryption Sync word. -1 if not yet decoded, or if the
+             *  last decode attempt was uncorrectable.
+             */
+            DECLARE_PROPERTY(int8_t, fecErrs, FECErrs);
+            /** @} */
+
             /** @name Phase 2 Raw MCO Data */
             uint8_t* p2MCOData; // ?? - this should probably be private with getters/setters
             /** @} */

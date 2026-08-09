@@ -47,9 +47,10 @@ namespace edac
         /**
          * @brief Decode RS (24,12,13) FEC.
          * @param data Reed-Solomon FEC encoded data to decode.
+         * @param[out] errs Optional, number of symbol errors corrected (0-6), or -1 if uncorrectable.
          * @returns bool True, if data was decoded, otherwise false.
          */
-        bool decode241213(uint8_t* data);
+        bool decode241213(uint8_t* data, int8_t* errs = nullptr);
         /**
          * @brief Encode RS (24,12,13) FEC.
          * @param data Raw data to encode with Reed-Solomon FEC.
@@ -59,9 +60,10 @@ namespace edac
         /**
          * @brief Decode RS (24,16,9) FEC.
          * @param data Reed-Solomon FEC encoded data to decode.
+         * @param[out] errs Optional, number of symbol errors corrected (0-4), or -1 if uncorrectable.
          * @returns bool True, if data was decoded, otherwise false.
          */
-        bool decode24169(uint8_t* data);
+        bool decode24169(uint8_t* data, int8_t* errs = nullptr);
         /**
          * @brief Encode RS (24,16,9) FEC.
          * @param data Raw data to encode with Reed-Solomon FEC.
