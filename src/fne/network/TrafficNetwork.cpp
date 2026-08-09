@@ -1127,16 +1127,17 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
 
             // dispatch to the appropriate handler based on the function opcode
             uint8_t func = req->fneHeader.getFunction();
+
+            // bryanb: temporary support to allow announce packets on the traffic port but ultimately
+            //  this should be removed and handled like TRANSFER is handled here
+            if (func == NET_FUNC::ANNOUNCE) {
+                network->m_host->m_mdNetwork->taskNetworkRx(req);
+                return; // don't break, return because taskNetworkRx will cleanup req
+            }
+
             auto it = handlers.find(func);
             if (it != handlers.end()) {
                 it->second(network, req, peerId, ssrc, streamId, now);
-
-                if (func == NET_FUNC::ANNOUNCE) {
-                    // bryanb: temporary support to allow announce packets on the traffic port but ultimately
-                    //  this should be removed and handled like TRANSFER is handled here
-                    network->m_host->m_mdNetwork->taskNetworkRx(req);
-                    return; // don't break, return because taskNetworkRx will cleanup req
-                }
             } else {
                 Utils::dump("Unknown opcode from the peer", req->buffer, req->length);
             }
