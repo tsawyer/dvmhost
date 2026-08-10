@@ -1735,8 +1735,9 @@ void ModemV24::convertToAirV24(const uint8_t *data, uint32_t length)
                         if (correctedLC.decodeLC(m_rxCall->LDULC, false)) {
                             if (m_rxCall->lco != correctedLC.getLCO() || m_rxCall->mfId != correctedLC.getMFId() ||
                                 (correctedLC.isStandardMFId() && (m_rxCall->dstId != correctedLC.getDstId() || m_rxCall->srcId != correctedLC.getSrcId()))) {
-                                LogWarning(LOG_MODEM, "V.24/DFSI LDU1, %d FEC corrections changed LC content, srcId = %u (was %u), dstId = %u (was %u)",
-                                    rsErrs, correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
+                                LogWarning(LOG_MODEM, "V.24/DFSI LDU1, %d FEC corrections changed LC content, lco = $%02X (was $%02X), mfId = $%02X (was $%02X), srcId = %u (was %u), dstId = %u (was %u)",
+                                    rsErrs, correctedLC.getLCO(), m_rxCall->lco, correctedLC.getMFId(), m_rxCall->mfId,
+                                    correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
                             }
 
                             m_rxCall->lco = correctedLC.getLCO();
@@ -2487,8 +2488,9 @@ void ModemV24::convertToAirTIA(const uint8_t *data, uint32_t length)
                             if (correctedLC.decodeLC(m_rxCall->LDULC, false)) {
                                 if (m_rxCall->lco != correctedLC.getLCO() || m_rxCall->mfId != correctedLC.getMFId() ||
                                     (correctedLC.isStandardMFId() && (m_rxCall->dstId != correctedLC.getDstId() || m_rxCall->srcId != correctedLC.getSrcId()))) {
-                                    LogWarning(LOG_MODEM, "TIA/DFSI LDU1, %d FEC corrections changed LC content, srcId = %u (was %u), dstId = %u (was %u)",
-                                        rsErrs, correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
+                                    LogWarning(LOG_MODEM, "TIA/DFSI LDU1, %d FEC corrections changed LC content, lco = $%02X (was $%02X), mfId = $%02X (was $%02X), srcId = %u (was %u), dstId = %u (was %u)",
+                                        rsErrs, correctedLC.getLCO(), m_rxCall->lco, correctedLC.getMFId(), m_rxCall->mfId,
+                                        correctedLC.getSrcId(), m_rxCall->srcId, correctedLC.getDstId(), m_rxCall->dstId);
                                 }
 
                                 m_rxCall->lco = correctedLC.getLCO();
