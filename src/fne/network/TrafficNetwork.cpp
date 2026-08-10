@@ -135,11 +135,11 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_enableMetrics(false),
     m_metricsLogRawData(false),
     m_enableInfluxDB(false),
-    m_influxServerAddress("127.0.0.1"),
-    m_influxServerPort(8086U),
-    m_influxServerToken(),
-    m_influxOrg("dvm"),
-    m_influxBucket("dvm"),
+    m_serverAddress("127.0.0.1"),
+    m_serverPort(8086U),
+    m_serverToken(),
+    m_org("dvm"),
+    m_bucket("dvm"),
     m_enableSQLite(false),
     m_sqliteDBFile("metrics.db"),
     m_sqliteDB(nullptr),
@@ -253,13 +253,13 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
 
     yaml::Node influxConf = metricsConf["influx"];
     m_enableInfluxDB = influxConf["enable"].as<bool>(false);
-    m_influxServerAddress = influxConf["influxServerAddress"].as<std::string>("127.0.0.1");
-    m_influxServerPort = influxConf["influxServerPort"].as<uint16_t>(8086U);
-    m_influxServerToken = influxConf["influxServerToken"].as<std::string>();
-    m_influxOrg = influxConf["influxOrg"].as<std::string>("dvm");
-    m_influxBucket = influxConf["influxBucket"].as<std::string>("dvm");
+    m_serverAddress = influxConf["serverAddress"].as<std::string>("127.0.0.1");
+    m_serverPort = influxConf["serverPort"].as<uint16_t>(8086U);
+    m_serverToken = influxConf["serverToken"].as<std::string>();
+    m_org = influxConf["org"].as<std::string>("dvm");
+    m_bucket = influxConf["bucket"].as<std::string>("dvm");
     if (m_enableInfluxDB) {
-        m_influxServer = influxdb::ServerInfo(m_influxServerAddress, m_influxServerPort, m_influxOrg, m_influxServerToken, m_influxBucket);
+        m_influxServer = influxdb::ServerInfo(m_serverAddress, m_serverPort, m_org, m_serverToken, m_bucket);
     }
 
     yaml::Node sqliteConf = metricsConf["sqlite"];
@@ -474,10 +474,10 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
         LogInfo("    Metrics Log Raw TSBK/CSBK/RCCH: %s", m_metricsLogRawData ? "yes" : "no");
         LogInfo("    InfluxDB Reporting Enabled: %s", m_enableInfluxDB ? "yes" : "no");
         if (m_enableInfluxDB) {
-            LogInfo("    InfluxDB Address: %s", m_influxServerAddress.c_str());
-            LogInfo("    InfluxDB Port: %u", m_influxServerPort);
-            LogInfo("    InfluxDB Organization: %s", m_influxOrg.c_str());
-            LogInfo("    InfluxDB Bucket: %s", m_influxBucket.c_str());
+            LogInfo("    InfluxDB Address: %s", m_serverAddress.c_str());
+            LogInfo("    InfluxDB Port: %u", m_serverPort);
+            LogInfo("    InfluxDB Organization: %s", m_org.c_str());
+            LogInfo("    InfluxDB Bucket: %s", m_bucket.c_str());
         }
         LogInfo("    SQLite Metrics Logging Enabled: %s", m_enableSQLite ? "yes" : "no");
         if (m_enableSQLite) {

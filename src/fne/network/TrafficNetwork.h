@@ -411,11 +411,11 @@ namespace network
         bool m_metricsLogRawData;
 
         bool m_enableInfluxDB;
-        std::string m_influxServerAddress;
-        uint16_t m_influxServerPort;
-        std::string m_influxServerToken;
-        std::string m_influxOrg;
-        std::string m_influxBucket;
+        std::string m_serverAddress;
+        uint16_t m_serverPort;
+        std::string m_serverToken;
+        std::string m_org;
+        std::string m_bucket;
         influxdb::ServerInfo m_influxServer;
 
         bool m_enableSQLite;
