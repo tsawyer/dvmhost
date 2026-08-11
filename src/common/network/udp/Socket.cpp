@@ -48,7 +48,8 @@ Socket::Socket(const std::string& address, uint16_t port) :
     m_aes(nullptr),
     m_isCryptoWrapped(false),
     m_presharedKey(nullptr),
-    m_counter(0U)
+    m_counter(0U),
+    m_random()
 {
     m_aes = new crypto::AES(crypto::AESKeyLength::AES_256);
     m_presharedKey = new uint8_t[AES_WRAPPED_PCKT_KEY_LEN];
@@ -60,6 +61,10 @@ Socket::Socket(const std::string& address, uint16_t port) :
         ::LogError(LOG_NET, "Error from WSAStartup, err: %d", wsaRet);
     }
 #endif // defined(_WIN32)
+
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    m_random = mt;
 }
 
 /* Initializes a new instance of the Socket class. */
@@ -326,13 +331,18 @@ ssize_t Socket::read(uint8_t* buffer, uint32_t length, sockaddr_storage& address
         uint16_t magic = GET_UINT16(buffer, 0U);
         if (magic == AES_WRAPPED_PCKT_MAGIC) {
             // prevent malicious packets that are too short
-            if (len < 2U + crypto::AES::BLOCK_BYTES_LEN) {
+            if (len < (2U + crypto::AES::BLOCK_BYTES_LEN + 16U)) {
                 LogError(LOG_NET, "Encrypted packet too short");
                 return -1;
             }
 
-            uint32_t cryptedLen = (len - 2U) * sizeof(uint8_t);
+            uint32_t cryptedLen = (len - 18U) * sizeof(uint8_t);
             uint8_t* cryptoBuffer = buffer + 2U;
+
+            // extract the IV from the end of the packet
+            uint8_t iv[16U];
+            ::memset(iv, 0x00U, sizeof(iv));
+            ::memcpy(iv, buffer + (len - 16U), 16U);
 
             // do we need to pad the original buffer to be block aligned?
             if (cryptedLen % crypto::AES::BLOCK_BYTES_LEN != 0) {
@@ -342,23 +352,23 @@ ssize_t Socket::read(uint8_t* buffer, uint32_t length, sockaddr_storage& address
                 // reallocate buffer and copy
                 cryptoBuffer = new uint8_t[cryptedLen];
                 ::memset(cryptoBuffer, 0x00U, cryptedLen);
-                ::memcpy(cryptoBuffer, buffer + 2U, len - 2U);
+                ::memcpy(cryptoBuffer, buffer + 2U, len - 18U);
             }
 
             // Utils::dump(1U, "Socket::read(), crypted", cryptoBuffer, cryptedLen);
 
             // decrypt
-            uint8_t* decrypted = m_aes->decryptECB(cryptoBuffer, cryptedLen, m_presharedKey);
+            uint8_t* decrypted = m_aes->decryptCBC(cryptoBuffer, cryptedLen, m_presharedKey, iv);
 
             // Utils::dump(1U, "Socket::read(), decrypted", decrypted, cryptedLen);
 
             // finalize, cleanup buffers and replace with new
             if (decrypted != nullptr) {
                 ::memset(buffer, 0x00U, len);
-                ::memcpy(buffer, decrypted, len - 2U);
+                ::memcpy(buffer, decrypted, cryptedLen);
 
                 delete[] decrypted;
-                len -= 2U;
+                len = cryptedLen;
             } else {
                 delete[] decrypted;
                 return 0;
@@ -427,25 +437,31 @@ bool Socket::write(const uint8_t* buffer, uint32_t length, const sockaddr_storag
             ::memcpy(cryptoBuffer, buffer, length);
         }
 
+        // generate an initialization vector (IV) for CBC mode
+        uint8_t* iv = generateIV();
+
         // encrypt
-        uint8_t* crypted = m_aes->encryptECB(cryptoBuffer, cryptedLen, m_presharedKey);
+        uint8_t* crypted = m_aes->encryptCBC(cryptoBuffer, cryptedLen, m_presharedKey, iv);
 
         // Utils::dump(1U, "Socket::write(), crypted", crypted, cryptedLen);
 
         // finalize, cleanup buffers and replace with new
-        out = std::unique_ptr<uint8_t[]>(new uint8_t[cryptedLen + 2U]);
+        out = std::unique_ptr<uint8_t[]>(new uint8_t[cryptedLen + 18U]);
         delete[] cryptoBuffer;
         if (crypted != nullptr) {
             ::memcpy(out.get() + 2U, crypted, cryptedLen);
             SET_UINT16(AES_WRAPPED_PCKT_MAGIC, out.get(), 0U);
+            ::memcpy(out.get() + 2U + cryptedLen, iv, 16U);
             delete[] crypted;
-            length = cryptedLen + 2U;
+            delete[] iv;
+            length = cryptedLen + 18U;
         } else {
             if (lenWritten != nullptr) {
                 *lenWritten = -1;
             }
 
             delete[] crypted;
+            delete[] iv;
             return false;
         }
     } else {
@@ -613,8 +629,11 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
                 ::memcpy(cryptoBuffer, iov_buffer, length);
             }
 
+            // generate an initialization vector (IV) for CBC mode
+            uint8_t* iv = generateIV();
+
             // encrypt
-            uint8_t* crypted = m_aes->encryptECB(cryptoBuffer, cryptedLen, m_presharedKey);
+            uint8_t* crypted = m_aes->encryptCBC(cryptoBuffer, cryptedLen, m_presharedKey, iv);
             delete[] cryptoBuffer;
 
             if (crypted == nullptr) {
@@ -628,18 +647,20 @@ bool Socket::write(BufferQueue* buffers, ssize_t* lenWritten) noexcept
             // Utils::dump(1U, "Socket::write(), crypted", crypted, cryptedLen);
 
             // finalize
-            DECLARE_UINT8_ARRAY(out, cryptedLen + 2U);
+            DECLARE_UINT8_ARRAY(out, cryptedLen + 18U);
             ::memcpy(out + 2U, crypted, cryptedLen);
             SET_UINT16(AES_WRAPPED_PCKT_MAGIC, out, 0U);
+            ::memcpy(out + 2U + cryptedLen, iv, 16U);
 
             // cleanup buffers and replace with new
             delete[] crypted;
+            delete[] iv;
             crypted = nullptr;
             delete[] iov_buffer;
             iov_buffer = nullptr;
-            iov_buffer = new uint8_t[cryptedLen + 2U];
-            ::memcpy(iov_buffer, out, cryptedLen + 2U);
-            iov_length = cryptedLen + 2U;
+            iov_buffer = new uint8_t[cryptedLen + 18U];
+            ::memcpy(iov_buffer, out, cryptedLen + 18U);
+            iov_length = cryptedLen + 18U;
         }
 
         // skip if no IOV buffer
@@ -1001,4 +1022,57 @@ void Socket::initAddr(const std::string& ipAddr, const int port, sockaddr_in& ad
     }
 
     addr.sin_port = htons(port);
+}
+
+/* Helper to step the linear feedback shift register (LFSR). */
+
+uint64_t Socket::stepLFSR(uint64_t& lfsr)
+{
+    uint64_t ovBit = (lfsr >> 63U) & 0x01U;
+
+    // compute feedback bit using polynomial: x^64 + x^62 + x^46 + x^38 + x^27 + x^15 + 1
+    uint64_t fbBit = ((lfsr >> 63U) ^ (lfsr >> 61U) ^ (lfsr >> 45U) ^ (lfsr >> 37U) ^
+                      (lfsr >> 26U) ^ (lfsr >> 14U)) & 0x01U;
+
+    // shift LFSR left and insert feedback bit
+    lfsr = (lfsr << 1) | fbBit;
+    return ovBit;
+}
+
+/* Helper given to generate a new initial seed IV. */
+
+uint8_t* Socket::generateIV()
+{
+    uint8_t mi[9U];
+    for (uint8_t i = 0; i < 9U; i++) {
+        std::uniform_int_distribution<uint32_t> dist(0x00U, 0xFFU);
+        mi[i] = (uint8_t)dist(m_random);
+    }
+
+    uint8_t* iv = new uint8_t[16U];
+    ::memset(iv, 0x00U, 16U);
+
+    // copy first 64-bits of the MI info LFSR
+    uint64_t lfsr = 0U;
+    for (uint8_t i = 0U; i < 8U; i++) {
+        lfsr = (lfsr << 8U) | mi[i];
+    }
+
+    uint64_t overflow = 0U;
+    for (uint8_t i = 0U; i < 64U; i++) {
+        overflow = (overflow << 1U) | stepLFSR(lfsr);
+    }
+
+    // copy expansion and LFSR into IV
+    for (int i = 7; i >= 0; i--) {
+        iv[i] = (uint8_t)(overflow & 0xFFU);
+        overflow >>= 8U;
+    }
+
+    for (int i = 15; i >= 8; i--) {
+        iv[i] = (uint8_t)(lfsr & 0xFFU);
+        lfsr >>= 8U;
+    }
+
+    return iv;
 }
