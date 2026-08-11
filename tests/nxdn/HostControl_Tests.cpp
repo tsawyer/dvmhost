@@ -98,7 +98,7 @@ uint16_t reserveLoopbackPort()
     return ntohs(address.sin_port);
 }
 
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
 //  Class Declaration
@@ -107,12 +107,12 @@ uint16_t reserveLoopbackPort()
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class NXDNTestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the NXDNTestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~NXDNTestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -157,10 +157,14 @@ public:
 class NXDNTestNetwork final : public network::Network {
 public:
     NXDNTestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
-        network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, false, true, false, true, true, false, false, false, false),
+        network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, false, false, true, false, true, true, false, false, false, false),
         m_resetNXDNCount(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = false;
+        m_p25Enabled = false;
+        m_nxdnEnabled = true;
+        m_analogEnabled = false;
     }
 
     bool activateLoopback(const std::string& remoteAddress, uint16_t remotePort)
@@ -262,7 +266,7 @@ public:
      */
     explicit NXDNHostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new NXDNTestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
@@ -367,6 +371,61 @@ TEST_CASE("NXDN host e2e loopback times out stale call and resets stream state",
     REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
     REQUIRE(HostTestHooks::nxdnNetLastDstId(*harness.m_control) == 0U);
     REQUIRE(HostTestHooks::nxdnNetLastSrcId(*harness.m_control) == 0U);
+}
+
+TEST_CASE("NXDN host e2e loopback preserves a continuing network stream across an RF collision", "[nxdn][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 8011U;
+    const uint32_t streamId = 0x620201U;
+
+    NXDNHostHarness harness(true, true, hostPort, hostPeerId);
+    NXDNTestNetwork sender(senderPort, 8012U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::nxdnSetRFCall(*harness.m_control, 1401U, 2401U);
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamId, 600U, nxdn::defines::MessageType::RTCH_VCALL, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxNXDNStreamId() == streamId) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamId);
+    REQUIRE(harness.network()->resetNXDNCount() == 0U);
+
+    HostTestHooks::nxdnClearRFCall(*harness.m_control);
+    REQUIRE(sender.sendNXDNFrame(hostPeerId, streamId, 601U, nxdn::defines::MessageType::RTCH_VCALL, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::nxdnNetState(*harness.m_control) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxNXDNStreamId() == streamId);
+    REQUIRE(harness.network()->resetNXDNCount() == 0U);
 }
 
 TEST_CASE("NXDN host e2e loopback enforces stream lock until active stream terminates", "[nxdn][host][control][net][e2e]")
@@ -523,4 +582,40 @@ TEST_CASE("NXDN processFrame accepts a synthetic RF voice call", "[nxdn][host][c
     REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1001U, 2001U));
     REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId() == 2001U);
+}
+
+TEST_CASE("NXDN rfTGHang expiry ends active RF call and returns to listening", "[nxdn][host][control][rf]")
+{
+    NXDNHostHarness harness;
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1001U, 2001U));
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).start();
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnRFTGHang(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFTGHang(*harness.m_control).isRunning());
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+}
+
+TEST_CASE("NXDN rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[nxdn][host][control][rf]")
+{
+    NXDNHostHarness harness;
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1101U, 2101U));
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::nxdnRFTGHang(*harness.m_control).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+
+    REQUIRE(HostTestHooks::nxdnStartRFCall(*harness.m_control, 1101U, 2101U));
+    REQUIRE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
+
+    HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::nxdnRFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::nxdnRFLossWatchdog(*harness.m_control).isRunning());
 }

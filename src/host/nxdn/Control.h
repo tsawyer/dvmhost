@@ -322,10 +322,10 @@ namespace nxdn
         bool m_ccPrevRunning;
         bool m_ccHalted;
 
-        Timer m_rfTimeout;
+        Timer m_rfTimeoutTimer;
         Timer m_rfTGHang;
         Timer m_rfLossWatchdog;
-        Timer m_netTimeout;
+        Timer m_netTimeoutTimer;
         Timer m_netTGHang;
         Timer m_networkWatchdog;
 
@@ -349,6 +349,9 @@ namespace nxdn
         uint8_t m_minRSSI;
         uint32_t m_aveRSSI;
         uint32_t m_rssiCount;
+
+        bool m_rfTimeout;
+        bool m_netTimeout;
 
         bool m_dumpRCCH;
 

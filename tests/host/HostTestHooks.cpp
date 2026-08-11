@@ -73,6 +73,14 @@ Timer& HostTestHooks::dmrNetworkWatchdog(dmr::Slot& slot) { return slot.m_networ
 
 Timer& HostTestHooks::dmrNetTGHang(dmr::Slot& slot) { return slot.m_netTGHang; }
 
+/* Gets DMR RF talkgroup hang timer. */
+
+Timer& HostTestHooks::dmrRFTGHang(dmr::Slot& slot) { return slot.m_rfTGHang; }
+
+/* Gets DMR RF loss watchdog timer. */
+
+Timer& HostTestHooks::dmrRFLossWatchdog(dmr::Slot& slot) { return slot.m_rfLossWatchdog; }
+
 /* Forces DMR slot into active RF call state. */
 
 void HostTestHooks::dmrSetRFCall(dmr::Slot& slot, uint32_t srcId, uint32_t dstId)
@@ -81,6 +89,16 @@ void HostTestHooks::dmrSetRFCall(dmr::Slot& slot, uint32_t srcId, uint32_t dstId
     slot.m_rfLastSrcId = srcId;
     slot.m_rfLastDstId = dstId;
     slot.m_rfTGHang.start();
+}
+
+/* Returns DMR slot to RF listening state. */
+
+void HostTestHooks::dmrClearRFCall(dmr::Slot& slot)
+{
+    slot.m_rfState = RS_RF_LISTENING;
+    slot.m_rfLastSrcId = 0U;
+    slot.m_rfLastDstId = 0U;
+    slot.m_rfTGHang.stop();
 }
 
 /* Forces DMR slot into RF rejected state. */
@@ -177,6 +195,14 @@ Timer& HostTestHooks::p25NetworkWatchdog(p25::Control& control) { return control
 
 Timer& HostTestHooks::p25NetTGHang(p25::Control& control) { return control.m_netTGHang; }
 
+/* Gets P25 RF talkgroup hang timer. */
+
+Timer& HostTestHooks::p25RFTGHang(p25::Control& control) { return control.m_rfTGHang; }
+
+/* Gets P25 RF loss watchdog timer. */
+
+Timer& HostTestHooks::p25RFLossWatchdog(p25::Control& control) { return control.m_rfLossWatchdog; }
+
 /* Forces P25 control network state and last IDs. */
 
 void HostTestHooks::p25SetNetState(p25::Control& control, RPT_NET_STATE netState, uint32_t srcId, uint32_t dstId)
@@ -271,6 +297,14 @@ Timer& HostTestHooks::nxdnNetworkWatchdog(nxdn::Control& control) { return contr
 
 Timer& HostTestHooks::nxdnNetTGHang(nxdn::Control& control) { return control.m_netTGHang; }
 
+/* Gets NXDN RF talkgroup hang timer. */
+
+Timer& HostTestHooks::nxdnRFTGHang(nxdn::Control& control) { return control.m_rfTGHang; }
+
+/* Gets NXDN RF loss watchdog timer. */
+
+Timer& HostTestHooks::nxdnRFLossWatchdog(nxdn::Control& control) { return control.m_rfLossWatchdog; }
+
 /* Forces NXDN control into active RF call state. */
 
 void HostTestHooks::nxdnSetRFCall(nxdn::Control& control, uint32_t srcId, uint32_t dstId)
@@ -279,6 +313,16 @@ void HostTestHooks::nxdnSetRFCall(nxdn::Control& control, uint32_t srcId, uint32
     control.m_rfLastSrcId = srcId;
     control.m_rfLastDstId = dstId;
     control.m_rfTGHang.start();
+}
+
+/* Returns NXDN control to RF listening state. */
+
+void HostTestHooks::nxdnClearRFCall(nxdn::Control& control)
+{
+    control.m_rfState = RS_RF_LISTENING;
+    control.m_rfLastSrcId = 0U;
+    control.m_rfLastDstId = 0U;
+    control.m_rfTGHang.stop();
 }
 
 /* Forces NXDN control into RF rejected state. */

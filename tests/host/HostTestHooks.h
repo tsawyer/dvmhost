@@ -74,12 +74,29 @@ public:
      */
     static Timer& dmrNetTGHang(dmr::Slot& slot);
     /**
+     * @brief Gets the DMR RF talkgroup hang timer for a slot.
+     * @param slot DMR slot instance.
+     * @return Timer& Reference to the RF TG hang timer.
+     */
+    static Timer& dmrRFTGHang(dmr::Slot& slot);
+    /**
+     * @brief Gets the DMR RF loss watchdog timer for a slot.
+     * @param slot DMR slot instance.
+     * @return Timer& Reference to the RF loss watchdog timer.
+     */
+    static Timer& dmrRFLossWatchdog(dmr::Slot& slot);
+    /**
      * @brief Forces a DMR slot into active RF call state for tests.
      * @param slot DMR slot instance.
      * @param srcId Source ID to apply to slot state.
      * @param dstId Destination ID to apply to slot state.
      */
     static void dmrSetRFCall(dmr::Slot& slot, uint32_t srcId, uint32_t dstId);
+    /**
+     * @brief Returns a DMR slot to RF listening state after a synthetic RF call.
+     * @param slot DMR slot instance.
+     */
+    static void dmrClearRFCall(dmr::Slot& slot);
     /**
      * @brief Forces a DMR slot into RF rejected state for tests.
      * @param slot DMR slot instance.
@@ -156,6 +173,18 @@ public:
      * @return Timer& Reference to the network TG hang timer.
      */
     static Timer& p25NetTGHang(p25::Control& control);
+    /**
+     * @brief Gets the P25 RF talkgroup hang timer.
+     * @param control P25 control instance.
+     * @return Timer& Reference to the RF TG hang timer.
+     */
+    static Timer& p25RFTGHang(p25::Control& control);
+    /**
+     * @brief Gets the P25 RF loss watchdog timer.
+     * @param control P25 control instance.
+     * @return Timer& Reference to the RF loss watchdog timer.
+     */
+    static Timer& p25RFLossWatchdog(p25::Control& control);
     /**
      * @brief Forces P25 control network state and last IDs for targeted recovery-path tests.
      * @param control P25 control instance.
@@ -252,12 +281,29 @@ public:
      */
     static Timer& nxdnNetTGHang(nxdn::Control& control);
     /**
+     * @brief Gets the NXDN RF talkgroup hang timer.
+     * @param control NXDN control instance.
+     * @return Timer& Reference to the RF TG hang timer.
+     */
+    static Timer& nxdnRFTGHang(nxdn::Control& control);
+    /**
+     * @brief Gets the NXDN RF loss watchdog timer.
+     * @param control NXDN control instance.
+     * @return Timer& Reference to the RF loss watchdog timer.
+     */
+    static Timer& nxdnRFLossWatchdog(nxdn::Control& control);
+    /**
      * @brief Forces NXDN control into active RF call state for tests.
      * @param control NXDN control instance.
      * @param srcId Source ID to apply to control state.
      * @param dstId Destination ID to apply to control state.
      */
     static void nxdnSetRFCall(nxdn::Control& control, uint32_t srcId, uint32_t dstId);
+    /**
+     * @brief Returns NXDN control to RF listening state after a synthetic RF call.
+     * @param control NXDN control instance.
+     */
+    static void nxdnClearRFCall(nxdn::Control& control);
     /**
      * @brief Forces NXDN control into RF rejected state for tests.
      * @param control NXDN control instance.

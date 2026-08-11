@@ -230,7 +230,9 @@ bool Slot::processFrame(uint8_t *data, uint32_t len)
     }
 
     if (m_rfState == RS_RF_AUDIO || m_rfState == RS_RF_DATA) {
-        if (m_rfLossWatchdog.isRunning()) {
+        // if RF TG hang is disabled, keep the loss watchdog alive from inbound
+        // RF frames so abrupt stream loss can still recover state.
+        if (m_rfTGHang.getTimeout() == 0U || m_rfLossWatchdog.isRunning()) {
             m_rfLossWatchdog.start();
         }
     }
@@ -689,7 +691,7 @@ void Slot::clock()
 
     if (m_rfTimeoutTimer.isRunning() && m_rfTimeoutTimer.hasExpired()) {
         if (!m_rfTimeout) {
-            LogInfoEx(LOG_RF, "DMR Slot %u, user has timed out", m_slotNo);
+            LogInfoEx(LOG_RF, "DMR Slot %u, traffic timeout timer has expired, traffic will not transmit", m_slotNo);
             m_rfTimeout = true;
         }
     }
@@ -721,12 +723,17 @@ void Slot::clock()
             if (!s_authoritative && m_permittedDstId != 0U) {
                 m_permittedDstId = 0U;
             }
+
+            // has the talkgroup hang timer expired while the modem is in a non-listening state?
+            if (m_rfState != RS_RF_LISTENING) {
+                processFrameLoss(RF_LOSS_TYPE_TG_HANG_NOT_LISTENING);
+            }
         }
     }
 
     if (m_netTimeoutTimer.isRunning() && m_netTimeoutTimer.hasExpired()) {
         if (!m_netTimeout) {
-            LogInfoEx(LOG_NET, "DMR Slot %u, user has timed out", m_slotNo);
+            LogInfoEx(LOG_NET, "DMR Slot %u, traffic timeout timer has expired, traffic will not transmit", m_slotNo);
             m_netTimeout = true;
         }
     }

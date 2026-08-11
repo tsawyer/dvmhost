@@ -405,7 +405,7 @@ void Data::writeNetwork(const uint8_t *data, uint32_t len)
     if (m_nxdn->m_network == nullptr)
         return;
 
-    if (m_nxdn->m_rfTimeout.isRunning() && m_nxdn->m_rfTimeout.hasExpired())
+    if (m_nxdn->m_rfTimeoutTimer.isRunning() && m_nxdn->m_rfTimeoutTimer.hasExpired())
         return;
 
     m_nxdn->m_network->writeNXDN(m_nxdn->m_rfLC, data, len);

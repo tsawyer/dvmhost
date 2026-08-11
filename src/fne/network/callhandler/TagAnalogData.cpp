@@ -134,9 +134,7 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                 m_rejectedCallStreams.unlock();
 
                 if (!tg.config().parrot()) {
-                    m_network->m_totalActiveCalls--;
-                    if (m_network->m_totalActiveCalls < 0)
-                        m_network->m_totalActiveCalls = 0;
+                    TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                 }
 
                 m_network->eraseStreamPktSeq(peerId, streamId);
@@ -182,24 +180,13 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                 m_rejectedCallStreams.unlock();
 
                 if (!tg.config().parrot()) {
-                    m_network->m_totalActiveCalls--;
-                    if (m_network->m_totalActiveCalls < 0)
-                        m_network->m_totalActiveCalls = 0;
+                    TrafficNetwork::MetricsLogging::decrementActiveCalls(m_network);
                 }
 
-                // report call event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("mode", "Analog")
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(srcId))
-                            .tag("dstId", std::to_string(dstId))
-                                .field("duration", duration)
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+
+                // report call event to metrics
+                TrafficNetwork::MetricsLogging::logCallEvent(m_network, "Analog", peerId, streamId, srcId, dstId, duration);
 
                 m_network->eraseStreamPktSeq(peerId, streamId);
             }
@@ -233,6 +220,8 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                     m_status[dstId].ssrc = ssrc;
                     m_status[dstId].callTakeover = false; // reset takeover flag
                     m_status.unlock();
+
+                    TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
 
                     status = m_status[dstId];
                 }
@@ -283,7 +272,8 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                                 m_rejectedCallStreams[dstId].push_back(streamId);
                                 m_rejectedCallStreams.unlock();
 
-                                m_network->m_totalCallCollisions++;
+                                TrafficNetwork::MetricsLogging::incrementCallCollisions(m_network);
+                                TrafficNetwork::MetricsLogging::logCallCollisionEvent(m_network, peerId, streamId, srcId, dstId, 0U, status.peerId, status.streamId, status.srcId, status.dstId, 0U);
 
                                 return false;
                             }
@@ -306,6 +296,8 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                             m_status[dstId].srcId = srcId;
                             m_status[dstId].ssrc = ssrc;
                             m_status.unlock();
+
+                            TrafficNetwork::MetricsLogging::incrementCallSwitches(m_network);
                         }
                     }
                 }
@@ -344,8 +336,8 @@ bool TagAnalogData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
                 m_rejectedCallStreams.unlock();
 
                 if (!tg.config().parrot()) {
-                    m_network->m_totalCallsProcessed++;
-                    m_network->m_totalActiveCalls++;
+                    TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+                    TrafficNetwork::MetricsLogging::incrementActiveCalls(m_network);
                 }
 
                 if (!m_network->m_globalAff->isGranted(dstId))
@@ -738,21 +730,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
     lookups::RadioId rid = m_network->m_ridLookup->find(data.getSrcId());
     if (!rid.radioDefault()) {
         if (!rid.radioEnabled()) {
-            // report error event to InfluxDB
-            if (m_network->m_enableInfluxDB) {
-                influxdb::QueryBuilder()
-                    .meas("call_error_event")
-                        .tag("peerId", std::to_string(peerId))
-                        .tag("streamId", std::to_string(streamId))
-                        .tag("srcId", std::to_string(data.getSrcId()))
-                        .tag("dstId", std::to_string(data.getDstId()))
-                            .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_SRC_RID))
-                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                    .requestAsync(m_network->m_influxServer);
-            }
+            // report error event to metrics
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_SRC_RID));
 
             if (m_network->m_logDenials)
-                LogError(LOG_ANALOG, INFLUXDB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_ANALOG, DB_ERRSTR_DISABLED_SRC_RID ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -775,21 +757,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
     m_rejectedCallStreams.lock(false);
     std::vector<uint32_t> rejectedStreams = m_rejectedCallStreams[data.getDstId()];
     if (std::find(rejectedStreams.begin(), rejectedStreams.end(), streamId) != rejectedStreams.end()) {
-        // report error event to InfluxDB
-        if (m_network->m_enableInfluxDB) {
-            influxdb::QueryBuilder()
-                .meas("call_error_event")
-                    .tag("peerId", std::to_string(peerId))
-                    .tag("streamId", std::to_string(streamId))
-                    .tag("srcId", std::to_string(data.getSrcId()))
-                    .tag("dstId", std::to_string(data.getDstId()))
-                        .field("message", std::string(INFLUXDB_ERRSTR_CALL_NOT_PERMITTED))
-                    .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                .requestAsync(m_network->m_influxServer);
-        }
+        // report error event to metrics
+        TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_CALL_NOT_PERMITTED));
 
         if (m_network->m_logDenials)
-            LogError(LOG_ANALOG, INFLUXDB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+            LogError(LOG_ANALOG, DB_ERRSTR_CALL_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
         m_rejectedCallStreams.unlock();
 
@@ -805,21 +777,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
         lookups::RadioId rid = m_network->m_ridLookup->find(data.getDstId());
         if (!rid.radioDefault()) {
             if (!rid.radioEnabled()) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(data.getSrcId()))
-                            .tag("dstId", std::to_string(data.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_DST_RID))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_DST_RID));
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_ANALOG, INFLUXDB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                    LogError(LOG_ANALOG, DB_ERRSTR_DISABLED_DST_RID ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
                 return false;
             }
@@ -828,21 +790,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
             // if this is a default radio -- and we are rejecting undefined radios
             // report call error
             if (m_network->m_rejectUnknownRID) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(data.getSrcId()))
-                            .tag("dstId", std::to_string(data.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS));
 
                 if (m_network->m_logDenials)
-                    LogWarning(LOG_ANALOG, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSrcId(), data.getDstId());
+                    LogWarning(LOG_ANALOG, DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSrcId(), data.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -855,21 +807,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
     if (data.getGroup()) {
         lookups::TalkgroupRuleGroupVoice tg = m_network->m_tidLookup->find(data.getDstId());
         if (tg.isInvalid()) {
-            // report error event to InfluxDB
-            if (m_network->m_enableInfluxDB) {
-                influxdb::QueryBuilder()
-                    .meas("call_error_event")
-                        .tag("peerId", std::to_string(peerId))
-                        .tag("streamId", std::to_string(streamId))
-                        .tag("srcId", std::to_string(data.getSrcId()))
-                        .tag("dstId", std::to_string(data.getDstId()))
-                            .field("message", std::string(INFLUXDB_ERRSTR_INV_TALKGROUP))
-                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                    .requestAsync(m_network->m_influxServer);
-            }
+            // report error event to metrics
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_INV_TALKGROUP));
 
             if (m_network->m_logDenials)
-                LogError(LOG_ANALOG, INFLUXDB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_ANALOG, DB_ERRSTR_INV_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -878,21 +820,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
         else {
             // analog doesn't support strapping, so if the TG is strapped, reject the call
             if (tg.config().strapping() == lookups::TG_STRAPPING_STRAPPED) {
-                // report error event to InfluxDB
-                if (m_network->m_enableInfluxDB) {
-                    influxdb::QueryBuilder()
-                        .meas("call_error_event")
-                            .tag("peerId", std::to_string(peerId))
-                            .tag("streamId", std::to_string(streamId))
-                            .tag("srcId", std::to_string(data.getSrcId()))
-                            .tag("dstId", std::to_string(data.getDstId()))
-                                .field("message", std::string(INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC))
-                            .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                        .requestAsync(m_network->m_influxServer);
-                }
+                // report error event to metrics
+                TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_CLR_TALKGROUP_ENC));
 
                 if (m_network->m_logDenials)
-                    LogError(LOG_ANALOG, INFLUXDB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                    LogError(LOG_ANALOG, DB_ERRSTR_CLR_TALKGROUP_ENC ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
                 // report In-Call Control to the peer sending traffic
                 m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -913,21 +845,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
 
         // fail call if the reject flag is set
         if (rejectUnknownBadCall) {
-            // report error event to InfluxDB
-            if (m_network->m_enableInfluxDB) {
-                influxdb::QueryBuilder()
-                    .meas("call_error_event")
-                        .tag("peerId", std::to_string(peerId))
-                        .tag("streamId", std::to_string(streamId))
-                        .tag("srcId", std::to_string(data.getSrcId()))
-                        .tag("dstId", std::to_string(data.getDstId()))
-                            .field("message", std::string(INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS))
-                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                    .requestAsync(m_network->m_influxServer);
-            }
+            // report error event to metrics
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_ILLEGAL_RID_ACCESS));
 
             if (m_network->m_logDenials)
-                LogWarning(LOG_ANALOG, INFLUXDB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSrcId(), data.getDstId());
+                LogWarning(LOG_ANALOG, DB_ERRSTR_ILLEGAL_RID_ACCESS ", srcId = %u, dstId = %u", data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -936,21 +858,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
 
         // is the TGID active?
         if (!tg.config().active()) {
-            // report error event to InfluxDB
-            if (m_network->m_enableInfluxDB) {
-                influxdb::QueryBuilder()
-                    .meas("call_error_event")
-                        .tag("peerId", std::to_string(peerId))
-                        .tag("streamId", std::to_string(streamId))
-                        .tag("srcId", std::to_string(data.getSrcId()))
-                        .tag("dstId", std::to_string(data.getDstId()))
-                            .field("message", std::string(INFLUXDB_ERRSTR_DISABLED_TALKGROUP))
-                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                    .requestAsync(m_network->m_influxServer);
-            }
+            // report error event to metrics
+            TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_DISABLED_TALKGROUP));
 
             if (m_network->m_logDenials)
-                LogError(LOG_ANALOG, INFLUXDB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                LogError(LOG_ANALOG, DB_ERRSTR_DISABLED_TALKGROUP ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
             // report In-Call Control to the peer sending traffic
             m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());
@@ -964,21 +876,11 @@ bool TagAnalogData::validate(uint32_t peerId, data::NetData& data, uint32_t stre
                 // does the transmitting RID have permission?
                 std::vector<uint32_t> permittedRIDs = tg.config().permittedRIDs();
                 if (std::find(permittedRIDs.begin(), permittedRIDs.end(), data.getSrcId()) == permittedRIDs.end()) {
-                    // report error event to InfluxDB
-                    if (m_network->m_enableInfluxDB) {
-                        influxdb::QueryBuilder()
-                            .meas("call_error_event")
-                                .tag("peerId", std::to_string(peerId))
-                                .tag("streamId", std::to_string(streamId))
-                                .tag("srcId", std::to_string(data.getSrcId()))
-                                .tag("dstId", std::to_string(data.getDstId()))
-                                    .field("message", std::string(INFLUXDB_ERRSTR_RID_NOT_PERMITTED))
-                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                            .requestAsync(m_network->m_influxServer);
-                    }
+                    // report error event to metrics
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, data.getSrcId(), data.getDstId(), std::string(DB_ERRSTR_RID_NOT_PERMITTED));
 
                     if (m_network->m_logDenials)
-                        LogError(LOG_ANALOG, INFLUXDB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
+                        LogError(LOG_ANALOG, DB_ERRSTR_RID_NOT_PERMITTED ", peer = %u, srcId = %u, dstId = %u", peerId, data.getSrcId(), data.getDstId());
 
                     // report In-Call Control to the peer sending traffic
                     m_network->writePeerICC(peerId, streamId, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, NET_ICC::REJECT_TRAFFIC, data.getDstId());

@@ -735,6 +735,8 @@ bool ControlSignaling::processNetwork(uint8_t* data, uint32_t len, lc::LC& contr
     switch (duid) {
         case DUID::TSDU:
             if (m_p25->m_netState == RS_NET_IDLE) {
+                m_p25->m_networkWatchdog.stop();
+
                 std::unique_ptr<lc::TSBK> tsbk = TSBKFactory::createTSBK(data);
                 if (tsbk == nullptr) {
                     return false;
@@ -1344,7 +1346,7 @@ void ControlSignaling::writeNetworkRF(lc::TSBK* tsbk, const uint8_t* data, bool 
     if (m_p25->m_network == nullptr)
         return;
 
-    if (m_p25->m_rfTimeout.isRunning() && m_p25->m_rfTimeout.hasExpired())
+    if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())
         return;
 
     lc::LC lc = lc::LC();
@@ -1367,7 +1369,7 @@ void ControlSignaling::writeNetworkRF(lc::TDULC* tduLc, const uint8_t* data, boo
     if (m_p25->m_network == nullptr)
         return;
 
-    if (m_p25->m_rfTimeout.isRunning() && m_p25->m_rfTimeout.hasExpired())
+    if (m_p25->m_rfTimeoutTimer.isRunning() && m_p25->m_rfTimeoutTimer.hasExpired())
         return;
 
     lc::LC lc = lc::LC();
@@ -1404,7 +1406,8 @@ void ControlSignaling::writeRF_TDULC(lc::TDULC* lc, bool noNetwork)
     // add status bits
     P25Utils::addStatusBits(data + 2U, P25_TDULC_FRAME_LENGTH_BITS, false, false);
 
-    m_p25->m_rfTimeout.stop();
+    m_p25->m_rfTimeoutTimer.stop();
+    m_p25->m_rfTimeout = false;
 
     if (!noNetwork)
         writeNetworkRF(lc, data + 2U, false);
@@ -1460,7 +1463,8 @@ void ControlSignaling::writeNet_TDULC(lc::TDULC* lc)
     if (m_p25->m_network != nullptr)
         m_p25->m_network->resetP25();
 
-    m_p25->m_netTimeout.stop();
+    m_p25->m_netTimeoutTimer.stop();
+    m_p25->m_netTimeout = false;
     m_p25->m_networkWatchdog.stop();
     m_p25->m_netState = RS_NET_IDLE;
     m_p25->m_tailOnIdle = true;

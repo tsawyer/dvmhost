@@ -254,6 +254,9 @@ project(dvm)
 include(src/CMakeLists.txt)
 
 if (ENABLE_TESTS)
+    include(CTest)
+    enable_testing()
+
     include(tests/CMakeLists.txt)
     set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
     Include(FetchContent)
@@ -265,6 +268,9 @@ if (ENABLE_TESTS)
     )
     
     FetchContent_MakeAvailable(Catch2)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    include(Catch)
+
     find_package(Threads REQUIRED)
     
     # add ASIO
@@ -276,6 +282,7 @@ if (ENABLE_TESTS)
     target_compile_definitions(dvmtests PUBLIC -DCATCH2_TEST_COMPILATION)
     target_link_libraries(dvmtests PRIVATE Catch2::Catch2WithMain common ${OPENSSL_LIBRARIES} asio::asio Threads::Threads util)
     target_include_directories(dvmtests PRIVATE ${OPENSSL_INCLUDE_DIR} src src/host tests)
+    catch_discover_tests(dvmtests)
 endif (ENABLE_TESTS)
 
 #

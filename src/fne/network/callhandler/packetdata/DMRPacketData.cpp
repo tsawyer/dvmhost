@@ -238,18 +238,8 @@ bool DMRPacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
             lookups::RadioId rid = m_network->m_ridLookup->find(status->header.getSrcId());
             if (!rid.radioDefault()) {
                 if (!rid.radioEnabled()) {
-                    // report error event to InfluxDB
-                    if (m_network->m_enableInfluxDB) {
-                        influxdb::QueryBuilder()
-                            .meas("call_error_event")
-                                .tag("peerId", std::to_string(peerId))
-                                .tag("streamId", std::to_string(streamId))
-                                .tag("srcId", std::to_string(status->header.getSrcId()))
-                                .tag("dstId", std::to_string(status->header.getDstId()))
-                                    .field("message", INFLUXDB_ERRSTR_DISABLED_SRC_RID)
-                                .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                            .requestAsync(m_network->m_influxServer);
-                    }
+                    // report error event to metrics
+                    TrafficNetwork::MetricsLogging::logCallErrorEvent(m_network, peerId, streamId, status->header.getSrcId(), status->header.getDstId(), std::string(DB_ERRSTR_DISABLED_SRC_RID));
 
                     m_status.erase(peerId);
                     delete status;
@@ -269,20 +259,10 @@ bool DMRPacketData::processFrame(const uint8_t* data, uint32_t len, uint32_t pee
             LogInfoEx((fromUpstream) ? LOG_PEER : LOG_MASTER, "DMR, Data Call End, peer = %u, slot = %u, srcId = %u, dstId = %u, group = %u, blocks = %u, duration = %u, streamId = %u, fromUpstream = %u",
                 peerId, srcId, dstId, gi, status->header.getBlocksToFollow(), duration / 1000, streamId, fromUpstream);
 
-            // report call event to InfluxDB
-            if (m_network->m_enableInfluxDB) {
-                influxdb::QueryBuilder()
-                    .meas("call_event")
-                        .tag("peerId", std::to_string(peerId))
-                        .tag("mode", "DMR")
-                        .tag("streamId", std::to_string(streamId))
-                        .tag("srcId", std::to_string(srcId))
-                        .tag("dstId", std::to_string(dstId))
-                            .field("duration", duration)
-                            .field("slot", slotNo)
-                        .timestamp(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
-                    .requestAsync(m_network->m_influxServer);
-            }
+            TrafficNetwork::MetricsLogging::incrementCallsProcessed(m_network);
+
+            // report call event to metrics
+            TrafficNetwork::MetricsLogging::logCallEvent(m_network, "DMR", peerId, streamId, srcId, dstId, duration, slotNo);
 
             m_status.erase(peerId);
             delete status;

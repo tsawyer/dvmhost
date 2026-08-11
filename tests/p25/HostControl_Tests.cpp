@@ -130,8 +130,6 @@ uint16_t reserveLoopbackPort()
     return ntohs(address.sin_port);
 }
 
-}
-
 /**
  * @brief Builds a P25 RF frame.
  * @param payload The payload data to include in the frame.
@@ -144,6 +142,8 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
     ::memcpy(frame + 2U, payload, p25::defines::P25_LDU_FRAME_LENGTH_BYTES);
 }
 
+} // namespace
+
 // ---------------------------------------------------------------------------
 //  Class Declaration
 // ---------------------------------------------------------------------------
@@ -151,12 +151,12 @@ void buildP25RFFrame(const uint8_t* payload, uint8_t* frame)
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class P25TestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the P25TestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~P25TestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -210,10 +210,14 @@ public:
      * @param peerId The peer ID.
      */
     P25TestNetwork(uint16_t localPort = 0U, uint32_t peerId = 1U) :
-        network::Network("127.0.0.1", 1U, localPort, peerId, "test", false, true, false, true, false, false, true, true, false, false, false, false),
+        network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, false, true, false, false, true, true, false, false, false, false),
         m_resetP25Count(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = false;
+        m_p25Enabled = true;
+        m_nxdnEnabled = false;
+        m_analogEnabled = false;
     }
 
     /**
@@ -370,7 +374,7 @@ public:
      */
     explicit P25HostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new P25TestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 1024U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
@@ -930,4 +934,53 @@ TEST_CASE("P25 processFrame accepts calibration-based RF LDU2 frame after LDU1",
     REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastSrcId() == 1U);
     REQUIRE(harness.m_control->getLastDstId() == 1U);
+}
+
+TEST_CASE("P25 rfTGHang expiry ends active RF call and returns to listening", "[p25][host][control][rf]")
+{
+    P25HostHarness harness;
+    harness.m_control->reset();
+
+    uint8_t ldu1[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    buildP25RFFrame(CAL_P25_LDU1_1K, ldu1);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu1, p25::defines::DUID::LDU1);
+
+    REQUIRE(harness.m_control->processFrame(ldu1, sizeof(ldu1)));
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::p25RFTGHang(*harness.m_control).start();
+    HostTestHooks::p25RFTGHang(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25RFTGHang(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::p25RFTGHang(*harness.m_control).isRunning());
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+}
+
+TEST_CASE("P25 rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[p25][host][control][rf]")
+{
+    P25HostHarness harness;
+    harness.m_control->reset();
+
+    uint8_t ldu1[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    uint8_t ldu2[p25::defines::P25_LDU_FRAME_LENGTH_BYTES + 2U];
+    buildP25RFFrame(CAL_P25_LDU1_1K, ldu1);
+    buildP25RFFrame(CAL_P25_LDU2_1K, ldu2);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu1, p25::defines::DUID::LDU1);
+    HostTestHooks::p25StampRFFrameNID(*harness.m_control, ldu2, p25::defines::DUID::LDU2);
+
+    REQUIRE(harness.m_control->processFrame(ldu1, sizeof(ldu1)));
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_AUDIO);
+
+    HostTestHooks::p25RFTGHang(*harness.m_control).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+
+    REQUIRE(harness.m_control->processFrame(ldu2, sizeof(ldu2)));
+    REQUIRE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
+
+    HostTestHooks::p25RFLossWatchdog(*harness.m_control).clock(expireTimerTicks(HostTestHooks::p25RFLossWatchdog(*harness.m_control)));
+    harness.m_control->clock();
+
+    REQUIRE(HostTestHooks::p25RFState(*harness.m_control) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::p25RFLossWatchdog(*harness.m_control).isRunning());
 }

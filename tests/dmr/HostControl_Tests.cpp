@@ -157,7 +157,7 @@ void buildDMRVoiceSyncPayload(uint8_t* payload)
     dmr::Sync::addDMRAudioSync(payload, false);
 }
 
-}
+} // namespace
 
 // ---------------------------------------------------------------------------
 //  Class Declaration
@@ -166,12 +166,12 @@ void buildDMRVoiceSyncPayload(uint8_t* payload)
 /**
  * @brief Dummy implementation of a modem port for testing purposes.
  */
-class TestModemPort final : public modem::port::IModemPort {
+class DMRTestModemPort final : public modem::port::IModemPort {
 public:
     /**
-     * @brief Finalizes the instance of the TestModemPort class.
+     * @brief Finalizes the instance of the DMRTestModemPort class.
      */
-    ~TestModemPort() override = default;
+    ~DMRTestModemPort() override = default;
 
     /**
      * @brief Opens the modem port.
@@ -224,7 +224,11 @@ public:
         network::Network("127.0.0.1", 1U, localPort, peerId, "test", true, true, true, false, false, false, true, true, false, false, false, false),
         m_resetDMRCount(0U)
     {
-        /* stub */
+        // keep protocol gates deterministic for this P25-focused harness
+        m_dmrEnabled = true;
+        m_p25Enabled = false;
+        m_nxdnEnabled = false;
+        m_analogEnabled = false;
     }
 
     /**
@@ -388,7 +392,7 @@ public:
      */
     explicit DMRHostHarness(bool authoritative = true, bool withNetwork = false, uint16_t networkLocalPort = 0U, uint32_t networkPeerId = 1U) :
         m_rpc("127.0.0.1", 1U, 0U, "test", false),
-        m_modem(new TestModemPort(), false, false, false, false, false, false,
+        m_modem(new DMRTestModemPort(), false, false, false, false, false, false,
             0U, 0U, 0U, 4096U, 4096U, 1024U, true, true, false, false, false, false),
         m_chLookup(),
         m_ridLookup("", 0U, false, false),
@@ -569,6 +573,61 @@ TEST_CASE("DMR host e2e loopback times out stale call and resets stream state", 
     REQUIRE(harness.network()->resetDMRCount() == 1U);
 }
 
+TEST_CASE("DMR host e2e loopback preserves a continuing network stream across an RF collision", "[dmr][host][control][net][e2e]")
+{
+    const uint16_t hostPort = reserveLoopbackPort();
+    const uint16_t senderPort = reserveLoopbackPort();
+    REQUIRE(hostPort != 0U);
+    REQUIRE(senderPort != 0U);
+    REQUIRE(hostPort != senderPort);
+
+    const uint32_t hostPeerId = 7011U;
+    const uint32_t streamId = 0x610201U;
+
+    DMRHostHarness harness(true, true, hostPort, hostPeerId);
+    DMRTestNetwork sender(senderPort, 7012U);
+
+    REQUIRE(harness.network() != nullptr);
+    REQUIRE(harness.network()->activateLoopback("127.0.0.1", senderPort));
+    REQUIRE(sender.activateLoopback("127.0.0.1", hostPort));
+
+    HostTestHooks::dmrSetRFCall(*HostTestHooks::dmrSlot1(*harness.m_control), 1401U, 2401U);
+    REQUIRE(sender.sendDMRVoiceHeader(hostPeerId, streamId, 600U, 1U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (harness.network()->rxDMRStreamId(1U) == streamId) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_IDLE);
+    REQUIRE(harness.network()->rxDMRStreamId(1U) == streamId);
+    REQUIRE(harness.network()->resetDMRCount() == 0U);
+
+    HostTestHooks::dmrClearRFCall(*HostTestHooks::dmrSlot1(*harness.m_control));
+    REQUIRE(sender.sendDMRVoiceHeader(hostPeerId, streamId, 601U, 1U, 1501U, 2501U));
+
+    for (uint32_t i = 0U; i < 40U; i++) {
+        sender.clock(1U);
+        harness.network()->clock(1U);
+        harness.m_control->clock();
+        if (HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_AUDIO) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    REQUIRE(HostTestHooks::dmrNetState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_NET_AUDIO);
+    REQUIRE(harness.network()->rxDMRStreamId(1U) == streamId);
+    REQUIRE(harness.network()->resetDMRCount() == 0U);
+}
+
 TEST_CASE("DMR host e2e loopback enforces stream lock until active stream terminates", "[dmr][host][control][net][e2e]")
 {
     const uint16_t hostPort = reserveLoopbackPort();
@@ -714,4 +773,42 @@ TEST_CASE("DMR processFrame accepts a synthetic RF voice call on the targeted sl
     REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*HostTestHooks::dmrSlot1(*harness.m_control), 1001U, 2001U));
     REQUIRE(HostTestHooks::dmrRFState(*HostTestHooks::dmrSlot1(*harness.m_control)) == RS_RF_AUDIO);
     REQUIRE(harness.m_control->getLastDstId(1U) == 2001U);
+}
+
+TEST_CASE("DMR rfTGHang expiry ends active RF call and returns slot to listening", "[dmr][host][control][rf]")
+{
+    DMRHostHarness harness;
+    dmr::Slot* slot = HostTestHooks::dmrSlot1(*harness.m_control);
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1001U, 2001U));
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_AUDIO);
+
+    HostTestHooks::dmrRFTGHang(*slot).start();
+    HostTestHooks::dmrRFTGHang(*slot).clock(expireTimerTicks(HostTestHooks::dmrRFTGHang(*slot)));
+    slot->clock();
+
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::dmrRFTGHang(*slot).isRunning());
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+}
+
+TEST_CASE("DMR rfTGHang zero fallback arms rfLossWatchdog and recovers RF state", "[dmr][host][control][rf]")
+{
+    DMRHostHarness harness;
+    dmr::Slot* slot = HostTestHooks::dmrSlot1(*harness.m_control);
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1101U, 2101U));
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_AUDIO);
+
+    HostTestHooks::dmrRFTGHang(*slot).setTimeout(0U);
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+
+    REQUIRE(HostTestHooks::dmrStartRFVoiceCall(*slot, 1101U, 2101U));
+    REQUIRE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
+
+    HostTestHooks::dmrRFLossWatchdog(*slot).clock(expireTimerTicks(HostTestHooks::dmrRFLossWatchdog(*slot)));
+    slot->clock();
+
+    REQUIRE(HostTestHooks::dmrRFState(*slot) == RS_RF_LISTENING);
+    REQUIRE_FALSE(HostTestHooks::dmrRFLossWatchdog(*slot).isRunning());
 }

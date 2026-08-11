@@ -684,6 +684,7 @@ void RESTAPI::initializeEndpoints()
     m_dispatcher.match(FNE_GET_RESET_TOTAL_CALLS).get(REST_API_BIND(RESTAPI::restAPI_GetResetTotalCalls, this));
     m_dispatcher.match(FNE_GET_RESET_ACTIVE_CALLS).get(REST_API_BIND(RESTAPI::restAPI_GetResetActiveCalls, this));
     m_dispatcher.match(FNE_GET_RESET_CALL_COLLISIONS).get(REST_API_BIND(RESTAPI::restAPI_GetResetCallCollisions, this));
+    m_dispatcher.match(FNE_GET_RESET_CALL_SWITCHES).get(REST_API_BIND(RESTAPI::restAPI_GetResetCallSwitches, this));
     m_dispatcher.match(FNE_GET_UNIT_REG_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetUnitRegList, this));
     m_dispatcher.match(FNE_GET_AFF_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetAffList, this));
     m_dispatcher.match(FNE_GET_GRANT_LIST).get(REST_API_BIND(RESTAPI::restAPI_GetGrantList, this));
@@ -2044,11 +2045,13 @@ void RESTAPI::restAPI_GetStats(const HTTPPayload& request, HTTPPayload& reply, c
         response["tableLastLoad"].set<json::object>(tableLastLoad);
 
         // total calls processed
-        uint32_t totalCallsProcessed = m_network->m_totalCallsProcessed;
+        uint32_t totalCallsProcessed = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallsProcessed();
         response["totalCallsProcessed"].set<uint32_t>(totalCallsProcessed);
-        uint32_t totalCallCollisions = m_network->m_totalCallCollisions;
+        uint32_t totalCallCollisions = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallCollisions();
         response["totalCallCollisions"].set<uint32_t>(totalCallCollisions);
-        int32_t totalActiveCalls = m_network->m_totalActiveCalls;
+        uint32_t totalCallSwitches = (uint32_t)TrafficNetwork::MetricsLogging::getTotalCallSwitches();
+        response["totalCallSwitches"].set<uint32_t>(totalCallSwitches);
+        int32_t totalActiveCalls = TrafficNetwork::MetricsLogging::getTotalActiveCalls();
         response["totalActiveCalls"].set<int32_t>(totalActiveCalls);
 
         // table totals
@@ -2080,7 +2083,7 @@ void RESTAPI::restAPI_GetResetTotalCalls(const HTTPPayload& request, HTTPPayload
 
     LogInfoEx(LOG_REST, "request to reset total calls processed");
     if (m_network != nullptr) {
-        m_network->m_totalCallsProcessed = 0U;
+        TrafficNetwork::MetricsLogging::resetCallsProcessed(m_network);
     }
 
     reply.payload(response);
@@ -2099,7 +2102,7 @@ void RESTAPI::restAPI_GetResetActiveCalls(const HTTPPayload& request, HTTPPayloa
 
     LogInfoEx(LOG_REST, "request to reset total active calls");
     if (m_network != nullptr) {
-        m_network->m_totalActiveCalls = 0U;
+        TrafficNetwork::MetricsLogging::resetActiveCalls();
     }
 
     reply.payload(response);
@@ -2118,7 +2121,26 @@ void RESTAPI::restAPI_GetResetCallCollisions(const HTTPPayload& request, HTTPPay
 
     LogInfoEx(LOG_REST, "request to reset total call collisions");
     if (m_network != nullptr) {
-        m_network->m_totalCallCollisions = 0U;
+        TrafficNetwork::MetricsLogging::resetCallCollisions(m_network);
+    }
+
+    reply.payload(response);
+}
+
+/* REST API endpoint; implements get reset call switches request. */
+
+void RESTAPI::restAPI_GetResetCallSwitches(const HTTPPayload& request, HTTPPayload& reply, const RequestMatch& match)
+{
+    if (!validateAuth(request, reply)) {
+        return;
+    }
+
+    json::object response = json::object();
+    setResponseDefaultStatus(response);
+
+    LogInfoEx(LOG_REST, "request to reset total call switches");
+    if (m_network != nullptr) {
+        TrafficNetwork::MetricsLogging::resetCallSwitches(m_network);
     }
 
     reply.payload(response);
