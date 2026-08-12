@@ -14,7 +14,23 @@
 #include "fne/ActivityLog.h"
 #include "HostFNE.h"
 
+#include <cstdio>
+#include <fstream>
+#include <mutex>
+
 using namespace network;
+
+// ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+
+#define KEY_UPDATE_STATUS_BUSY 0x01U
+
+// ---------------------------------------------------------------------------
+//  Static Class Members
+// ---------------------------------------------------------------------------
+
+std::mutex s_keyUpdateCommitMutex;
 
 // ---------------------------------------------------------------------------
 //  Public Class Members
@@ -165,10 +181,19 @@ void MetadataNetwork::PacketHandler::keysUpdate(TrafficNetwork* network, Metadat
                 }
             }
 
-            PacketBufferEntryPtr pkt = findOrCreatePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId, "Remote EKC, Key Update", streamId);
+            bool created = false;
+            PacketBufferEntryPtr pkt = findOrCreatePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId, "Remote EKC, Key Update", streamId, &created);
             if (pkt == nullptr || !pkt->buffer) {
                 LogError(LOG_REPL, "PEER %u Remote EKC, Key Update, failed to initialize packet buffer", peerId);
                 erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
+                return;
+            }
+
+            if (!created) {
+                LogWarning(LOG_REPL, "PEER %u requested enc. key update while another update is active", peerId);
+                uint8_t status = KEY_UPDATE_STATUS_BUSY;
+                mdNetwork->getFrameQueue()->write(&status, 1U, streamId, peerId, network->getPeerId(),
+                    { NET_FUNC::KEYS_UPDATE, NET_SUBFUNC::KEYS_UPDATE_STATUS }, 0U, req->address, req->addrLen);
                 return;
             }
 
@@ -178,6 +203,14 @@ void MetadataNetwork::PacketHandler::keysUpdate(TrafficNetwork* network, Metadat
 
         // scope intentional
         {
+            if (req->length == 80U) {
+                LogWarning(LOG_REPL, "PEER %u requested enc. key update while another update is active", peerId);
+                uint8_t status = KEY_UPDATE_STATUS_BUSY;
+                mdNetwork->getFrameQueue()->write(&status, 1U, streamId, peerId, network->getPeerId(),
+                    { NET_FUNC::KEYS_UPDATE, NET_SUBFUNC::KEYS_UPDATE_STATUS }, 0U, req->address, req->addrLen);
+                return;
+            }
+
             if (req->length < FRAG_SIZE) {
                 LogWarning(LOG_REPL, "PEER %u Remote EKC, Key Update, ignoring short data phase frame (%u bytes)", peerId, req->length);
                 return;
@@ -230,7 +263,9 @@ void MetadataNetwork::PacketHandler::keysUpdate(TrafficNetwork* network, Metadat
                 s << network->m_cryptoLookup->filename();
 
                 std::string filename = s.str();
-                std::ofstream file(filename, std::ofstream::out);
+                std::lock_guard<std::mutex> commitLock(s_keyUpdateCommitMutex);
+                std::string tempFilename = filename + ".tmp." + std::to_string(peerId) + "." + std::to_string(streamId);
+                std::ofstream file(tempFilename, std::ios::binary | std::ios::trunc);
                 if (file.fail()) {
                     LogError(LOG_PEER, "Cannot open the crypto container file - %s", filename.c_str());
                     pkt->buffer->clear();
@@ -243,11 +278,24 @@ void MetadataNetwork::PacketHandler::keysUpdate(TrafficNetwork* network, Metadat
                     return;
                 }
 
-                for (uint32_t i = 0U; i < decompressedLen; i++) {
-                    file << (char)decompressed[i];
-                }
+                file.write(reinterpret_cast<const char*>(decompressed), static_cast<std::streamsize>(decompressedLen));
+                file.flush();
+                bool writeOk = file.good();
 
                 file.close();
+
+                if (!writeOk || std::rename(tempFilename.c_str(), filename.c_str()) != 0) {
+                    LogError(LOG_PEER, "Cannot atomically install the crypto container file - %s", filename.c_str());
+                    std::remove(tempFilename.c_str());
+                    pkt->buffer->clear();
+                    pkt->buffer.reset();
+                    pkt->streamId = 0U;
+                    if (decompressed != nullptr) {
+                        delete[] decompressed;
+                    }
+                    erasePacketBufferEntry(mdNetwork->m_peerKeyUpdatePkt, peerId);
+                    return;
+                }
 
                 network->m_cryptoLookup->stop(true);
                 network->m_cryptoLookup->reload();

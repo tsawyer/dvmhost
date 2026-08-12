@@ -102,6 +102,8 @@ namespace network
             MASTER_SUBFUNC_DEACTIVE_TGS = 0x03U,    //!< Deactive TGIDs
             MASTER_HA_PARAMS = 0xA3U,               //!< HA Parameters
 
+            KEYS_UPDATE_STATUS = 0x04U,             //!< Key Update Status Response
+
             TRANSFER_SUBFUNC_ACTIVITY = 0x01U,      //!< Activity Log Transfer
             TRANSFER_SUBFUNC_DIAG = 0x02U,          //!< Diagnostic Log Transfer
             TRANSFER_SUBFUNC_STATUS = 0x03U,        //!< Status Transfer

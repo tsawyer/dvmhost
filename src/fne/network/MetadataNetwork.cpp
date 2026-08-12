@@ -174,8 +174,10 @@ MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findPacketBufferEntry(Pac
 
 /* Finds or creates a packet buffer entry in the map. */
 
-MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findOrCreatePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId, const char* name, uint32_t streamId)
+MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findOrCreatePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId, const char* name, uint32_t streamId, bool* created)
 {
+    if (created != nullptr)
+        *created = false;
     pktMap.lock(false);
 
     auto& entries = pktMap.get();
@@ -186,6 +188,8 @@ MetadataNetwork::PacketBufferEntryPtr MetadataNetwork::findOrCreatePacketBufferE
         pkt->streamId = streamId;
 
         it = entries.insert({ peerId, pkt }).first;
+        if (created != nullptr)
+            *created = true;
     }
 
     PacketBufferEntryPtr pkt = it->second;
