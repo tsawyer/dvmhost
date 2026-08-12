@@ -288,6 +288,7 @@ private:
     bool m_stop;
 
     static std::mutex s_mutex;
+    static std::mutex s_loadMutex;
 
     /**
      * @brief Loads the table from the passed lookup table file.
