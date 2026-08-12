@@ -265,7 +265,9 @@ bool LC::decodeHDU(const uint8_t* data, bool rawOnly)
 
     // decode RS (36,20,17) FEC
     try {
-        bool ret = m_rs.decode362017(rs);
+        int8_t errs = -1;
+        bool ret = m_rs.decode362017(rs, &errs);
+        m_fecErrs = errs;
         if (!ret) {
             LogError(LOG_P25, "LC::decodeHDU(), failed to decode RS (36,20,17) FEC");
             return false;
@@ -687,7 +689,9 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
 
         // decode RS (46,26,21) FEC
         try {
-            bool ret = m_rs.decode462621(raw);
+            int8_t errs = -1;
+            bool ret = m_rs.decode462621(raw, &errs);
+            m_fecErrs = errs;
             if (!ret) {
                 LogError(LOG_P25, "LC::decodeVCH_MACPDU_IEMI(), failed to decode RS (46,26,21) FEC");
                 return false;
@@ -772,7 +776,9 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
 
             // decode RS (45,26,20) FEC
             try {
-                bool ret = m_rs.decode452620(raw);
+                int8_t errs = -1;
+                bool ret = m_rs.decode452620(raw, &errs);
+                m_fecErrs = errs;
                 if (!ret) {
                     LogError(LOG_P25, "LC::decodeVCH_MACPDU_OEMI(), failed to decode RS (45,26,20) FEC");
                     return false;
@@ -807,7 +813,9 @@ bool LC::decodeVCH_MACPDU_OEMI(const uint8_t* data, bool sync)
 
             // decode RS (52,30,23) FEC
             try {
-                bool ret = m_rs.decode523023(raw);
+                int8_t errs = -1;
+                bool ret = m_rs.decode523023(raw, &errs);
+                m_fecErrs = errs;
                 if (!ret) {
                     LogError(LOG_P25, "LC::decodeVCH_MACPDU_OEMI(), failed to decode RS (52,30,23) FEC");
                     return false;
