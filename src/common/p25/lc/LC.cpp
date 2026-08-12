@@ -187,6 +187,7 @@ LC::LC() :
     m_macPduOffset(P2_MAC_HEADER_OFFSET::NO_VOICE_OR_UNK),
     m_macPartition(P2_MAC_MCO_PARTITION::ABBREVIATED),
     m_rsValue(0U),
+    m_fecErrs(-1),
     p2MCOData(nullptr),
     m_rs(),
     m_encryptOverride(false),
@@ -399,13 +400,16 @@ bool LC::decodeLDU1(const uint8_t* data, bool rawOnly)
 
     // decode RS (24,12,13) FEC
     try {
-        bool ret = m_rs.decode241213(rs);
+        int8_t errs = -1;
+        bool ret = m_rs.decode241213(rs, &errs);
+        m_fecErrs = errs;
         if (!ret) {
             LogError(LOG_P25, "LC::decodeLDU1(), failed to decode RS (24,12,13) FEC");
             return false;
         }
     }
     catch (...) {
+        m_fecErrs = -1;
         Utils::dump(2U, "P25, LC::decodeLDU1(), RS excepted with input data", rs, P25_LDU_LC_FEC_LENGTH_BYTES);
         return false;
     }
@@ -498,13 +502,16 @@ bool LC::decodeLDU2(const uint8_t* data)
 
     // decode RS (24,16,9) FEC
     try {
-        bool ret = m_rs.decode24169(rs);
+        int8_t errs = -1;
+        bool ret = m_rs.decode24169(rs, &errs);
+        m_fecErrs = errs;
         if (!ret) {
             LogError(LOG_P25, "LC::decodeLDU2(), failed to decode RS (24,16,9) FEC");
             return false;
         }
     }
     catch (...) {
+        m_fecErrs = -1;
         Utils::dump(2U, "P25, LC::decodeLDU2(), RS excepted with input data", rs, P25_LDU_LC_FEC_LENGTH_BYTES);
         return false;
     }
@@ -1536,6 +1543,7 @@ void LC::copy(const LC& data)
     m_p2ScrambleOffsetValid = data.m_p2ScrambleOffsetValid;
 
     m_rsValue = data.m_rsValue;
+    m_fecErrs = data.m_fecErrs;
 
     m_algId = data.m_algId;
     if (m_algId != ALGO_UNENCRYPT) {
