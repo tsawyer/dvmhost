@@ -802,7 +802,6 @@ namespace {
 
         std::string threadName("fne:sqlite");
         if (g_killed) {
-            delete th;
             return nullptr;
         }
 
@@ -811,9 +810,12 @@ namespace {
         ::pthread_setname_np(th->thread, threadName.c_str());
 #endif // _GNU_SOURCE
 
-        while (!g_killed) {
+        while (true) {
             size_t queueDepth = state->queue.pendingCount.load(std::memory_order_acquire);
             if (queueDepth == 0U) {
+                if (state->stopRequested.load(std::memory_order_acquire)) {
+                    break;
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(SQLITE_BATCH_WAIT_MS));
                 continue;
             }
@@ -880,7 +882,6 @@ namespace {
         }
 
         LogInfoEx(LOG_HOST, "[STOP] %s", threadName.c_str());
-        delete th;
 
         return nullptr;
     }
