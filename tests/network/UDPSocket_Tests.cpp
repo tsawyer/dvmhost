@@ -215,7 +215,7 @@ UDPDatagram* makeDatagram(const std::string& payload, const sockaddr_storage& ad
 size_t encryptedLength(size_t payloadLength)
 {
     size_t padded = ((payloadLength + crypto::AES::BLOCK_BYTES_LEN - 1U) / crypto::AES::BLOCK_BYTES_LEN) * crypto::AES::BLOCK_BYTES_LEN;
-    return padded + 2U;
+    return padded + 18U;
 }
 
 /**

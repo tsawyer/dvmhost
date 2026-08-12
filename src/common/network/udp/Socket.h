@@ -26,6 +26,7 @@
 
 #include <string>
 #include <queue>
+#include <random>
 
 #if defined(_WIN32)
 #pragma comment(lib, "Ws2_32.lib")
@@ -347,6 +348,8 @@ namespace network
 
             uint32_t m_counter;
 
+            std::mt19937 m_random;
+
             /**
              * @brief Internal helper to initialize the socket.
              * @param domain Address family type.
@@ -370,6 +373,19 @@ namespace network
              * @param[out] addr Instance of sockaddr_storage socket address structure.
              */
             static void initAddr(const std::string& ipAddr, const int port, sockaddr_in& addr);
+        
+            /**
+             * @brief Helper to step the linear feedback shift register (LFSR).
+             * @note This uses the polynomial: x^64 + x^62 + x^46 + x^38 + x^27 + x^15 + 1
+             * @param lfsr Linear feedback shift register value.
+             * @return uint64_t The next LFSR value.
+             */
+            uint64_t stepLFSR(uint64_t& lfsr);
+            /**
+             * @brief Helper given to generate a new initial seed IV. 
+             * @returns Pointer to the newly generated IV.
+             */
+            uint8_t* generateIV();
         };
     } // namespace udp
 } // namespace network
