@@ -879,9 +879,6 @@ void Control::clock()
     uint32_t ms = m_interval.elapsed();
     m_interval.start();
 
-    if (m_networkWatchdog.isRunning())
-        m_networkWatchdog.clock(ms);
-
     if (m_network != nullptr) {
         processNetwork();
 
@@ -1042,35 +1039,38 @@ void Control::clock()
         m_rfCallTermSrcId = 0U;
     }
 
-    const bool deferIdleNetworkReset = m_netState == RS_NET_IDLE && m_rfState != RS_RF_LISTENING;
-    if (m_networkWatchdog.isRunning() && m_networkWatchdog.hasExpired() && !deferIdleNetworkReset) {
-        if (m_netState == RS_NET_AUDIO) {
-            if (m_voice->m_netFrames > 0.0F) {
-                ::LogWarning(LOG_NET, "network watchdog has expired, %.1f seconds, %u%% packet loss",
-                    float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
-                ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
-                    float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+    if (m_networkWatchdog.isRunning()) {
+        m_networkWatchdog.clock(ms);
+
+        if (m_networkWatchdog.hasExpired() && !(m_netState == RS_NET_IDLE && m_rfState != RS_RF_LISTENING)) {
+            if (m_netState == RS_NET_AUDIO) {
+                if (m_voice->m_netFrames > 0.0F) {
+                    ::LogWarning(LOG_NET, "network watchdog has expired, %.1f seconds, %u%% packet loss",
+                        float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+                    ::ActivityLog("P25", false, "network watchdog has expired, %.1f seconds, %u%% packet loss",
+                        float(m_voice->m_netFrames) / 50.0F, (m_voice->m_netLost * 100U) / m_voice->m_netFrames);
+                }
             }
+            else {
+                ::LogWarning(LOG_NET, "network watchdog has expired");
+                ::ActivityLog("P25", false, "network watchdog has expired");
+            }
+
+            m_networkWatchdog.stop();
+            m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
+
+            if (m_network != nullptr)
+                m_network->resetP25();
+
+            m_netState = RS_NET_IDLE;
+            m_tailOnIdle = true;
+
+            m_voice->resetNet();
+            m_data->resetReceivedBlocks();
+
+            m_netTimeoutTimer.stop();
+            m_netTimeout = false;
         }
-        else {
-            ::LogWarning(LOG_NET, "network watchdog has expired");
-            ::ActivityLog("P25", false, "network watchdog has expired");
-        }
-
-        m_networkWatchdog.stop();
-        m_affiliations->releaseGrant(m_voice->m_netLC.getDstId(), false);
-
-        if (m_network != nullptr)
-            m_network->resetP25();
-
-        m_netState = RS_NET_IDLE;
-        m_tailOnIdle = true;
-
-        m_voice->resetNet();
-        m_data->resetReceivedBlocks();
-
-        m_netTimeoutTimer.stop();
-        m_netTimeout = false;
     }
 
     // reset states if we're in a rejected state and we're a control channel
@@ -1498,8 +1498,6 @@ void Control::processNetwork()
         m_network->resetP25();
         return;
     }
-
-    m_networkWatchdog.start();
 
     if (duid == DUID::PDU) {
         frameLength = length;
