@@ -157,9 +157,10 @@ namespace network
          * @param peerId Peer ID of the packet buffer entry.
          * @param name Name of the packet buffer entry.
          * @param streamId Stream ID of the packet buffer entry.
+         * @param created Optional pointer to a boolean that will be set to true if a new entry was created, false otherwise.
          * @returns PacketBufferEntryPtr Instance of the PacketBufferEntry class.
          */
-        static PacketBufferEntryPtr findOrCreatePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId, const char* name, uint32_t streamId);
+        static PacketBufferEntryPtr findOrCreatePacketBufferEntry(PacketBufferMap& pktMap, uint32_t peerId, const char* name, uint32_t streamId, bool* created = nullptr);
         /**
          * @brief Erases a packet buffer entry from the map.
          * @param pktMap Instance of the PacketBufferMap class.

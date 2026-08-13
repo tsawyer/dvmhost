@@ -134,6 +134,7 @@ int findLastChar(const uint8_t* buffer, uint32_t len, char target)
 // ---------------------------------------------------------------------------
 
 std::mutex CryptoContainer::s_mutex;
+std::mutex CryptoContainer::s_loadMutex;
 
 // ---------------------------------------------------------------------------
 //  Public Class Members
@@ -366,6 +367,7 @@ bool CryptoContainer::load()
 #if !defined(ENABLE_SSL)
     return false;
 #else
+    std::lock_guard<std::mutex> loadLock(s_loadMutex);
     if (!m_enabled) {
         return false;
     }
