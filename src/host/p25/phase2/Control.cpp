@@ -251,24 +251,30 @@ void Control::processNetwork()
     // The network header carries the slot flag and DUID in byte 19. The logical
     // 40-byte burst begins at byte 24; physical TDMA scheduling is modem-owned.
     uint32_t slotNo = (buffer[19U] & 0x80U) != 0U ? 1U : 0U;
+
     lc::LC control;
-    control.setLCO(buffer[4U]);
+    control.setMACPDUOpcode(buffer[4U]);
+
     uint32_t srcId = (buffer[5U] << 16) | (buffer[6U] << 8) | buffer[7U];
     uint32_t dstId = (buffer[8U] << 16) | (buffer[9U] << 8) | buffer[10U];
     control.setSrcId(srcId);
     control.setDstId(dstId);
+
     control.setMFId(buffer[15U]);
+
+    const uint16_t scramblerOffset = GET_UINT16(buffer.get(), 20U);
+    control.setP2ScrambleOffset(scramblerOffset);
 
     // forward onto the specific slot for final processing and delivery
     bool processed = false;
     switch (slotNo) {
     case 0U:
         processed = m_slot1->processNetwork(buffer.get() + 24U, P25DEF::P25_P2_FRAME_LENGTH_BYTES, control, 
-            (P25DEF::P2_DUID::E)(buffer[19U] & 0x7FU), buffer[14U]);
+            (P25DEF::P2_DUID::E)(buffer[19U] & 0x7FU), scramblerOffset, buffer[14U]);
         break;
     case 1U:
         processed = m_slot2->processNetwork(buffer.get() + 24U, P25DEF::P25_P2_FRAME_LENGTH_BYTES, control, 
-            (P25DEF::P2_DUID::E)(buffer[19U] & 0x7FU), buffer[14U]);
+            (P25DEF::P2_DUID::E)(buffer[19U] & 0x7FU), scramblerOffset, buffer[14U]);
         break;
     default:
         break;
@@ -286,9 +292,8 @@ bool Control::writeNetwork(Slot* slot, const uint8_t* data, uint32_t length)
     if (m_network == nullptr || slot == nullptr || data == nullptr)
         return true;
 
-    const bool ret = m_network->writeP25P2(slot->m_control, slot->m_duid, (uint8_t)slot->m_slotNo, data, slot->m_controlByte);
+    const bool ret = m_network->writeP25P2(slot->m_control, slot->m_duid, (uint8_t)slot->m_slotNo, slot->m_rfScrambleOffset, data, slot->m_controlByte);
     if (!ret)
-        LogWarning(LOG_NET, "P25 Phase 2 Slot %u, failed to write network frame, duid = $%02X",
-            slot->m_slotNo + 1U, (uint8_t)slot->m_duid);
+        LogWarning(LOG_NET, "P25 Phase 2 Slot %u, failed to write network frame, duid = $%02X", slot->m_slotNo + 1U, (uint8_t)slot->m_duid);
     return ret;
 }

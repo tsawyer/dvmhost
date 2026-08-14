@@ -428,7 +428,7 @@ uint32_t Slot::getFrame(uint8_t* data, bool* imm)
 /* Processes one decoded network frame. */
 
 bool Slot::processNetwork(uint8_t* data, uint32_t length, const lc::LC& control,
-    defines::P2_DUID::E duid, uint8_t controlByte)
+    defines::P2_DUID::E duid, uint16_t scramblerOffset, uint8_t controlByte)
 {
     CHECK_NET_AUTHORITATIVE(control.getDstId());
 
@@ -457,10 +457,7 @@ bool Slot::processNetwork(uint8_t* data, uint32_t length, const lc::LC& control,
     m_duid = duid;
     m_controlByte = controlByte;
 
-    // TODO(P25P2-FW): Replace this inferred offset with modem-reported
-    // superframe/ultraframe timing before enabling over-the-air operation.
-    m_netScrambleOffset = static_cast<uint16_t>(((m_netBurstCount * 2U + m_slotNo) * P25DEF::P25_P2_BURST_LENGTH_BITS + 
-        (P25DEF::P25_P2_BURST_LENGTH_BITS / 2U)) % P25DEF::P25_P2_SCRAMBLER_SEQUENCE_BITS);
+    m_netScrambleOffset = scramblerOffset % P25DEF::P25_P2_SCRAMBLER_SEQUENCE_BITS;
     m_control.setP2ScrambleOffset(m_netScrambleOffset);
 
     if (isLCCHDUID(duid)) {
@@ -1144,17 +1141,15 @@ bool Slot::processMAC(uint8_t* data, uint32_t length, defines::P2_DUID::E duid,
     // The transport discriminator and the discriminator protected inside the
     // MAC burst must agree.  Do not let metadata reinterpret one coded form
     // as another after the modem has classified the logical channel.
-    if (static_cast<defines::P2_DUID::E>(m_control.getP2DUID() & 0x0FU) != duid)
+    if ((P2_DUID::E)(m_control.getP2DUID() & 0x0FU) != duid)
         return false;
 
-    m_control.setP2DUID(static_cast<uint8_t>(duid));
+    m_control.setP2DUID(duid);
     std::unique_ptr<lc::MACPDU> mac;
     const uint8_t headerOpcode = m_control.getMACPDUOpcode();
-    if (!net &&
-        (headerOpcode == defines::P2_MAC_HEADER_OPCODE::PTT ||
+    if (!net && (headerOpcode == defines::P2_MAC_HEADER_OPCODE::PTT ||
         (headerOpcode == defines::P2_MAC_HEADER_OPCODE::ACTIVE && m_rfState == RS_RF_LATE_ENTRY)))
-        CHECK_AUTHORITATIVE(m_control.getSrcId(), m_control.getDstId(),
-            m_control.getLCO() != defines::P2_MAC_MCO::PRIVATE);
+        CHECK_AUTHORITATIVE(m_control.getSrcId(), m_control.getDstId(), m_control.getLCO() != defines::P2_MAC_MCO::PRIVATE);
 
     if (headerOpcode == defines::P2_MAC_HEADER_OPCODE::IDLE ||
         headerOpcode == defines::P2_MAC_HEADER_OPCODE::ACTIVE ||
@@ -1166,7 +1161,7 @@ bool Slot::processMAC(uint8_t* data, uint32_t length, defines::P2_DUID::E duid,
 
     if (m_debug)
         LogDebugEx(LOG_P25, "Slot::processMAC()", "slot = %u, opcode = $%02X, MCO = $%02X, duid = $%02X", m_slotNo,
-            headerOpcode, m_control.getLCO(), static_cast<uint8_t>(duid));
+            headerOpcode, m_control.getLCO(), duid);
 
     if (mac != nullptr) {
         switch (mac->getOpcode()) {

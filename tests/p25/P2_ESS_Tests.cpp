@@ -44,15 +44,15 @@ TEST_CASE("P25 Phase 2 ESS reconstructs ALGID KID and MI", "[p2][ess]")
         std::array<uint8_t, 40U> burst{};
         for (uint32_t bit = 0U; bit < 24U; bit++)
             WRITE_BIT(burst.data(), 148U + bit, READ_BIT(codeword.data(), burstNo * 24U + bit));
-        REQUIRE(slot.processNetwork(burst.data(), burst.size(), p25::lc::LC(), P25DEF::P2_DUID::VTCH_4V, 0U));
+        REQUIRE(slot.processNetwork(burst.data(), burst.size(), p25::lc::LC(), P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
         REQUIRE(slot.processNetwork(macBurst.data(), macBurst.size(), mac,
-            P25DEF::P2_DUID::FACCH_UNSCRAMBLED, 0U));
+            P25DEF::P2_DUID::FACCH_UNSCRAMBLED, 0U, 0U));
     }
 
     std::array<uint8_t, 40U> burst2V{};
     for (uint32_t bit = 0U; bit < 168U; bit++)
         WRITE_BIT(burst2V.data(), 148U + bit, READ_BIT(codeword.data(), 96U + bit));
-    REQUIRE(slot.processNetwork(burst2V.data(), burst2V.size(), p25::lc::LC(), P25DEF::P2_DUID::VTCH_2V, 0U));
+    REQUIRE(slot.processNetwork(burst2V.data(), burst2V.size(), p25::lc::LC(), P25DEF::P2_DUID::VTCH_2V, 0U, 0U));
     REQUIRE(HostTestHooks::p25P2ESSComplete(slot));
     REQUIRE(HostTestHooks::p25P2ESSAlgId(slot) == 0x80U);
     REQUIRE(HostTestHooks::p25P2ESSKeyId(slot) == 0x1234U);

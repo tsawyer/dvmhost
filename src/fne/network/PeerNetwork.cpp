@@ -44,6 +44,7 @@ PeerNetwork::PeerNetwork(const std::string& address, uint16_t port, uint16_t loc
     m_attachedKeyRSPHandler(false),
     m_dmrCallback(nullptr),
     m_p25Callback(nullptr),
+    m_p25P2Callback(nullptr),
     m_nxdnCallback(nullptr),
     m_analogCallback(nullptr),
     m_netTreeDiscCallback(nullptr),
@@ -661,6 +662,13 @@ void PeerNetwork::taskNetworkRx(PeerPacketRequest* req)
                 {
                     if (network->m_p25Callback != nullptr)
                         network->m_p25Callback(network, req->buffer, req->length, req->streamId, req->fneHeader, req->rtpHeader);
+                }
+                break;
+            
+            case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:              // Encapsulated P25 Phase 2 data frame
+                {
+                    if (network->m_p25P2Callback != nullptr)
+                        network->m_p25P2Callback(network, req->buffer, req->length, req->streamId, req->fneHeader, req->rtpHeader);
                 }
                 break;
 

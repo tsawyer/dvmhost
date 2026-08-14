@@ -120,6 +120,8 @@ namespace modem
         STATE_P25 = 2U,                     //!< Project 25
         // NXDN
         STATE_NXDN = 3U,                    //!< NXDN
+        // Project 25 Phase 2
+        STATE_P25_P2 = 4U,                  //!< Project 25 Phase 2
 
         // CW
         STATE_CW = 10U,                     //!< Continuous Wave

@@ -16,6 +16,7 @@
 #include "network/TrafficNetwork.h"
 #include "network/callhandler/TagDMRData.h"
 #include "network/callhandler/TagP25Data.h"
+#include "network/callhandler/TagP25P2Data.h"
 #include "network/callhandler/TagNXDNData.h"
 #include "network/callhandler/TagAnalogData.h"
 #include "network/P25OTARService.h"
@@ -61,12 +62,13 @@ std::array<std::mutex, PEER_STATE_LOCK_STRIPES> TrafficNetwork::s_peerStateLocks
 
 TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16_t port, uint32_t peerId, const std::string& password,
     std::string identity, bool debug, bool kmfDebug, bool verbose, bool reportPeerPing,
-    bool dmr, bool p25, bool nxdn, bool analog,
+    bool dmr, bool p25, bool p25P2, bool nxdn, bool analog,
     uint32_t parrotDelay, bool parrotGrantDemand, bool allowActivityTransfer, bool allowDiagnosticTransfer, 
     uint32_t pingTime, uint32_t updateLookupTime, uint16_t workerCnt) :
     BaseNetwork(peerId, true, debug, true, true, allowActivityTransfer, allowDiagnosticTransfer),
     m_tagDMR(nullptr),
     m_tagP25(nullptr),
+    m_tagP25P2(nullptr),
     m_tagNXDN(nullptr),
     m_tagAnalog(nullptr),
     m_p25OTARService(nullptr),
@@ -78,6 +80,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_isReplica(false),
     m_dmrEnabled(dmr),
     m_p25Enabled(p25),
+    m_p25P2Enabled(p25P2),
     m_nxdnEnabled(nxdn),
     m_analogEnabled(analog),
     m_parrotDelay(parrotDelay),
@@ -176,6 +179,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
 
     m_tagDMR = new TagDMRData(this, debug);
     m_tagP25 = new TagP25Data(this, debug);
+    m_tagP25P2 = new TagP25P2Data(this, debug);
     m_tagNXDN = new TagNXDNData(this, debug);
     m_tagAnalog = new TagAnalogData(this, debug);
 
@@ -208,6 +212,7 @@ TrafficNetwork::~TrafficNetwork()
 
     delete m_tagDMR;
     delete m_tagP25;
+    delete m_tagP25P2;
     delete m_tagNXDN;
     delete m_tagAnalog;
 }
@@ -976,6 +981,11 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                         fne->m_tagP25->playbackParrot();
                     }
 
+                    // if the P25 Phase 2 handler has parrot frames to playback, playback a frame
+                    if (fne->m_tagP25P2->hasParrotFrames()) {
+                        fne->m_tagP25P2->playbackParrot();
+                    }
+
                     // if the NXDN handler has parrot frames to playback, playback a frame
                     if (fne->m_tagNXDN->hasParrotFrames()) {
                         fne->m_tagNXDN->playbackParrot();
@@ -987,7 +997,8 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                     }
                 }
 
-                if (!fne->m_tagDMR->hasParrotFrames() && !fne->m_tagP25->hasParrotFrames() && !fne->m_tagNXDN->hasParrotFrames() && !fne->m_tagAnalog->hasParrotFrames() &&
+                if (!fne->m_tagDMR->hasParrotFrames() && !fne->m_tagP25->hasParrotFrames() && !fne->m_tagP25P2->hasParrotFrames() &&
+                    !fne->m_tagNXDN->hasParrotFrames() && !fne->m_tagAnalog->hasParrotFrames() &&
                     fne->m_parrotDelayTimer.isRunning() && fne->m_parrotDelayTimer.hasExpired()) {
                     fne->m_parrotDelayTimer.stop();
                 }
@@ -1007,6 +1018,14 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                         LogInfoEx(LOG_MASTER, "P25, Parrot Call End, peer = %u, srcId = %u, dstId = %u",
                                    fne->m_tagP25->lastParrotPeerId(), fne->m_tagP25->lastParrotSrcId(), fne->m_tagP25->lastParrotDstId());
                         fne->m_tagP25->clearParrotPlayback();
+                    }
+
+                    // if the P25 Phase 2 handler is marked as playing back parrot frames, but has no more frames in the queue
+                    // clear the playback flag
+                    if (fne->m_tagP25P2->isParrotPlayback() && !fne->m_tagP25P2->hasParrotFrames()) {
+                        LogInfoEx(LOG_MASTER, "P25 Phase 2, Parrot Call End, peer = %u, srcId = %u, dstId = %u",
+                                   fne->m_tagP25P2->lastParrotPeerId(), fne->m_tagP25P2->lastParrotSrcId(), fne->m_tagP25P2->lastParrotDstId());
+                        fne->m_tagP25P2->clearParrotPlayback();
                     }
 
                     // if the NXDN handle is marked as playing back parrot frames, but has no more frames in the queue
@@ -1584,6 +1603,10 @@ void TrafficNetwork::processInCallCtrl(network::NET_ICC::ENUM command, network::
                                 m_tagP25->triggerCallTakeover(dstId);
                                 break;
 
+                            case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:          // Encapsulated P25 Phase 2 data frame
+                                m_tagP25P2->triggerCallTakeover(dstId);
+                                break;
+
                             case NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN:            // Encapsulated NXDN data frame
                                 m_tagNXDN->triggerCallTakeover(dstId);
                                 break;
@@ -1639,6 +1662,10 @@ void TrafficNetwork::processInCallCtrl(network::NET_ICC::ENUM command, network::
 
                     case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25:             // Encapsulated P25 data frame
                         m_tagP25->triggerCallTakeover(dstId);
+                        break;
+
+                    case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:          // Encapsulated P25 Phase 2 data frame
+                        m_tagP25P2->triggerCallTakeover(dstId);
                         break;
 
                     case NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN:            // Encapsulated NXDN data frame
@@ -2385,7 +2412,7 @@ bool TrafficNetwork::writePeerICC(uint32_t peerId, uint32_t streamId, NET_SUBFUN
     }
     buffer[10U] = (uint8_t)command;                                             // In-Call Control Command
     SET_UINT24(dstId, buffer, 11U);                                             // Destination ID
-    buffer[14U] = slotNo;                                                       // DMR Slot No
+    buffer[14U] = slotNo;                                                       // DMR/P25P2 Slot No
 
     // are we sending this ICC request upstream?
     if (toUpstream && systemReq) {

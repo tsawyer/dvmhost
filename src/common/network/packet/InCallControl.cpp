@@ -60,6 +60,20 @@ bool Network::PacketHandler::inCallControl(Network* network, uint32_t peerId, ui
             }
         }
         break;
+    case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:              // P25 Phase 2 In-Call Control
+        {
+            if (network->m_enabled && network->m_p25Enabled) {
+                NET_ICC::ENUM command = (NET_ICC::ENUM)buffer[10U];
+                uint32_t dstId = GET_UINT24(buffer, 11U);
+                uint8_t slot = buffer[14U];
+
+                // fire off P25 Phase 2 in-call callback if we have one
+                if (network->m_p25P2InCallCallback != nullptr) {
+                    network->m_p25P2InCallCallback(command, dstId, slot, peerId, ssrc, streamId);
+                }
+            }
+        }
+        break;
     case NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN:                // NXDN In-Call Control
         {
             if (network->m_enabled && network->m_nxdnEnabled) {

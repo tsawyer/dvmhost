@@ -292,6 +292,11 @@ namespace network
          */
         void setP25ICCCallback(std::function<void(NET_ICC::ENUM, uint32_t, uint32_t, uint32_t, uint32_t)>&& callback) { m_p25InCallCallback = callback; }
         /**
+         * @brief Helper to set the P25 Phase 2 In-Call Control callback.
+         * @param callback 
+         */
+        void setP25P2ICCCallback(std::function<void(NET_ICC::ENUM, uint32_t, uint8_t, uint32_t, uint32_t, uint32_t)>&& callback) { m_p25P2InCallCallback = callback; }
+        /**
          * @brief Helper to set the NXDN In-Call Control callback.
          * @param callback 
          */
@@ -411,6 +416,12 @@ namespace network
          */
         std::function<void(NET_ICC::ENUM command, uint32_t dstId, 
             uint32_t peerId, uint32_t ssrc, uint32_t streamId)> m_p25InCallCallback;
+        /**
+         * @brief P25 Phase 2 In-Call Control Function Callback.
+         *  (This is called once the master sends a In-Call Control request.)
+         */
+        std::function<void(NET_ICC::ENUM command, uint32_t dstId, uint8_t slotNo,
+            uint32_t peerId, uint32_t ssrc, uint32_t streamId)> m_p25P2InCallCallback;
         /**
          * @brief NXDN In-Call Control Function Callback.
          *  (This is called once the master sends a In-Call Control request.)

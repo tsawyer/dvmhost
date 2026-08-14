@@ -156,6 +156,8 @@ master:
     allowDMRTraffic: true
     # Flag indicating whether or not P25 traffic will be passed.
     allowP25Traffic: true
+    # Flag indicating whether or not P25 Phase 2 traffic will be passed.
+    allowP25P2Traffic: false
     # Flag indicating whether or not NXDN traffic will be passed.
     allowNXDNTraffic: true
     # Flag indicating whether or not analog traffic will be passed.

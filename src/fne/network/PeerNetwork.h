@@ -121,6 +121,11 @@ namespace network
          */
         void setP25Callback(std::function<void(PeerNetwork*, const uint8_t*, uint32_t, uint32_t, const frame::RTPFNEHeader&, const frame::RTPHeader&)>&& callback) { m_p25Callback = callback; }
         /**
+         * @brief Helper to set the P25 Phase 2 protocol callback.
+         * @param callback 
+         */
+        void setP25P2Callback(std::function<void(PeerNetwork*, const uint8_t*, uint32_t, uint32_t, const frame::RTPFNEHeader&, const frame::RTPHeader&)>&& callback) { m_p25P2Callback = callback; }
+        /**
          * @brief Helper to set the NXDN protocol callback.
          * @param callback 
          */
@@ -279,6 +284,11 @@ namespace network
          *  (This is called when the master sends a P25 packet.)
          */
         std::function<void(PeerNetwork* peer, const uint8_t* data, uint32_t length, uint32_t streamId, const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader)> m_p25Callback;
+        /**
+         * @brief P25 Phase 2 Protocol Callback.
+         *  (This is called when the master sends a P25 Phase 2 packet.)
+         */
+        std::function<void(PeerNetwork* peer, const uint8_t* data, uint32_t length, uint32_t streamId, const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader)> m_p25P2Callback;
         /**
          * @brief NXDN Protocol Callback.
          *  (This is called when the master sends a NXDN packet.)

@@ -63,6 +63,7 @@ namespace network { namespace callhandler { class HOST_SW_API TagDMRData; } }
 namespace network { namespace callhandler { namespace packetdata { class HOST_SW_API DMRPacketData; } } }
 namespace network { namespace callhandler { class HOST_SW_API TagP25Data; } }
 namespace network { namespace callhandler { namespace packetdata { class HOST_SW_API P25PacketData; } } }
+namespace network { namespace callhandler { class HOST_SW_API TagP25P2Data; } }
 namespace network { class HOST_SW_API P25OTARService; }
 namespace network { namespace callhandler { class HOST_SW_API TagNXDNData; } }
 namespace network { namespace callhandler { class HOST_SW_API TagAnalogData; } }
@@ -167,6 +168,7 @@ namespace network
          * @param reportPeerPing Flag indicating whether peer pinging is reported.
          * @param dmr Flag indicating whether DMR is enabled.
          * @param p25 Flag indicating whether P25 is enabled.
+         * @param p25P2 Flag indicating whether P25 Phase 2 is enabled.
          * @param nxdn Flag indicating whether NXDN is enabled.
          * @param analog Flag indicating whether analog is enabled.
          * @param parrotDelay Delay for end of call to parrot TG playback.
@@ -179,7 +181,7 @@ namespace network
          */
         TrafficNetwork(HostFNE* host, const std::string& address, uint16_t port, uint32_t peerId, const std::string& password,
             std::string identity, bool debug, bool kmfDebug, bool verbose, bool reportPeerPing,
-            bool dmr, bool p25, bool nxdn, bool analog,
+            bool dmr, bool p25, bool p25P2, bool nxdn, bool analog,
             uint32_t parrotDelay, bool parrotGrantDemand, bool allowActivityTransfer, bool allowDiagnosticTransfer, 
             uint32_t pingTime, uint32_t updateLookupTime, uint16_t workerCnt);
         /**
@@ -210,6 +212,10 @@ namespace network
          * @returns callhandler::TagP25Data* Instance of the TagP25Data call handler.
          */
         callhandler::TagP25Data* p25TrafficHandler() const { return m_tagP25; }
+        /**
+         * @brief Gets the instance of the P25 Phase 2 call handler.
+         */
+        callhandler::TagP25P2Data* p25P2TrafficHandler() const { return m_tagP25P2; }
         /**
          * @brief Gets the instance of the NXDN call handler.
          * @returns callhandler::TagNXDNData* Instance of the TagNXDNData call handler.
@@ -307,6 +313,8 @@ namespace network
         friend class callhandler::TagP25Data;
         friend class callhandler::packetdata::P25PacketData;
         callhandler::TagP25Data* m_tagP25;
+        friend class callhandler::TagP25P2Data;
+        callhandler::TagP25P2Data* m_tagP25P2;
         friend class callhandler::TagNXDNData;
         callhandler::TagNXDNData* m_tagNXDN;
         friend class callhandler::TagAnalogData;
@@ -329,6 +337,7 @@ namespace network
 
         bool m_dmrEnabled;
         bool m_p25Enabled;
+        bool m_p25P2Enabled;
         bool m_nxdnEnabled;
         bool m_analogEnabled;
 

@@ -104,11 +104,12 @@ namespace p25
              * @param len Length of data frame.
              * @param control Decoded Phase 2 link control.
              * @param duid Phase 2 data unit ID.
+             * @param scramblerOffset Scrambler offset carried by the network frame.
              * @param controlByte DVM network control byte.
              * @returns bool True, if frame was successfully processed, otherwise false.
              */
             bool processNetwork(uint8_t* data, uint32_t len, const lc::LC& control, defines::P2_DUID::E duid, 
-                uint8_t controlByte);
+                uint16_t scramblerOffset, uint8_t controlByte);
             /** @} */
 
             /** @name Data Clocking */

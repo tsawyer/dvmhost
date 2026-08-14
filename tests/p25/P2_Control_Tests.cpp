@@ -312,7 +312,7 @@ TEST_CASE("P25 Phase 2 tracks burst scrambler offsets", "[p25][p2][scrambler]")
 
     control.reset();
     REQUIRE(HostTestHooks::p25P2Slot(control, 0U).processNetwork(frame.data(), frame.size(), p25::lc::LC(),
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, P25DEF::P25_P2_BURST_LENGTH_BITS / 2U, 0U));
     REQUIRE(HostTestHooks::p25P2NetScrambleOffset(HostTestHooks::p25P2Slot(control, 0U)) == P25DEF::P25_P2_BURST_LENGTH_BITS / 2U);
 }
 
@@ -409,7 +409,7 @@ TEST_CASE("P25 Phase 2 public state management covers late entry collision and r
     call.setDstId(0x2345U);
     std::array<uint8_t, P25DEF::P25_P2_FRAME_LENGTH_BYTES> networkVoice{};
     REQUIRE(slot.processNetwork(networkVoice.data(), networkVoice.size(), call,
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
     REQUIRE(control.getNetState(0U) == RS_NET_AUDIO);
 
     auto ptt = makeInboundMAC(P25DEF::P2_DUID::FACCH_UNSCRAMBLED,
@@ -472,12 +472,12 @@ TEST_CASE("P25 Phase 2 network timeout is clocked once and honors authorization"
     std::array<uint8_t, P25DEF::P25_P2_FRAME_LENGTH_BYTES> voice{};
 
     REQUIRE_FALSE(slot.processNetwork(voice.data(), voice.size(), call,
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
     REQUIRE(control.getNetState(0U) == RS_NET_IDLE);
 
     slot.permittedTG(0x2345U);
     REQUIRE(slot.processNetwork(voice.data(), voice.size(), call,
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
     REQUIRE(control.getNetState(0U) == RS_NET_AUDIO);
     REQUIRE(HostTestHooks::p25P2NetVCHState(slot) == p25::phase2::Slot::VCH_STATE::IDLE);
 
@@ -738,21 +738,21 @@ TEST_CASE("P25 Phase 2 slot accounts network frames loss misses and BER",
     std::array<uint8_t, P25DEF::P25_P2_FRAME_LENGTH_BYTES> voice4V{};
     voice4V[0U] = 0x20U; // one error in the first outbound AMBE+2 codeword
     REQUIRE(slot.processNetwork(voice4V.data(), voice4V.size(), call,
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
     REQUIRE(HostTestHooks::p25P2NetFrames(slot) == 1U);
     REQUIRE(HostTestHooks::p25P2NetBits(slot) == 289U);
     REQUIRE(HostTestHooks::p25P2NetErrs(slot) > 0U);
 
     std::array<uint8_t, P25DEF::P25_P2_FRAME_LENGTH_BYTES> voice2V{};
     REQUIRE(slot.processNetwork(voice2V.data(), voice2V.size(), call,
-        P25DEF::P2_DUID::VTCH_2V, 0U));
+        P25DEF::P2_DUID::VTCH_2V, 0U, 0U));
     REQUIRE(HostTestHooks::p25P2NetFrames(slot) == 2U);
     REQUIRE(HostTestHooks::p25P2NetBits(slot) == 433U);
 
     p25::lc::LC competing(call);
     competing.setDstId(0x3456U);
     REQUIRE_FALSE(slot.processNetwork(voice4V.data(), voice4V.size(), competing,
-        P25DEF::P2_DUID::VTCH_4V, 0U));
+        P25DEF::P2_DUID::VTCH_4V, 0U, 0U));
     REQUIRE(HostTestHooks::p25P2NetMissed(slot) == 1U);
 
     control.clock(1501U);
