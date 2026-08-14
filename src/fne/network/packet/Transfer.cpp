@@ -60,9 +60,8 @@ void MetadataNetwork::PacketHandler::transfer(TrafficNetwork* network, MetadataN
 
                         // validate peer (simple validation really)
                         if (connection->connected() && connection->address() == ip) {
-                            DECLARE_UINT8_ARRAY(rawPayload, req->length - 11U);
-                            ::memcpy(rawPayload, req->buffer + 11U, req->length - 11U);
-                            std::string payload(rawPayload, rawPayload + (req->length - 11U));
+                            const size_t payloadLength = (size_t)(req->length - TRANSFER_PCKT_HDR_LEN);
+                            std::string payload((const char *)(req->buffer + TRANSFER_PCKT_HDR_LEN), payloadLength);
 
                             ::ActivityLog("%.9u (%8s) %s", pktPeerId, connection->identWithQualifier().c_str(), payload.c_str());
 
@@ -117,9 +116,8 @@ void MetadataNetwork::PacketHandler::transfer(TrafficNetwork* network, MetadataN
 
                         // validate peer (simple validation really)
                         if (connection->connected() && connection->address() == ip) {
-                            DECLARE_UINT8_ARRAY(rawPayload, req->length - 11U);
-                            ::memcpy(rawPayload, req->buffer + 11U, req->length - 11U);
-                            std::string payload(rawPayload, rawPayload + (req->length - 11U));
+                            const size_t payloadLength = (size_t)(req->length - TRANSFER_PCKT_HDR_LEN);
+                            std::string payload((const char *)(req->buffer + TRANSFER_PCKT_HDR_LEN), payloadLength);
 
                             bool currState = g_disableTimeDisplay;
                             g_disableTimeDisplay = true;

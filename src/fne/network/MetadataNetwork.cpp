@@ -258,7 +258,20 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
             };
 
             // dispatch to the appropriate handler based on the function opcode
-            auto it = handlers.find(req->fneHeader.getFunction());
+            const uint8_t func = req->fneHeader.getFunction();
+            const uint8_t subFunc = req->fneHeader.getSubFunction();
+
+            // validate transfer packet header length
+            if (func == NET_FUNC::TRANSFER && (subFunc == NET_SUBFUNC::TRANSFER_SUBFUNC_ACTIVITY || subFunc == NET_SUBFUNC::TRANSFER_SUBFUNC_DIAG) &&
+                !(req->length > TRANSFER_PCKT_HDR_LEN && req->length <= static_cast<int>(DATA_PACKET_LENGTH))) {
+                LogWarning(LOG_MASTER, "PEER %u malformed FNE transfer packet, subfunc = $%02X, length = %d", peerId, subFunc, req->length);
+                if (req->buffer != nullptr)
+                    delete[] req->buffer;
+                delete req;
+                return;
+            }
+
+            auto it = handlers.find(func);
             if (it != handlers.end()) {
                 it->second(network, mdNetwork, req, peerId, ssrc, streamId);
             }

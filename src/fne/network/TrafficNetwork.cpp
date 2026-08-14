@@ -1147,6 +1147,15 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
             // dispatch to the appropriate handler based on the function opcode
             uint8_t func = req->fneHeader.getFunction();
 
+            if ((func == NET_FUNC::RPTK && !validRepeaterAuthLength(req->length)) ||
+                (func == NET_FUNC::RPTC && !validRepeaterConfigLength(req->length))) {
+                LogWarning(LOG_MASTER, "PEER %u malformed FNE login packet, func = $%02X, length = %d", peerId, func, req->length);
+                if (req->buffer != nullptr)
+                    delete[] req->buffer;
+                delete req;
+                return;
+            }
+
             // bryanb: temporary support to allow announce packets on the traffic port but ultimately
             //  this should be removed and handled like TRANSFER is handled here
             if (func == NET_FUNC::ANNOUNCE) {

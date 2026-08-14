@@ -103,6 +103,10 @@ namespace network
     const uint32_t MAX_HARD_CONN_CAP = 250U;
     const size_t PEER_STATE_LOCK_STRIPES = 256U;
 
+    const int32_t REPEATER_PCKT_HDR_LEN = 8;
+    const int32_t REPEATER_AUTH_HASH_LEN = 32;
+    const int32_t TRANSFER_PCKT_HDR_LEN = 11;
+
     // ---------------------------------------------------------------------------
     //  Class Prototypes
     // ---------------------------------------------------------------------------
@@ -615,6 +619,20 @@ namespace network
         /*
         ** General Helper Functions
         */
+
+        /**
+         * @brief Checks if the passed length is valid for a repeater authentication packet.
+         * @param length Length of the packet.
+         * @returns bool True, if the length is valid for a repeater authentication packet, otherwise false.
+         */
+        static constexpr bool validRepeaterAuthLength(int length) { return length == REPEATER_PCKT_HDR_LEN + REPEATER_AUTH_HASH_LEN; }
+
+        /**
+         * @brief Checks if the passed length is valid for a repeater configuration packet.
+         * @param length Length of the packet.
+         * @returns bool True, if the length is valid for a repeater configuration packet, otherwise false.
+         */
+        static constexpr bool validRepeaterConfigLength(int length) { return length > REPEATER_PCKT_HDR_LEN && length <= (int)(DATA_PACKET_LENGTH); }
 
         /**
          * @brief Checks if the passed peer ID is blocked from unit-to-unit traffic.
