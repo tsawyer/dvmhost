@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "common/restapi/http/HTTPLexer.h"
+#include "common/restapi/http/HTTPClient.h"
 #include "common/restapi/http/HTTPPayload.h"
 #include "common/restapi/http/HTTPServer.h"
 
@@ -42,6 +43,12 @@ namespace {
         std::atomic<unsigned int> calls { 0U };
         std::mutex mutex;
         HTTPPayload request;
+    };
+
+    struct ResponseState {
+        std::atomic<bool> received { false };
+        std::mutex mutex;
+        HTTPPayload response;
     };
 
     /**
@@ -120,6 +127,25 @@ public:
 
 private:
     std::shared_ptr<RequestState> m_state;
+};
+
+class ClientResponseHandler {
+public:
+    ClientResponseHandler() : m_state(std::make_shared<ResponseState>()) { }
+    explicit ClientResponseHandler(std::shared_ptr<ResponseState> state) : m_state(std::move(state)) { }
+
+    void handleRequest(const HTTPPayload& response, HTTPPayload& reply)
+    {
+        (void)reply;
+        {
+            std::lock_guard<std::mutex> lock(m_state->mutex);
+            m_state->response = response;
+        }
+        m_state->received = true;
+    }
+
+private:
+    std::shared_ptr<ResponseState> m_state;
 };
 
 // ---------------------------------------------------------------------------
@@ -244,6 +270,45 @@ TEST_CASE("HTTP status payload applies default REST headers", "[restapi][http][p
     REQUIRE(payload.headers.find("Content-Type") == "application/json");
     REQUIRE(payload.headers.find("Content-Length") == std::to_string(payload.content.size()));
     REQUIRE(payload.headers.find("Server").empty() == false);
+}
+
+TEST_CASE("HTTP client frames a GET request carrying JSON", "[restapi][http][client][e2e]")
+{
+    LoopbackHTTPServer fixture;
+    auto responseState = std::make_shared<ResponseState>();
+
+    HTTPClient<ClientResponseHandler> client("127.0.0.1", fixture.port);
+    client.setHandler(ClientResponseHandler(responseState));
+    REQUIRE(client.open());
+
+    json::object body = json::object();
+    HTTPPayload request = HTTPPayload::requestPayload(HTTP_GET, "/echo");
+    request.payload(body);
+
+    REQUIRE(request.content.empty() == false);
+    REQUIRE(request.headers.find("Content-Type") == "application/json");
+    REQUIRE(request.headers.find("Content-Length") == std::to_string(request.content.size()));
+    REQUIRE(client.request(request));
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!responseState->received && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+    client.close();
+
+    REQUIRE(responseState->received);
+    REQUIRE(fixture.state->calls == 1U);
+    {
+        std::lock_guard<std::mutex> lock(fixture.state->mutex);
+        REQUIRE(fixture.state->request.method == HTTP_GET);
+        REQUIRE(fixture.state->request.uri == "/echo");
+        REQUIRE(fixture.state->request.content == request.content);
+    }
+    {
+        std::lock_guard<std::mutex> lock(responseState->mutex);
+        REQUIRE(responseState->response.status == HTTPPayload::OK);
+        REQUIRE(responseState->response.content == request.content);
+    }
 }
 
 TEST_CASE("HTTP server handles a complete request over TCP", "[restapi][http][e2e]")
