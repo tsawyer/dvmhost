@@ -70,6 +70,11 @@ namespace p25
         // TIA-102.BBAC-A Section 4
         const uint32_t  P25_P2_FRAME_LENGTH_BYTES = 40U;
         const uint32_t  P25_P2_FRAME_LENGTH_BITS = P25_P2_FRAME_LENGTH_BYTES * 8U;
+        // Host/modem frames carry a modem tag and explicit DUID followed by the
+        // 40-byte logical burst. The DUID is transport metadata and is not aired.
+        const uint32_t  P25_P2_HOST_FRAME_LENGTH_BYTES = P25_P2_FRAME_LENGTH_BYTES + 2U;
+        const uint32_t  P25_P2_BURST_LENGTH_BITS = 360U;
+        const uint32_t  P25_P2_SCRAMBLER_SEQUENCE_BITS = 4320U;
 
         const uint32_t  P25_P2_IEMI_LENGTH_BITS = 312U;
         const uint32_t  P25_P2_IEMI_LENGTH_BYTES = (P25_P2_IEMI_LENGTH_BITS / 8U) + 1U;
@@ -184,6 +189,10 @@ namespace p25
         const uint32_t  DEFAULT_SILENCE_THRESHOLD = 124U;
         /** @brief Default Frame Loss Threshold */
         const uint32_t  DEFAULT_FRAME_LOSS_THRESHOLD = 6U;
+        /** @brief Default Phase 2 Silence Threshold */
+        const uint32_t  P2_DEFAULT_SILENCE_THRESHOLD = 21U;
+        /** @brief Default Phase 2 Frame Loss Threshold */
+        const uint32_t  P2_DEFAULT_FRAME_LOSS_THRESHOLD = 2U;
         /** @brief Maximum P25 voice frame errors */
         const uint32_t  MAX_P25_VOICE_ERRORS = 1233U;
         /** @} */
@@ -864,7 +873,7 @@ namespace p25
             };
         }
 
-        // TIA-102.BBAD-D Section 4.1
+        // TIA-102.BBAD-A Section 2.3.3
         /** @brief Phase 2 MAC PDU Opcode(s) */
         namespace P2_MAC_HEADER_OPCODE {
             /** @brief Phase 2 MAC PDU Opcode(s) */
@@ -879,7 +888,7 @@ namespace p25
             };
         }
 
-        // TIA-102.BBAD-D Section 4.2
+        // TIA-102.BBAD-A Section 2.3.3
         /** @brief Phase 2 MAC 4V/SACCH Offset(s) */
         namespace P2_MAC_HEADER_OFFSET {
             /** @brief Phase 2 MAC 4V/SACCH Offset(s) */
@@ -897,7 +906,7 @@ namespace p25
             };
         }
 
-        // TIA-102.BBAD-D Section 3
+        // TIA-102.BBAD-A Section 3
         /** @brief Phase 2 MAC MCO Partitioning */
         namespace P2_MAC_MCO_PARTITION {
             /** @brief Phase 2 MAC MCO Partitioning */
@@ -910,7 +919,7 @@ namespace p25
             };
         }
 
-        // TIA-102.BBAD-D Section 3
+        // TIA-102.BBAD-A Section 3
         /** @brief Phase 2 MAC PDU Opcode(s) */
         namespace P2_MAC_MCO {
             /** @brief Phase 2 MAC PDU Opcode(s) */
@@ -952,9 +961,11 @@ namespace p25
             enum E : uint8_t {
                 VTCH_4V = 0x00U,                        //!< Inbound/Outbound 4V
                 SACCH_SCRAMBLED = 0x03U,                //!< SACCH Scrambled
+                LCCH_SCRAMBLED = 0x04U,                 //!< Inbound LCCH Scrambled
                 VTCH_2V = 0x06U,                        //!< Inbound/Outbound 2V
                 FACCH_SCRAMBLED = 0x09U,                //!< FACCH Scrambled
                 SACCH_UNSCRAMBLED = 0x0CU,              //!< SACCH Unscrambled
+                LCCH_UNSCRAMBLED = 0x0DU,               //!< Inbound/Outbound LCCH Unscrambled
                 FACCH_UNSCRAMBLED = 0x0FU               //!< FACCH Unscrambled
             };
         }

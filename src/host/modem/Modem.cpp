@@ -129,6 +129,7 @@ Modem::Modem(port::IModemPort* port, bool duplex, bool rxInvert, bool txInvert, 
     m_adcOverFlowCount(0U),
     m_dacOverFlowCount(0U),
     m_v24Connected(false),
+    m_p25P2Capable(false),
     m_modemState(STATE_IDLE),
     m_buffer(nullptr),
     m_length(0U),
@@ -142,12 +143,16 @@ Modem::Modem(port::IModemPort* port, bool duplex, bool rxInvert, bool txInvert, 
     m_rxDMRQueue1(dmrQueueSize, "Modem RX DMR1"),
     m_rxDMRQueue2(dmrQueueSize, "Modem RX DMR2"),
     m_rxP25Queue(p25QueueSize, "Modem RX P25"),
+    m_rxP25P2Queue1(p25QueueSize, "Modem RX P25 P2 Slot 1"),
+    m_rxP25P2Queue2(p25QueueSize, "Modem RX P25 P2 Slot 2"),
     m_rxNXDNQueue(nxdnQueueSize, "Modem RX NXDN"),
     m_statusTimer(1000U, 0U, MODEM_POLL_TIME),
     m_inactivityTimer(1000U, 8U),
     m_dmrSpace1(0U),
     m_dmrSpace2(0U),
     m_p25Space(0U),
+    m_p25P2Space1(0U),
+    m_p25P2Space2(0U),
     m_nxdnSpace(0U),
     m_tx(false),
     m_cd(false),
@@ -697,6 +702,117 @@ void Modem::clock(uint32_t ms)
         }
         break;
 
+        /** Project 25 Phase 2 */
+        case CMD_P25_P2_DATA1:
+        {
+            if (m_p25Enabled) {
+                if (!m_p25P2Capable) {
+                    break;
+                }
+
+                std::lock_guard<std::mutex> lock(m_p25P2ReadLock1);
+
+                if (m_rspDoubleLength) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_DATA1 double length?; len = %u", m_length);
+                    break;
+                }
+                // Firmware supplies DUID transport metadata followed by the
+                // 40-byte logical burst. The DUID is not part of the air burst.
+                if (m_length != (P25DEF::P25_P2_FRAME_LENGTH_BYTES + 4U)) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_DATA1 invalid length; len = %u", m_length);
+                    break;
+                }
+
+                uint8_t data = m_length - 2U;
+                m_rxP25P2Queue1.addData(&data, 1U);
+
+                data = TAG_DATA;
+                m_rxP25P2Queue1.addData(&data, 1U);
+
+                m_rxP25P2Queue1.addData(m_buffer + 3U, m_length - 3U);
+                if (m_trace)
+                    Utils::dump(1U, "Modem::clock(), RX P25 P2 Data 1", m_buffer + 3U, m_length - 3U);
+            }
+        }
+        break;
+
+        case CMD_P25_P2_DATA2:
+        {
+            if (m_p25Enabled) {
+                if (!m_p25P2Capable) {
+                    break;
+                }
+
+                std::lock_guard<std::mutex> lock(m_p25P2ReadLock2);
+
+                if (m_rspDoubleLength) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_DATA2 double length?; len = %u", m_length);
+                    break;
+                }
+                if (m_length != (P25DEF::P25_P2_FRAME_LENGTH_BYTES + 4U)) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_DATA2 invalid length; len = %u", m_length);
+                    break;
+                }
+
+                uint8_t data = m_length - 2U;
+                m_rxP25P2Queue2.addData(&data, 1U);
+
+                data = TAG_DATA;
+                m_rxP25P2Queue2.addData(&data, 1U);
+
+                m_rxP25P2Queue2.addData(m_buffer + 3U, m_length - 3U);
+                if (m_trace)
+                    Utils::dump(1U, "Modem::clock(), RX P25 P2 Data 2", m_buffer + 3U, m_length - 3U);
+            }
+        }
+        break;
+
+        case CMD_P25_P2_LOST1:
+        {
+            if (m_p25Enabled) {
+                if (!m_p25P2Capable) {
+                    break;
+                }
+
+                std::lock_guard<std::mutex> lock(m_p25P2ReadLock1);
+
+                if (m_rspDoubleLength) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_LOST1 double length?; len = %u", m_length);
+                    break;
+                }
+
+                uint8_t data = 1U;
+                m_rxP25P2Queue1.addData(&data, 1U);
+
+                data = TAG_LOST;
+                m_rxP25P2Queue1.addData(&data, 1U);
+            }
+        }
+        break;
+
+        case CMD_P25_P2_LOST2:
+        {
+            if (m_p25Enabled) {
+                if (!m_p25P2Capable) {
+                    break;
+                }
+
+                std::lock_guard<std::mutex> lock(m_p25P2ReadLock2);
+
+                if (m_rspDoubleLength) {
+                    LogError(LOG_MODEM, "CMD_P25_P2_LOST2 double length?; len = %u", m_length);
+                    break;
+                }
+
+                uint8_t data = 1U;
+                m_rxP25P2Queue2.addData(&data, 1U);
+
+                data = TAG_LOST;
+                m_rxP25P2Queue2.addData(&data, 1U);
+            }
+        }
+        break;
+
         /** Next Generation Digital Narrowband */
         case CMD_NXDN_DATA:
         {
@@ -870,6 +986,13 @@ void Modem::clock(uint32_t ms)
 
                         case CMD_P25_DATA:
                             LogWarning(LOG_MODEM, "NAK, %s, p25Space = %u", rsnToString(m_buffer[4U]).c_str(), m_p25Space);
+                            break;
+
+                        case CMD_P25_P2_DATA1:
+                            LogWarning(LOG_MODEM, "NAK, %s, p25P2Space1 = %u", rsnToString(m_buffer[4U]).c_str(), m_p25P2Space1);
+                            break;
+                        case CMD_P25_P2_DATA2:
+                            LogWarning(LOG_MODEM, "NAK, %s, p25P2Space2 = %u", rsnToString(m_buffer[4U]).c_str(), m_p25P2Space2);
                             break;
 
                         case CMD_NXDN_DATA:
@@ -1092,6 +1215,130 @@ uint32_t Modem::readP25Frame(uint8_t* data)
     return 0U;
 }
 
+/* Get the frame data length for the next P25 Phase 2 Slot 1 frame. */
+
+uint32_t Modem::peekP25P2Frame1Length()
+{
+    if (!m_p25P2Capable)
+        return 0U;
+
+    std::lock_guard<std::mutex> lock(m_p25P2ReadLock1);
+    if (m_rxP25P2Queue1.isEmpty())
+        return 0U;
+
+    uint8_t len = 0U;
+    m_rxP25P2Queue1.peek(&len, 1U);
+#if DEBUG_MODEM
+    LogDebugEx(LOG_MODEM, "Modem::peekP25P2Frame1Length()", "len = %u, dataSize = %u", len, m_rxP25P2Queue2.dataSize());
+#endif
+    // this ensures we never get in a situation where we have length stuck on the queue
+    if (m_rxP25P2Queue1.dataSize() == 1U && len > m_rxP25P2Queue1.dataSize()) {
+        m_rxP25P2Queue1.get(&len, 1U); // ensure we pop the length off
+        return 0U;
+    }
+
+    if (m_rxP25P2Queue1.dataSize() > len) {
+        return len;
+    }
+
+    return 0U;
+}
+
+/* Reads P25 Phase 2 Slot 1 frame data. */
+
+uint32_t Modem::readP25P2Frame1(uint8_t* data)
+{
+    assert(data != nullptr);
+
+    if (!m_p25P2Capable)
+        return 0U;
+
+    std::lock_guard<std::mutex> lock(m_p25P2ReadLock1);
+
+    if (m_rxP25P2Queue1.isEmpty())
+        return 0U;
+
+    uint8_t len = 0U;
+    m_rxP25P2Queue1.peek(&len, 1U);
+
+    // this ensures we never get in a situation where we have length stuck on the queue
+    if (m_rxP25P2Queue1.dataSize() == 1U && len > m_rxP25P2Queue1.dataSize()) {
+        m_rxP25P2Queue1.get(&len, 1U); // ensure we pop the length off
+        return 0U;
+    }
+
+    if (m_rxP25P2Queue1.dataSize() > len) {
+        m_rxP25P2Queue1.get(&len, 1U); // ensure we pop the length off
+        m_rxP25P2Queue1.get(data, len);
+
+        return len;
+    }
+
+    return 0U;
+}
+
+/* Get the frame data length for the next P25 Phase 2 Slot 2 frame. */
+
+uint32_t Modem::peekP25P2Frame2Length()
+{
+    if (!m_p25P2Capable)
+        return 0U;
+
+    std::lock_guard<std::mutex> lock(m_p25P2ReadLock2);
+    if (m_rxP25P2Queue2.isEmpty())
+        return 0U;
+
+    uint8_t len = 0U;
+    m_rxP25P2Queue2.peek(&len, 1U);
+#if DEBUG_MODEM
+    LogDebugEx(LOG_MODEM, "Modem::peekP25P2Frame2Length()", "len = %u, dataSize = %u", len, m_rxP25P2Queue2.dataSize());
+#endif
+    // this ensures we never get in a situation where we have length stuck on the queue
+    if (m_rxP25P2Queue2.dataSize() == 1U && len > m_rxP25P2Queue2.dataSize()) {
+        m_rxP25P2Queue2.get(&len, 1U); // ensure we pop the length off
+        return 0U;
+    }
+
+    if (m_rxP25P2Queue2.dataSize() > len) {
+        return len;
+    }
+
+    return 0U;
+}
+
+/* Reads P25 Phase 2 Slot 2 frame data. */
+
+uint32_t Modem::readP25P2Frame2(uint8_t* data)
+{
+    assert(data != nullptr);
+
+    if (!m_p25P2Capable)
+        return 0U;
+
+    std::lock_guard<std::mutex> lock(m_p25P2ReadLock2);
+
+    if (m_rxP25P2Queue2.isEmpty())
+        return 0U;
+
+    uint8_t len = 0U;
+    m_rxP25P2Queue2.peek(&len, 1U);
+
+    // this ensures we never get in a situation where we have length stuck on the queue
+    if (m_rxP25P2Queue2.dataSize() == 1U && len > m_rxP25P2Queue2.dataSize()) {
+        m_rxP25P2Queue2.get(&len, 1U); // ensure we pop the length off
+        return 0U;
+    }
+
+    if (m_rxP25P2Queue2.dataSize() > len) {
+        m_rxP25P2Queue2.get(&len, 1U); // ensure we pop the length off
+        m_rxP25P2Queue2.get(data, len);
+
+        return len;
+    }
+
+    return 0U;
+}
+
 /* Get the frame data length for the next frame in the NXDN ring buffer. */
 
 uint32_t Modem::peekNXDNFrameLength()
@@ -1165,6 +1412,20 @@ bool Modem::hasDMRSpace2() const
 bool Modem::hasP25Space(uint32_t length) const
 {
     return m_p25Space >= length;
+}
+
+/* Helper to test if the P25 Phase 2 Slot 1 ring buffer has free space. */
+
+bool Modem::hasP25P2Space1() const
+{
+    return m_p25P2Space1 >= (P25DEF::P25_P2_FRAME_LENGTH_BYTES + 2U);
+}
+
+/* Helper to test if the P25 Phase 2 Slot 2 ring buffer has free space. */
+
+bool Modem::hasP25P2Space2() const
+{
+    return m_p25P2Space2 >= (P25DEF::P25_P2_FRAME_LENGTH_BYTES + 2U);
 }
 
 /* Helper to test if the NXDN ring buffer has free space. */
@@ -1264,6 +1525,44 @@ void Modem::clearP25Frame()
     Thread::sleep(5); // 5ms delay
 }
 
+/* Clears any buffered P25 Phase 2 Slot 1 frame data to be sent to the air interface modem. */
+
+void Modem::clearP25P2Frame1()
+{
+    if (!m_p25P2Capable)
+        return;
+
+    uint8_t buffer[3U];
+
+    buffer[0U] = DVM_SHORT_FRAME_START;
+    buffer[1U] = 3U;
+    buffer[2U] = CMD_P25_P2_CLEAR1;
+#if DEBUG_MODEM
+    Utils::dump(1U, "Modem::clearP25P2Frame1(), Written", buffer, 3U);
+#endif
+    write(buffer, 3U);
+    Thread::sleep(5); // 5ms delay
+}
+
+/* Clears any buffered P25 Phase 2 Slot 2 frame data to be sent to the air interface modem. */
+
+void Modem::clearP25P2Frame2()
+{
+    if (!m_p25P2Capable)
+        return;
+
+    uint8_t buffer[3U];
+
+    buffer[0U] = DVM_SHORT_FRAME_START;
+    buffer[1U] = 3U;
+    buffer[2U] = CMD_P25_P2_CLEAR2;
+#if DEBUG_MODEM
+    Utils::dump(1U, "Modem::clearP25P2Frame2(), Written", buffer, 3U);
+#endif
+    write(buffer, 3U);
+    Thread::sleep(5); // 5ms delay
+}
+
 /* Clears any buffered NXDN frame data to be sent to the air interface modem. */
 
 void Modem::clearNXDNFrame()
@@ -1346,6 +1645,62 @@ void Modem::injectP25Frame(const uint8_t* data, uint32_t length)
         m_rxP25Queue.addData(&val, 1U);
 
         m_rxP25Queue.addData(data, length);
+    }
+}
+
+/* Internal helper to inject P25 Phase 2 Slot 1 frame data. */
+
+void Modem::injectP25P2Frame1(const uint8_t* data, uint32_t length)
+{
+    assert(data != nullptr);
+    assert(length > 0U);
+
+    if (m_p25Enabled) {
+        if (!m_p25P2Capable)
+            return;
+
+        if (m_trace)
+            Utils::dump(1U, "Injected P25 Phase 2 Slot 1 Data", data, length);
+
+        uint8_t val = length + 2U;
+        m_rxP25P2Queue1.addData(&val, 1U);
+
+        val = TAG_DATA;
+        m_rxP25P2Queue1.addData(&val, 1U);
+
+        // Injection defaults to a 4V logical voice burst. Tests needing MAC
+        // signaling should inject the complete typed modem envelope instead.
+        val = P25DEF::P2_DUID::VTCH_4V;
+        m_rxP25P2Queue1.addData(&val, 1U);
+
+        m_rxP25P2Queue1.addData(data, length);
+    }
+}
+
+/* Internal helper to inject P25 Phase 2 Slot 2 frame data. */
+
+void Modem::injectP25P2Frame2(const uint8_t* data, uint32_t length)
+{
+    assert(data != nullptr);
+    assert(length > 0U);
+
+    if (m_p25Enabled) {
+        if (!m_p25P2Capable)
+            return;
+
+        if (m_trace)
+            Utils::dump(1U, "Injected P25 Phase 2 Slot 2 Data", data, length);
+
+        uint8_t val = length + 2U;
+        m_rxP25P2Queue2.addData(&val, 1U);
+
+        val = TAG_DATA;
+        m_rxP25P2Queue2.addData(&val, 1U);
+
+        val = P25DEF::P2_DUID::VTCH_4V;
+        m_rxP25P2Queue2.addData(&val, 1U);
+
+        m_rxP25P2Queue2.addData(data, length);
     }
 }
 
@@ -1549,6 +1904,137 @@ bool Modem::writeP25Frame(const uint8_t* data, uint32_t length, bool imm)
                 if (m_debug)
                     LogDebugEx(LOG_MODEM, "Modem::writeP25Frame()", "p25Space underflow, space = %u, length = %u", m_p25Space, length);
                 m_p25Space = 0U;
+            }
+        }
+        else {
+            return false;
+        }
+
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+/* Writes P25 Phase 2 Slot 1 frame data to the P25 Phase 2 Slot 1 ring buffer. */
+
+bool Modem::writeP25P2Frame1(const uint8_t* data, uint32_t length, bool imm)
+{
+    assert(data != nullptr);
+    assert(length > 0U);
+
+    if (m_p25Enabled) {
+        if (!m_p25P2Capable)
+            return false;
+
+        const uint8_t MAX_LENGTH = 48U;
+
+        if (data[0U] != TAG_DATA && data[0U] != TAG_EOT)
+            return false;
+        if (length > MAX_LENGTH) {
+            LogError(LOG_MODEM, "Modem::writeP25P2Frame1(); request data to write >%u?, len = %u", MAX_LENGTH, length);
+            Utils::dump(1U, "Modem::writeP25P2Frame1(), Attempted Data", data, length);
+            return false;
+        }
+
+        uint8_t buffer[MAX_LENGTH];
+
+        buffer[0U] = DVM_SHORT_FRAME_START;
+        buffer[1U] = length + 2U;
+        buffer[2U] = CMD_P25_P2_DATA1;
+
+        // The serial payload is DUID + 40-byte logical burst. Firmware uses the
+        // DUID to select a legal voice/FACCH/SACCH opportunity; it must not air
+        // the metadata octet.
+        // TODO(P25P2-FW): Implement the typed per-LCH scheduler, ISCH insertion,
+        // superframe/ultraframe tracking, and scrambler phase in modem firmware.
+        ::memcpy(buffer + 3U, data + 1U, length - 1U);
+
+        uint8_t len = length + 2U;
+
+        // write or buffer P25 Phase 2 slot 1 data to air interface
+        if (m_p25P2Space1 >= length) {
+            if (m_debug)
+                LogDebugEx(LOG_MODEM, "Modem::writeP25P2Frame1()", "immediate write (len %u)", length);
+            if (m_trace)
+                Utils::dump(1U, "Modem::writeP25P2Frame1(), Immediate TX P25 Phase 2 Slot 1 Data", buffer + 3U, length - 1U);
+
+            int ret = write(buffer, len, imm);
+            if (ret != int(len)) {
+                LogError(LOG_MODEM, "Error writing P25 Phase 2 Slot 1 data");
+                return false;
+            }
+
+            m_p25P2Space1 -= length;
+            if ((int32_t)m_p25P2Space1 < 0) {
+                if (m_debug)
+                    LogDebugEx(LOG_MODEM, "Modem::writeP25P2Frame1()", "m_p25P2Space1 underflow, space = %u, length = %u", m_p25P2Space1, length);
+                m_p25P2Space1 = 0U;
+            }
+        }
+        else {
+            return false;
+        }
+
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+/* Writes P25 Phase 2 Slot 2 frame data to the P25 Phase 2 Slot 2 ring buffer. */
+
+bool Modem::writeP25P2Frame2(const uint8_t* data, uint32_t length, bool imm)
+{
+    assert(data != nullptr);
+    assert(length > 0U);
+
+    if (m_p25Enabled) {
+        if (!m_p25P2Capable)
+            return false;
+
+        const uint8_t MAX_LENGTH = 48U;
+
+        if (data[0U] != TAG_DATA && data[0U] != TAG_EOT)
+            return false;
+        if (length > MAX_LENGTH) {
+            LogError(LOG_MODEM, "Modem::writeP25P2Frame2(); request data to write >%u?, len = %u", MAX_LENGTH, length);
+            Utils::dump(1U, "Modem::writeP25P2Frame2(), Attempted Data", data, length);
+            return false;
+        }
+
+        uint8_t buffer[MAX_LENGTH];
+
+        buffer[0U] = DVM_SHORT_FRAME_START;
+        buffer[1U] = length + 2U;
+        buffer[2U] = CMD_P25_P2_DATA2;
+
+        // TODO(P25P2-FW): Treat immediate as "next legal opportunity for this
+        // DUID", never as permission to violate FACCH/SACCH/LCH placement.
+        ::memcpy(buffer + 3U, data + 1U, length - 1U);
+
+        uint8_t len = length + 2U;
+
+        // write or buffer P25 Phase 2 slot 2 data to air interface
+        if (m_p25P2Space2 >= length) {
+            if (m_debug)
+                LogDebugEx(LOG_MODEM, "Modem::writeP25P2Frame2()", "immediate write (len %u)", length);
+            if (m_trace)
+                Utils::dump(1U, "Modem::writeP25P2Frame2(), Immediate TX P25 Phase 2 Slot 2 Data", buffer + 3U, length - 1U);
+
+            int ret = write(buffer, len, imm);
+            if (ret != int(len)) {
+                LogError(LOG_MODEM, "Error writing P25 Phase 2 Slot 2 data");
+                return false;
+            }
+
+            m_p25P2Space2 -= length;
+            if ((int32_t)m_p25P2Space2 < 0) {
+                if (m_debug)
+                    LogDebugEx(LOG_MODEM, "Modem::writeP25P2Frame2()", "m_p25P2Space2 underflow, space = %u, length = %u", m_p25P2Space2, length);
+                m_p25P2Space2 = 0U;
             }
         }
         else {

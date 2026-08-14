@@ -111,7 +111,7 @@ namespace p25
              */
             void encodeLDU2(uint8_t* data);
 
-            /** Project 25 Phase II (TIA-102.BBAD-D Section 2) */
+            /** Project 25 Phase II (TIA-102.BBAD-A Section 2) */
 
             /**
              * @brief Decode a IEMI VCH MAC PDU.
@@ -120,6 +120,8 @@ namespace p25
              * @return bool True, if MAC PDU decoded, otherwise false.
              */
             bool decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync);
+            /** @brief Encode an inbound/IEMI Phase 2 VCH MAC PDU. */
+            void encodeVCH_MACPDU_IEMI(uint8_t* data, bool sync);
             /**
              * @brief Decode a xOEMI VCH MAC PDU.
              * @param data Buffer containing the MAC PDU to decode.
@@ -350,7 +352,9 @@ namespace p25
             /** @} */
 
             /** @name Phase 2 Raw MCO Data */
-            uint8_t* p2MCOData; // ?? - this should probably be private with getters/setters
+            uint8_t* p2MCOData;
+            uint32_t getP2MCOData(uint8_t* data, uint32_t length) const;
+            uint32_t getP2MCODataLength() const { return m_p2MCODataLength; }
             /** @} */
 
         private:
@@ -373,6 +377,7 @@ namespace p25
 
             bool m_gotUserAliasPartA;
             bool m_gotUserAlias;
+            uint32_t m_p2MCODataLength;
 
             static bool s_warnCRC;
 

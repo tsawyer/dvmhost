@@ -1676,7 +1676,7 @@ UInt8Array BaseNetwork::createP25P2_Message(uint32_t& length, const p25::lc::LC&
 
     buffer[14U] = controlByte;
 
-    buffer[19U] = slot ? 0x00U : 0x80U;                                         // Slot Number
+    buffer[19U] = slot ? 0x80U : 0x00U;                                         // Slot Number
     buffer[19U] |= (uint8_t)duid;                                               // Phase 2 DUID
 
     // pack raw P25 Phase 2 bytes
