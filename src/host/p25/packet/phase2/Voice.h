@@ -28,7 +28,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace p25
 {
@@ -102,7 +104,9 @@ namespace p25
 
             private:
                 friend class p25::phase2::Slot;
+#if defined(CATCH2_TEST_COMPILATION)
                 friend class ::HostTestHooks;
+#endif
 
                 p25::phase2::Slot* m_slot;
 

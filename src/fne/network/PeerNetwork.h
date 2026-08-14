@@ -16,7 +16,7 @@
 #if !defined(__PEER_NETWORK_H__)
 #define __PEER_NETWORK_H__
 
-#include "Defines.h"
+#include "fne/Defines.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/network/Network.h"
 #include "common/network/PacketBuffer.h"

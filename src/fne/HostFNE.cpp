@@ -7,7 +7,7 @@
  *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
  *
  */
-#include "Defines.h"
+#include "fne/Defines.h"
 #include "common/network/udp/Socket.h"
 #include "common/Log.h"
 #include "common/StopWatch.h"

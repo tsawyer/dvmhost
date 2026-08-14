@@ -195,7 +195,9 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     ** Initialize Threads
     */
 
+#if !defined(CATCH2_TEST_COMPILATION)
     Thread::runAsThread(this, threadParrotHandler);
+#endif
 }
 
 /* Finalizes a instance of the TrafficNetwork class. */

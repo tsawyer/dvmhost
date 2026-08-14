@@ -16,7 +16,7 @@
 #if !defined(__HOST_FNE_H__)
 #define __HOST_FNE_H__
 
-#include "Defines.h"
+#include "fne/Defines.h"
 #include "common/lookups/RadioIdLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/lookups/PeerListLookup.h"
@@ -27,7 +27,7 @@
 #include "network/TrafficNetwork.h"
 #include "network/MetadataNetwork.h"
 #include "network/PeerNetwork.h"
-#include "restapi/RESTAPI.h"
+#include "fne/restapi/RESTAPI.h"
 #include "CryptoContainer.h"
 
 #include <string>
@@ -37,6 +37,10 @@
 // ---------------------------------------------------------------------------
 //  Class Prototypes
 // ---------------------------------------------------------------------------
+
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
 
 namespace network { namespace callhandler { class HOST_SW_API TagDMRData; } }
 namespace network { namespace callhandler { namespace packetdata { class HOST_SW_API DMRPacketData; } } }
@@ -81,6 +85,9 @@ public:
     int run();
 
 private:
+#if defined(CATCH2_TEST_COMPILATION)
+    friend class FNETestHooks;
+#endif
     const std::string& m_confFile;
     yaml::Node m_conf;
 

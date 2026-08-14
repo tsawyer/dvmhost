@@ -57,6 +57,10 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
+
 class HOST_SW_API HostFNE;
 class HOST_SW_API RESTAPI;
 namespace network { namespace callhandler { class HOST_SW_API TagDMRData; } }
@@ -310,6 +314,9 @@ namespace network
         void setPeerReplica(bool replica);
 
     private:
+#if defined(CATCH2_TEST_COMPILATION)
+        friend class ::FNETestHooks;
+#endif
         friend class MetadataNetwork;
         friend class callhandler::TagDMRData;
         friend class callhandler::packetdata::DMRPacketData;

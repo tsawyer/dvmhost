@@ -34,7 +34,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace p25
 {
@@ -178,7 +180,9 @@ namespace p25
                 lookups::P25AffiliationLookup* affiliations, ::lookups::RadioIdLookup* ridLookup, ::lookups::TalkgroupRulesLookup* tidLookup);
 
         private:
+#if defined(CATCH2_TEST_COMPILATION)
             friend class ::HostTestHooks;
+#endif
             friend class phase2::Control;
             friend class packet::phase2::Voice;
             packet::phase2::Voice m_voice;

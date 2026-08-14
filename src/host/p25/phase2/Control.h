@@ -26,7 +26,13 @@
 
 #include <cstdint>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace p25
 {
@@ -172,7 +178,9 @@ namespace p25
         private:
             friend class Slot;
             friend class packet::phase2::Voice;
+#if defined(CATCH2_TEST_COMPILATION)
             friend class ::HostTestHooks;
+#endif
 
             /* Interfaces */
             modem::Modem* m_modem;

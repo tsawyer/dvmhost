@@ -30,6 +30,10 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
+
 class HOST_SW_API HostFNE;
 
 namespace network
@@ -99,6 +103,9 @@ namespace network
         void close() override;
 
     private:
+#if defined(CATCH2_TEST_COMPILATION)
+        friend class ::FNETestHooks;
+#endif
         friend class TrafficNetwork;
         TrafficNetwork* m_trafficNetwork;
         HostFNE* m_host;
