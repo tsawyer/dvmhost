@@ -353,7 +353,18 @@ namespace p25
 
             /** @name Phase 2 Raw MCO Data */
             uint8_t* p2MCOData;
+
+            /**
+             * @brief Get the Phase 2 MCO data.
+             * @param[in] data Buffer to store the MCO data.
+             * @param[in] length Length of the buffer.
+             * @return Number of bytes copied to the buffer.
+             */
             uint32_t getP2MCOData(uint8_t* data, uint32_t length) const;
+            /**
+             * @brief Get the length of the Phase 2 MCO data.
+             * @return Length of the Phase 2 MCO data.
+             */
             uint32_t getP2MCODataLength() const { return m_p2MCODataLength; }
             /** @} */
 

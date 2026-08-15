@@ -670,7 +670,7 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
             source = burst;
         }
 
-        // Extract the four information fields, skipping sync (when present) and DUIDs.
+        // extract the four information fields, skipping sync (when present) and DUIDs
         for (uint32_t i = 0U; i < lengthBits; i++) {
             uint32_t n = i + (sync ? 14U : 0U);
             uint32_t field1 = sync ? 36U : 72U;
@@ -726,28 +726,41 @@ void LC::encodeVCH_MACPDU_IEMI(uint8_t* data, bool sync)
     uint32_t lengthBits = sync ? P25_P2_IEMI_WSYNC_LENGTH_BITS : P25_P2_IEMI_LENGTH_BITS;
     uint8_t raw[P25_P2_IEMI_LENGTH_BYTES] = { 0U };
     if (m_p2DUID != P2_DUID::VTCH_4V && m_p2DUID != P2_DUID::VTCH_2V) {
+        // encode the MAC PDU into the raw buffer, apply RS encoding, and map it into the data buffer
         encodeMACPDU(raw, P25_P2_IEMI_MAC_LENGTH_BITS);
         m_rs.encode462621(raw);
+
+        // map the encoded MAC PDU bits into the data buffer, accounting for sync and DUID fields
         for (uint32_t i = 0U; i < lengthBits; i++) {
             uint32_t field1 = sync ? 36U : 72U;
             uint32_t field2 = field1 + 72U;
             uint32_t field3 = field2 + 96U;
             uint32_t n = i + (sync ? 14U : 0U);
-            if (i >= field1) n += 2U;
-            if (i >= field2) n += 2U;
-            if (i >= field3) n += 2U;
+            if (i >= field1)
+                n += 2U; // skip DUID 1 after field 1 (36 bits)
+            if (i >= field2)
+                n += 2U; // skip DUID 2 after field 2 (36+72)
+            if (i >= field3)
+                n += 2U; // skip DUID 3 after field 3 (36+72+96)
+
             WRITE_BIT(data, n, READ_BIT(raw, i));
         }
     }
 
     uint8_t duidRaw[2U] = { static_cast<uint8_t>((m_p2DUID & 0x0FU) << 4U), 0U };
     uint8_t duid[2U] = { 0U };
+
+    // encode the Phase 2 DUID into the duid buffer using Hamming code
     encodeP2_DUIDHamming(duid, duidRaw);
     for (uint8_t i = 0U; i < 8U; i++) {
         uint32_t n = i + (sync ? 50U : 72U);
-        if (i >= 2U) n += 72U;
-        if (i >= 4U) n += 96U;
-        if (i >= 6U) n += 72U;
+        if (i >= 2U) 
+            n += 72U; // skip field 2
+        if (i >= 4U) 
+            n += 96U; // skip field 3
+        if (i >= 6U) 
+            n += 72U; // skip field 4
+
         WRITE_BIT(data, n, READ_BIT(duid, i));
     }
 
@@ -977,6 +990,8 @@ bool LC::isStandardMFId() const
         return true;
     return false;
 }
+
+/* Get the Phase 2 MCO data. */
 
 uint32_t LC::getP2MCOData(uint8_t* data, uint32_t length) const
 {
@@ -1817,6 +1832,7 @@ void LC::applyP2Scrambler(uint8_t* data, bool inbound, bool sync)
     uint16_t fieldLengths[4U] = { 0U, 0U, 0U, 0U };
     uint16_t interFieldSkips[3U] = { 0U, 0U, 0U };
 
+    // set up the initial cursor position, field lengths, and inter-field skips based on the direction and sync status
     if (inbound) {
         cursor = sync ? 14U : 0U;
         fieldCount = 4U;
@@ -1851,16 +1867,20 @@ void LC::applyP2Scrambler(uint8_t* data, bool inbound, bool sync)
         interFieldSkips[2U] = 2U;
     }
 
+    // initialize the scrambler state based on the network ID, system ID, color code, and direction
     uint64_t state = p25P2InitialScramblerState(s_siteData.netId(), s_siteData.sysId(), m_colorCode, inbound);
     state = p25P2AdvanceScrambler(state, (uint64_t)m_p2ScrambleOffset);
 
+    // apply the scrambler to each field, advancing the scrambler state as necessary
     for (uint8_t field = 0U; field < fieldCount; field++) {
+        // process each bit in the current field
         for (uint16_t bit = 0U; bit < fieldLengths[field]; bit++, cursor++) {
             bool scrambledBit = (READ_BIT(data, cursor) != 0U) ^ p25P2ScramblerOutput(state);
             WRITE_BIT(data, cursor, scrambledBit);
             state = p25P2ScramblerStep(state);
         }
 
+        // advance the scrambler state for the inter-field skip
         if (field + 1U < fieldCount) {
             cursor += interFieldSkips[field];
             state = p25P2AdvanceScrambler(state, interFieldSkips[field]);
