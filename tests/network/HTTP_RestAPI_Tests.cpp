@@ -129,11 +129,30 @@ private:
     std::shared_ptr<RequestState> m_state;
 };
 
+// ---------------------------------------------------------------------------
+//  Class Declaration
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief A request handler that captures the HTTP response from the server.
+ */
 class ClientResponseHandler {
 public:
+    /**
+     * @brief Initializes a new instance of the ClientResponseHandler.
+     */
     ClientResponseHandler() : m_state(std::make_shared<ResponseState>()) { }
+    /**
+     * @brief Initializes a new instance of the ClientResponseHandler with the specified response state.
+     * @param state The shared response state to be used by the handler.
+     */
     explicit ClientResponseHandler(std::shared_ptr<ResponseState> state) : m_state(std::move(state)) { }
 
+    /**
+     * @brief Handles an incoming HTTP response from the server.
+     * @param response The HTTP response received from the server.
+     * @param reply The HTTP reply to be sent back to the server (ignored in this handler).
+     */
     void handleRequest(const HTTPPayload& response, HTTPPayload& reply)
     {
         (void)reply;
