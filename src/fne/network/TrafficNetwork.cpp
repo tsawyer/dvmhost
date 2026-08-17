@@ -93,6 +93,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_kmfEncKeyRequest(false),
     m_kmfPresharedKey(nullptr),
     m_ridLookup(nullptr),
+    m_ridAliasLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
     m_adjSiteMapLookup(nullptr),
@@ -525,12 +526,13 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
     }
 }
 
-/* Sets the instances of the Radio ID, Talkgroup ID Peer List, and Crypto lookup tables. */
+/* Sets the instances of the Radio ID, Radio Alias, Talkgroup ID, Peer List, and Crypto lookup tables. */
 
-void TrafficNetwork::setLookups(lookups::RadioIdLookup* ridLookup, lookups::TalkgroupRulesLookup* tidLookup, lookups::PeerListLookup* peerListLookup,
-    CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup)
+void TrafficNetwork::setLookups(lookups::RadioIdLookup* ridLookup, lookups::RadioAliasLookup* ridAliasLookup, lookups::TalkgroupRulesLookup* tidLookup,
+    lookups::PeerListLookup* peerListLookup, CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup)
 {
     m_ridLookup = ridLookup;
+    m_ridAliasLookup = ridAliasLookup;
     m_tidLookup = tidLookup;
     m_peerListLookup = peerListLookup;
     m_cryptoLookup = cryptoLookup;
@@ -1836,6 +1838,7 @@ void TrafficNetwork::taskMetadataUpdate(MetadataUpdateRequest* req)
                         network->writeWhitelistRIDs(req->peerId, streamId, true);
                         network->writeTGIDs(req->peerId, streamId, true);
                         network->writePeerList(req->peerId, streamId);
+                        network->writeRadioAliasList(req->peerId, streamId);
 
                         network->writeHAParameters(req->peerId, streamId, true);
                     }
@@ -2268,6 +2271,68 @@ void TrafficNetwork::writeDeactiveTGIDs(uint32_t peerId, uint32_t streamId)
 
     writePeerCommand(peerId, { NET_FUNC::MASTER, NET_SUBFUNC::MASTER_SUBFUNC_DEACTIVE_TGS }, 
         payload, 4U + (tgidList.size() * 5U), streamId, true);
+}
+
+/* Helper to send the list of radio aliases to the specified peer. */
+
+void TrafficNetwork::writeRadioAliasList(uint32_t peerId, uint32_t streamId)
+{
+    // sending REPL style RID alias list to replica neighbor FNE peers
+    FNEPeerConnection* connection = m_peers[peerId];
+    if (connection != nullptr) {
+        std::string tempFile;
+        if (m_isReplica) {
+            std::ostringstream s;
+            std::random_device rd;
+            std::mt19937 mt(rd());
+            std::uniform_int_distribution<uint32_t> dist(0x00U, 0xFFFFFFFFU);
+            s << "/tmp/rid_alias.dat." << dist(mt);
+
+            tempFile = s.str();
+            std::string origFile = m_ridAliasLookup->filename();
+            m_ridAliasLookup->filename(tempFile);
+            m_ridAliasLookup->commit(true);
+            m_ridAliasLookup->filename(origFile);
+        } else {
+            tempFile = m_ridAliasLookup->filename();
+        }
+
+        // read entire file into string buffer
+        std::stringstream b;
+        std::ifstream stream(tempFile);
+        if (stream.is_open()) {
+            while (stream.peek() != EOF) {
+                b << (char)stream.get();
+            }
+
+            stream.close();
+        }
+
+        if (m_isReplica)
+            ::remove(tempFile.c_str());
+
+        // convert to a byte array
+        uint32_t len = b.str().size();
+        DECLARE_UINT8_ARRAY(buffer, len);
+        ::memcpy(buffer, b.str().data(), len);
+
+        PacketBuffer pkt(true, "Peer Replication, RID Alias List");
+        pkt.encode((uint8_t*)buffer, len);
+
+        LogInfoEx(LOG_REPL, "PEER %u (%s) Peer Replication, RID Alias List, blocks %u, streamId = %u", peerId, connection->identWithQualifier().c_str(),
+            pkt.fragments.size(), streamId);
+        if (pkt.fragments.size() > 0U) {
+            for (auto frag : pkt.fragments) {
+                writePeer(peerId, m_peerId, { NET_FUNC::REPL, NET_SUBFUNC::REPL_RID_ALIAS_LIST }, 
+                    frag.second->data, FRAG_SIZE, 0U, streamId);
+                Thread::sleep(60U); // pace block transmission
+            }
+        }
+
+        pkt.clear();
+    }
+
+    return;
 }
 
 /* Helper to send the list of peers to the specified peer. */

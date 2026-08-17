@@ -29,6 +29,7 @@
 #include "common/concurrent/shared_unordered_map.h"
 #include "common/json/json.h"
 #include "common/lookups/RadioIdLookup.h"
+#include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/lookups/AdjSiteMapLookup.h"
@@ -236,15 +237,16 @@ namespace network
         callhandler::TagAnalogData* analogTrafficHandler() const { return m_tagAnalog; }
 
         /**
-         * @brief Sets the instances of the Radio ID, Talkgroup ID Peer List, and Crypto lookup tables.
+         * @brief Sets the instances of the Radio ID, Radio Alias, Talkgroup ID, Peer List, and Crypto lookup tables.
          * @param ridLookup Radio ID Lookup Table Instance
+         * @param ridAliasLookup Radio Alias Lookup Table Instance
          * @param tidLookup Talkgroup Rules Lookup Table Instance
          * @param peerListLookup Peer List Lookup Table Instance
          * @param cryptoLookup Crypto Container Lookup Table Instance
          * @param adjSiteMapLookup Adjacent Site Map Lookup Table Instance
          */
-        void setLookups(lookups::RadioIdLookup* ridLookup, lookups::TalkgroupRulesLookup* tidLookup, lookups::PeerListLookup* peerListLookup,
-            CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup);
+        void setLookups(lookups::RadioIdLookup* ridLookup, lookups::RadioAliasLookup* ridAliasLookup, lookups::TalkgroupRulesLookup* tidLookup, 
+            lookups::PeerListLookup* peerListLookup, CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup);
         /**
          * @brief Sets endpoint preshared encryption key.
          * @param presharedKey Encryption preshared key for networking.
@@ -364,6 +366,7 @@ namespace network
         uint8_t* m_kmfPresharedKey;
 
         lookups::RadioIdLookup* m_ridLookup;
+        lookups::RadioAliasLookup* m_ridAliasLookup;
         lookups::TalkgroupRulesLookup* m_tidLookup;
         lookups::PeerListLookup* m_peerListLookup;
         lookups::AdjSiteMapLookup* m_adjSiteMapLookup;
@@ -853,6 +856,13 @@ namespace network
          * @param streamId Stream ID for this message.
          */
         void writeDeactiveTGIDs(uint32_t peerId, uint32_t streamId);
+        /**
+         * @brief Helper to send the list of radio aliases to the specified peer.
+         * @note This doesn't have a data layout document because it is *only* sent as a packet buffered message.
+         * @param peerId Peer ID.
+         * @param streamId Stream ID for this message.
+         */
+        void writeRadioAliasList(uint32_t peerId, uint32_t streamId);
         /**
          * @brief Helper to send the list of peers to the specified peer.
          * @note This doesn't have a data layout document because it is *only* sent as a packet buffered message.

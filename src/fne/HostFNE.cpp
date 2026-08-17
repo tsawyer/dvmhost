@@ -74,6 +74,7 @@ HostFNE::HostFNE(const std::string& confFile) :
     m_nxdnEnabled(false),
     m_analogEnabled(false),
     m_ridLookup(nullptr),
+    m_ridAliasLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
     m_cryptoLookup(nullptr),
@@ -189,6 +190,20 @@ int HostFNE::run()
     
     m_ridLookup = new RadioIdLookup(ridLookupFile, ridReloadTime, true, verboseRIDRules);
     m_ridLookup->read();
+
+    // try to load radio aliases table
+    std::string ridAliasLookupFile = systemConf["radio_alias"]["file"].as<std::string>();
+    uint32_t ridAliasReloadTime = systemConf["radio_alias"]["time"].as<uint32_t>(0U);
+    bool verboseRIDAliasRules = systemConf["radio_alias"]["verbose"].as<bool>(false);
+
+    LogInfo("Radio Alias Lookups");
+    LogInfo("    File: %s", ridAliasLookupFile.length() > 0U ? ridAliasLookupFile.c_str() : "None");
+    if (ridReloadTime > 0U)
+        LogInfo("    Reload: %u mins", ridAliasReloadTime);
+    LogInfo("    Verbose: %s", verboseRIDAliasRules ? "true" : "false");
+    
+    m_ridAliasLookup = new RadioAliasLookup(ridAliasLookupFile, ridAliasReloadTime, verboseRIDAliasRules);
+    m_ridAliasLookup->read();
 
     // initialize master networking
     ret = createMasterNetwork();
@@ -669,7 +684,7 @@ bool HostFNE::createMasterNetwork()
     m_network->setOptions(masterConf, true);
     m_network->setPacketDump(packetDump);
 
-    m_network->setLookups(m_ridLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
+    m_network->setLookups(m_ridLookup, m_ridAliasLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
 
     bool ret = m_network->open();
     if (!ret) {
@@ -891,6 +906,7 @@ bool HostFNE::createPeerNetworks()
             network->setMetadata(identity, 0U, 0U, 0.0F, 0.0F, 0, 0, 0, latitude, longitude, 0, location);
             network->setLookups(m_ridLookup, m_tidLookup);
             network->setMasterPeerId(masterPeerId);
+            network->setRadioAliasLookups(m_ridAliasLookup);
             network->setPeerLookups(m_peerListLookup);
             network->setPeerReplicationSaveACL(m_peerReplicaSavesACL);
             network->setNakFallOver(nakFallOver, nakFallOverCount);

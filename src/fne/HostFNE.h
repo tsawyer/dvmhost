@@ -4,7 +4,7 @@
  * GPLv2 Open Source. Use is subject to license terms.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
- *  Copyright (C) 2023-2025 Bryan Biedenkapp, N2PLL
+ *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
  *
  */
 /**
@@ -18,6 +18,7 @@
 
 #include "fne/Defines.h"
 #include "common/lookups/RadioIdLookup.h"
+#include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/lookups/AdjSiteMapLookup.h"
@@ -116,6 +117,7 @@ private:
     bool m_analogEnabled;
 
     lookups::RadioIdLookup* m_ridLookup;
+    lookups::RadioAliasLookup* m_ridAliasLookup;
     lookups::TalkgroupRulesLookup* m_tidLookup;
     lookups::PeerListLookup* m_peerListLookup;
     lookups::AdjSiteMapLookup* m_adjSiteMapLookup;

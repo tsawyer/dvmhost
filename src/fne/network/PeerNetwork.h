@@ -17,6 +17,7 @@
 #define __PEER_NETWORK_H__
 
 #include "fne/Defines.h"
+#include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/network/Network.h"
 #include "common/network/PacketBuffer.h"
@@ -93,6 +94,11 @@ namespace network
          * @param masterPeerId Master Peer ID.
          */
         void setMasterPeerId(uint32_t masterPeerId) { m_masterPeerId = masterPeerId; }
+        /**
+         * @brief Sets the instnace of the Radio Alias lookup table.
+         * @param ridAliasLookup Radio Alias Lookup Table Instance
+         */
+        void setRadioAliasLookups(lookups::RadioAliasLookup* ridAliasLookup);
         /**
          * @brief Sets the instances of the Peer List lookup tables.
          * @param pidLookup Peer List Lookup Table Instance
@@ -339,6 +345,7 @@ namespace network
     private:
         uint32_t m_masterPeerId;
 
+        lookups::RadioAliasLookup* m_ridAliasLookup;
         lookups::PeerListLookup* m_pidLookup;
         bool m_peerReplica;
         bool m_peerReplicaSavesACL;
@@ -346,6 +353,7 @@ namespace network
         PacketBuffer m_tgidPkt;
         PacketBuffer m_ridPkt;
         PacketBuffer m_pidPkt;
+        PacketBuffer m_ridAliasPkt;
 
         ThreadPool m_threadPool;
 

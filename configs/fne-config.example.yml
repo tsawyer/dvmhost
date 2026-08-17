@@ -412,6 +412,17 @@ system:
         verbose: false
 
     #
+    # Radio Alias Configuration
+    #
+    radio_alias:
+        # Full path to the RID Alias file.
+        file: rid_alias.dat
+        # Amount of time between updates of RID Alias file. (minutes)
+        time: 2
+        # Flag indicating whether or not the RID ACL updates are logged.
+        verbose: false
+
+    #
     # Peer ACL configuration
     #
     peer_acl:

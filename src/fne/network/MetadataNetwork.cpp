@@ -253,6 +253,8 @@ void MetadataNetwork::taskNetworkRx(NetPacketRequest* req)
                 { NET_FUNC::KEYS_INVENTORY, &MetadataNetwork::PacketHandler::keysInventory },
                 { NET_FUNC::KEYS_UPDATE, &MetadataNetwork::PacketHandler::keysUpdate },
 
+                { NET_FUNC::RADIO_ALIAS_SYNC, &MetadataNetwork::PacketHandler::radioAliasSync },
+
                 { NET_FUNC::REPL, &MetadataNetwork::PacketHandler::replication },
                 { NET_FUNC::NET_TREE, &MetadataNetwork::PacketHandler::networkTree }
             };
