@@ -20,7 +20,7 @@
 #if !defined(__FNE_AFFILIATION_LOOKUP_H__)
 #define __FNE_AFFILIATION_LOOKUP_H__
 
-#include "Defines.h"
+#include "fne/Defines.h"
 #include "common/lookups/AffiliationLookup.h"
 #include "common/lookups/ChannelLookup.h"
 

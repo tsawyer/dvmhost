@@ -16,6 +16,7 @@
 #include "network/TrafficNetwork.h"
 #include "network/callhandler/TagDMRData.h"
 #include "network/callhandler/TagP25Data.h"
+#include "network/callhandler/TagP25P2Data.h"
 #include "network/callhandler/TagNXDNData.h"
 #include "network/callhandler/TagAnalogData.h"
 #include "network/P25OTARService.h"
@@ -61,12 +62,13 @@ std::array<std::mutex, PEER_STATE_LOCK_STRIPES> TrafficNetwork::s_peerStateLocks
 
 TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16_t port, uint32_t peerId, const std::string& password,
     std::string identity, bool debug, bool kmfDebug, bool verbose, bool reportPeerPing,
-    bool dmr, bool p25, bool nxdn, bool analog,
+    bool dmr, bool p25, bool p25P2, bool nxdn, bool analog,
     uint32_t parrotDelay, bool parrotGrantDemand, bool allowActivityTransfer, bool allowDiagnosticTransfer, 
     uint32_t pingTime, uint32_t updateLookupTime, uint16_t workerCnt) :
     BaseNetwork(peerId, true, debug, true, true, allowActivityTransfer, allowDiagnosticTransfer),
     m_tagDMR(nullptr),
     m_tagP25(nullptr),
+    m_tagP25P2(nullptr),
     m_tagNXDN(nullptr),
     m_tagAnalog(nullptr),
     m_p25OTARService(nullptr),
@@ -78,6 +80,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_isReplica(false),
     m_dmrEnabled(dmr),
     m_p25Enabled(p25),
+    m_p25P2Enabled(p25P2),
     m_nxdnEnabled(nxdn),
     m_analogEnabled(analog),
     m_parrotDelay(parrotDelay),
@@ -90,6 +93,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     m_kmfEncKeyRequest(false),
     m_kmfPresharedKey(nullptr),
     m_ridLookup(nullptr),
+    m_ridAliasLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
     m_adjSiteMapLookup(nullptr),
@@ -176,6 +180,7 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
 
     m_tagDMR = new TagDMRData(this, debug);
     m_tagP25 = new TagP25Data(this, debug);
+    m_tagP25P2 = new TagP25P2Data(this, debug);
     m_tagNXDN = new TagNXDNData(this, debug);
     m_tagAnalog = new TagAnalogData(this, debug);
 
@@ -191,7 +196,9 @@ TrafficNetwork::TrafficNetwork(HostFNE* host, const std::string& address, uint16
     ** Initialize Threads
     */
 
+#if !defined(CATCH2_TEST_COMPILATION)
     Thread::runAsThread(this, threadParrotHandler);
+#endif
 }
 
 /* Finalizes a instance of the TrafficNetwork class. */
@@ -208,6 +215,7 @@ TrafficNetwork::~TrafficNetwork()
 
     delete m_tagDMR;
     delete m_tagP25;
+    delete m_tagP25P2;
     delete m_tagNXDN;
     delete m_tagAnalog;
 }
@@ -518,12 +526,13 @@ void TrafficNetwork::setOptions(yaml::Node& conf, bool printOptions)
     }
 }
 
-/* Sets the instances of the Radio ID, Talkgroup ID Peer List, and Crypto lookup tables. */
+/* Sets the instances of the Radio ID, Radio Alias, Talkgroup ID, Peer List, and Crypto lookup tables. */
 
-void TrafficNetwork::setLookups(lookups::RadioIdLookup* ridLookup, lookups::TalkgroupRulesLookup* tidLookup, lookups::PeerListLookup* peerListLookup,
-    CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup)
+void TrafficNetwork::setLookups(lookups::RadioIdLookup* ridLookup, lookups::RadioAliasLookup* ridAliasLookup, lookups::TalkgroupRulesLookup* tidLookup,
+    lookups::PeerListLookup* peerListLookup, CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup)
 {
     m_ridLookup = ridLookup;
+    m_ridAliasLookup = ridAliasLookup;
     m_tidLookup = tidLookup;
     m_peerListLookup = peerListLookup;
     m_cryptoLookup = cryptoLookup;
@@ -976,6 +985,11 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                         fne->m_tagP25->playbackParrot();
                     }
 
+                    // if the P25 Phase 2 handler has parrot frames to playback, playback a frame
+                    if (fne->m_tagP25P2->hasParrotFrames()) {
+                        fne->m_tagP25P2->playbackParrot();
+                    }
+
                     // if the NXDN handler has parrot frames to playback, playback a frame
                     if (fne->m_tagNXDN->hasParrotFrames()) {
                         fne->m_tagNXDN->playbackParrot();
@@ -987,7 +1001,8 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                     }
                 }
 
-                if (!fne->m_tagDMR->hasParrotFrames() && !fne->m_tagP25->hasParrotFrames() && !fne->m_tagNXDN->hasParrotFrames() && !fne->m_tagAnalog->hasParrotFrames() &&
+                if (!fne->m_tagDMR->hasParrotFrames() && !fne->m_tagP25->hasParrotFrames() && !fne->m_tagP25P2->hasParrotFrames() &&
+                    !fne->m_tagNXDN->hasParrotFrames() && !fne->m_tagAnalog->hasParrotFrames() &&
                     fne->m_parrotDelayTimer.isRunning() && fne->m_parrotDelayTimer.hasExpired()) {
                     fne->m_parrotDelayTimer.stop();
                 }
@@ -1007,6 +1022,14 @@ void* TrafficNetwork::threadParrotHandler(void* arg)
                         LogInfoEx(LOG_MASTER, "P25, Parrot Call End, peer = %u, srcId = %u, dstId = %u",
                                    fne->m_tagP25->lastParrotPeerId(), fne->m_tagP25->lastParrotSrcId(), fne->m_tagP25->lastParrotDstId());
                         fne->m_tagP25->clearParrotPlayback();
+                    }
+
+                    // if the P25 Phase 2 handler is marked as playing back parrot frames, but has no more frames in the queue
+                    // clear the playback flag
+                    if (fne->m_tagP25P2->isParrotPlayback() && !fne->m_tagP25P2->hasParrotFrames()) {
+                        LogInfoEx(LOG_MASTER, "P25 Phase 2, Parrot Call End, peer = %u, srcId = %u, dstId = %u",
+                                   fne->m_tagP25P2->lastParrotPeerId(), fne->m_tagP25P2->lastParrotSrcId(), fne->m_tagP25P2->lastParrotDstId());
+                        fne->m_tagP25P2->clearParrotPlayback();
                     }
 
                     // if the NXDN handle is marked as playing back parrot frames, but has no more frames in the queue
@@ -1127,6 +1150,15 @@ void TrafficNetwork::taskNetworkRx(NetPacketRequest* req)
 
             // dispatch to the appropriate handler based on the function opcode
             uint8_t func = req->fneHeader.getFunction();
+
+            if ((func == NET_FUNC::RPTK && !validRepeaterAuthLength(req->length)) ||
+                (func == NET_FUNC::RPTC && !validRepeaterConfigLength(req->length))) {
+                LogWarning(LOG_MASTER, "PEER %u malformed FNE login packet, func = $%02X, length = %d", peerId, func, req->length);
+                if (req->buffer != nullptr)
+                    delete[] req->buffer;
+                delete req;
+                return;
+            }
 
             // bryanb: temporary support to allow announce packets on the traffic port but ultimately
             //  this should be removed and handled like TRANSFER is handled here
@@ -1584,6 +1616,10 @@ void TrafficNetwork::processInCallCtrl(network::NET_ICC::ENUM command, network::
                                 m_tagP25->triggerCallTakeover(dstId);
                                 break;
 
+                            case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:          // Encapsulated P25 Phase 2 data frame
+                                m_tagP25P2->triggerCallTakeover(dstId);
+                                break;
+
                             case NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN:            // Encapsulated NXDN data frame
                                 m_tagNXDN->triggerCallTakeover(dstId);
                                 break;
@@ -1639,6 +1675,10 @@ void TrafficNetwork::processInCallCtrl(network::NET_ICC::ENUM command, network::
 
                     case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25:             // Encapsulated P25 data frame
                         m_tagP25->triggerCallTakeover(dstId);
+                        break;
+
+                    case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:          // Encapsulated P25 Phase 2 data frame
+                        m_tagP25P2->triggerCallTakeover(dstId);
                         break;
 
                     case NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN:            // Encapsulated NXDN data frame
@@ -1798,6 +1838,7 @@ void TrafficNetwork::taskMetadataUpdate(MetadataUpdateRequest* req)
                         network->writeWhitelistRIDs(req->peerId, streamId, true);
                         network->writeTGIDs(req->peerId, streamId, true);
                         network->writePeerList(req->peerId, streamId);
+                        network->writeRadioAliasList(req->peerId, streamId);
 
                         network->writeHAParameters(req->peerId, streamId, true);
                     }
@@ -2232,6 +2273,68 @@ void TrafficNetwork::writeDeactiveTGIDs(uint32_t peerId, uint32_t streamId)
         payload, 4U + (tgidList.size() * 5U), streamId, true);
 }
 
+/* Helper to send the list of radio aliases to the specified peer. */
+
+void TrafficNetwork::writeRadioAliasList(uint32_t peerId, uint32_t streamId)
+{
+    // sending REPL style RID alias list to replica neighbor FNE peers
+    FNEPeerConnection* connection = m_peers[peerId];
+    if (connection != nullptr) {
+        std::string tempFile;
+        if (m_isReplica) {
+            std::ostringstream s;
+            std::random_device rd;
+            std::mt19937 mt(rd());
+            std::uniform_int_distribution<uint32_t> dist(0x00U, 0xFFFFFFFFU);
+            s << "/tmp/rid_alias.dat." << dist(mt);
+
+            tempFile = s.str();
+            std::string origFile = m_ridAliasLookup->filename();
+            m_ridAliasLookup->filename(tempFile);
+            m_ridAliasLookup->commit(true);
+            m_ridAliasLookup->filename(origFile);
+        } else {
+            tempFile = m_ridAliasLookup->filename();
+        }
+
+        // read entire file into string buffer
+        std::stringstream b;
+        std::ifstream stream(tempFile);
+        if (stream.is_open()) {
+            while (stream.peek() != EOF) {
+                b << (char)stream.get();
+            }
+
+            stream.close();
+        }
+
+        if (m_isReplica)
+            ::remove(tempFile.c_str());
+
+        // convert to a byte array
+        uint32_t len = b.str().size();
+        DECLARE_UINT8_ARRAY(buffer, len);
+        ::memcpy(buffer, b.str().data(), len);
+
+        PacketBuffer pkt(true, "Peer Replication, RID Alias List");
+        pkt.encode((uint8_t*)buffer, len);
+
+        LogInfoEx(LOG_REPL, "PEER %u (%s) Peer Replication, RID Alias List, blocks %u, streamId = %u", peerId, connection->identWithQualifier().c_str(),
+            pkt.fragments.size(), streamId);
+        if (pkt.fragments.size() > 0U) {
+            for (auto frag : pkt.fragments) {
+                writePeer(peerId, m_peerId, { NET_FUNC::REPL, NET_SUBFUNC::REPL_RID_ALIAS_LIST }, 
+                    frag.second->data, FRAG_SIZE, 0U, streamId);
+                Thread::sleep(60U); // pace block transmission
+            }
+        }
+
+        pkt.clear();
+    }
+
+    return;
+}
+
 /* Helper to send the list of peers to the specified peer. */
 
 void TrafficNetwork::writePeerList(uint32_t peerId, uint32_t streamId)
@@ -2385,7 +2488,7 @@ bool TrafficNetwork::writePeerICC(uint32_t peerId, uint32_t streamId, NET_SUBFUN
     }
     buffer[10U] = (uint8_t)command;                                             // In-Call Control Command
     SET_UINT24(dstId, buffer, 11U);                                             // Destination ID
-    buffer[14U] = slotNo;                                                       // DMR Slot No
+    buffer[14U] = slotNo;                                                       // DMR/P25P2 Slot No
 
     // are we sending this ICC request upstream?
     if (toUpstream && systemReq) {

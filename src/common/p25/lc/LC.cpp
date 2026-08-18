@@ -198,7 +198,8 @@ LC::LC() :
     m_mi(nullptr),
     m_userAlias(nullptr),
     m_gotUserAliasPartA(false),
-    m_gotUserAlias(false)
+    m_gotUserAlias(false),
+    m_p2MCODataLength(0U)
 {
     m_mi = new uint8_t[MI_LENGTH_BYTES];
     ::memset(m_mi, 0x00U, MI_LENGTH_BYTES);
@@ -655,7 +656,7 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
 
     m_p2DUID = duid[0U] >> 4U;
 
-    if (m_p2DUID == P2_DUID::VTCH_4V || m_p2DUID == P2_DUID::VTCH_2V || !sync)
+    if (m_p2DUID == P2_DUID::VTCH_4V || m_p2DUID == P2_DUID::VTCH_2V)
         return true; // don't handle 4V or 2V voice PDUs here -- user code will handle
     else {
         ::memset(raw, 0x00U, lengthBytes);
@@ -669,14 +670,17 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
             source = burst;
         }
 
-        // IEMI with sync: extract data bits (skip 14-bit sync and DUIDs)
+        // extract the four information fields, skipping sync (when present) and DUIDs
         for (uint32_t i = 0U; i < lengthBits; i++) {
-            uint32_t n = i + 14U; // Skip 14-bit sync
-            if (i >= 36U)
+            uint32_t n = i + (sync ? 14U : 0U);
+            uint32_t field1 = sync ? 36U : 72U;
+            uint32_t field2 = field1 + 72U;
+            uint32_t field3 = field2 + 96U;
+            if (i >= field1)
                 n += 2U; // skip DUID 1 after field 1 (36 bits)
-            if (i >= 108U)
+            if (i >= field2)
                 n += 2U; // skip DUID 2 after field 2 (36+72)
-            if (i >= 204U)
+            if (i >= field3)
                 n += 2U; // skip DUID 3 after field 3 (36+72+96)
 
             bool b = READ_BIT(source, n);
@@ -710,6 +714,58 @@ bool LC::decodeVCH_MACPDU_IEMI(const uint8_t* data, bool sync)
     }
 
     return true;
+}
+
+/* Encode an inbound/IEMI VCH MAC PDU. */
+
+void LC::encodeVCH_MACPDU_IEMI(uint8_t* data, bool sync)
+{
+    assert(data != nullptr);
+    ::memset(data, 0x00U, P25_P2_FRAME_LENGTH_BYTES);
+
+    uint32_t lengthBits = sync ? P25_P2_IEMI_WSYNC_LENGTH_BITS : P25_P2_IEMI_LENGTH_BITS;
+    uint8_t raw[P25_P2_IEMI_LENGTH_BYTES] = { 0U };
+    if (m_p2DUID != P2_DUID::VTCH_4V && m_p2DUID != P2_DUID::VTCH_2V) {
+        // encode the MAC PDU into the raw buffer, apply RS encoding, and map it into the data buffer
+        encodeMACPDU(raw, P25_P2_IEMI_MAC_LENGTH_BITS);
+        m_rs.encode462621(raw);
+
+        // map the encoded MAC PDU bits into the data buffer, accounting for sync and DUID fields
+        for (uint32_t i = 0U; i < lengthBits; i++) {
+            uint32_t field1 = sync ? 36U : 72U;
+            uint32_t field2 = field1 + 72U;
+            uint32_t field3 = field2 + 96U;
+            uint32_t n = i + (sync ? 14U : 0U);
+            if (i >= field1)
+                n += 2U; // skip DUID 1 after field 1 (36 bits)
+            if (i >= field2)
+                n += 2U; // skip DUID 2 after field 2 (36+72)
+            if (i >= field3)
+                n += 2U; // skip DUID 3 after field 3 (36+72+96)
+
+            WRITE_BIT(data, n, READ_BIT(raw, i));
+        }
+    }
+
+    uint8_t duidRaw[2U] = { static_cast<uint8_t>((m_p2DUID & 0x0FU) << 4U), 0U };
+    uint8_t duid[2U] = { 0U };
+
+    // encode the Phase 2 DUID into the duid buffer using Hamming code
+    encodeP2_DUIDHamming(duid, duidRaw);
+    for (uint8_t i = 0U; i < 8U; i++) {
+        uint32_t n = i + (sync ? 50U : 72U);
+        if (i >= 2U) 
+            n += 72U; // skip field 2
+        if (i >= 4U) 
+            n += 96U; // skip field 3
+        if (i >= 6U) 
+            n += 72U; // skip field 4
+
+        WRITE_BIT(data, n, READ_BIT(duid, i));
+    }
+
+    if (m_p2DUID == P2_DUID::FACCH_SCRAMBLED || m_p2DUID == P2_DUID::SACCH_SCRAMBLED)
+        applyP2Scrambler(data, true, sync);
 }
 
 /* Decode a xOEMI VCH MAC PDU. */
@@ -933,6 +989,18 @@ bool LC::isStandardMFId() const
     if ((m_mfId == MFG_STANDARD) || (m_mfId == MFG_STANDARD_ALT))
         return true;
     return false;
+}
+
+/* Get the Phase 2 MCO data. */
+
+uint32_t LC::getP2MCOData(uint8_t* data, uint32_t length) const
+{
+    if (data == nullptr || length == 0U || p2MCOData == nullptr)
+        return 0U;
+
+    uint32_t count = length < m_p2MCODataLength ? length : m_p2MCODataLength;
+    ::memcpy(data, p2MCOData, count);
+    return count;
 }
 
 /* Set the Phase 2 scrambler superframe bit offset. */
@@ -1262,7 +1330,7 @@ bool LC::decodeMACPDU(const uint8_t* raw, uint32_t macLength)
             ::memset(m_mi, 0x00U, MI_LENGTH_BYTES);
             ::memcpy(m_mi, raw + 1U, MI_LENGTH_BYTES);                              // Message Indicator
 
-            m_kId = (raw[10U] << 8) + raw[11U];                                     // Key ID
+            m_kId = static_cast<uint16_t>(raw[11U] | (raw[12U] << 8U));              // Key ID
             if (!m_encrypted) {
                 m_encryptOverride = true;
                 m_encrypted = true;
@@ -1333,6 +1401,9 @@ bool LC::decodeMACPDU(const uint8_t* raw, uint32_t macLength)
                     m_srcId = GET_UINT24(raw, 5U);                                  // Source/Target Address
                 }
                 break;
+            case P2_MAC_MCO::MAC_RELEASE:
+                m_srcId = GET_UINT24(raw, 3U);                                      // Source Radio Address
+                break;
 
             case P2_MAC_MCO::PDU_NULL:
                 break;
@@ -1348,11 +1419,9 @@ bool LC::decodeMACPDU(const uint8_t* raw, uint32_t macLength)
                 delete[] p2MCOData;
 
             uint32_t macLengthBytes = (macLength / 8U) + ((macLength % 8U) ? 1U : 0U);
-            p2MCOData = new uint8_t[macLengthBytes];
-            ::memset(p2MCOData, 0x00U, macLengthBytes);
-
-            // this will include the entire MCO (and depending on message length multiple MCOs)
-            ::memcpy(p2MCOData, raw + 1U, macLengthBytes - 3U); // excluding MAC PDU header and CRC
+            m_p2MCODataLength = macLengthBytes - 3U;
+            p2MCOData = new uint8_t[m_p2MCODataLength];
+            ::memcpy(p2MCOData, raw + 1U, m_p2MCODataLength);
         }
         break;
 
@@ -1599,14 +1668,15 @@ void LC::copy(const LC& data)
         if (p2MCOData != nullptr)
             delete[] p2MCOData;
 
-        p2MCOData = new uint8_t[P25_P2_IOEMI_MAC_LENGTH_BYTES];
-        ::memset(p2MCOData, 0x00U, P25_P2_IOEMI_MAC_LENGTH_BYTES);
-        ::memcpy(p2MCOData, data.p2MCOData, P25_P2_IOEMI_MAC_LENGTH_BYTES);
+        m_p2MCODataLength = data.m_p2MCODataLength;
+        p2MCOData = new uint8_t[m_p2MCODataLength];
+        ::memcpy(p2MCOData, data.p2MCOData, m_p2MCODataLength);
     } else {
         if (p2MCOData != nullptr) {
             delete[] p2MCOData;
             p2MCOData = nullptr;
         }
+        m_p2MCODataLength = 0U;
     }
 
     s_siteData = data.s_siteData;
@@ -1725,46 +1795,26 @@ void LC::encodeHDUGolay(uint8_t* data, const uint8_t* raw)
 
 void LC::decodeP2_DUIDHamming(const uint8_t* data, uint8_t* raw)
 {
-    uint32_t n = 0U;
-    uint32_t m = 0U;
-    for (uint32_t i = 0U; i < 4U; i++) {
-        bool hamming[8U];
+    bool hamming[8U];
+    for (uint32_t i = 0U; i < 8U; i++)
+        hamming[i] = READ_BIT(data, i);
 
-        for (uint32_t j = 0U; j < 8U; j++) {
-            hamming[j] = READ_BIT(data, n);
-            n++;
-        }
-
-        edac::Hamming::decode844(hamming);
-
-        for (uint32_t j = 0U; j < 4U; j++) {
-            WRITE_BIT(raw, m, hamming[j]);
-            m++;
-        }
-    }
+    edac::Hamming::decode844(hamming);
+    for (uint32_t i = 0U; i < 4U; i++)
+        WRITE_BIT(raw, i, hamming[i]);
 }
 
 /* Encode Phase 2 DUID hamming FEC. */
 
 void LC::encodeP2_DUIDHamming(uint8_t* data, const uint8_t* raw)
 {
-    uint32_t n = 0U;
-    uint32_t m = 0U;
-    for (uint32_t i = 0U; i < 4U; i++) {
-        bool hamming[8U];
+    bool hamming[8U] = { false };
+    for (uint32_t i = 0U; i < 4U; i++)
+        hamming[i] = READ_BIT(raw, i);
 
-        for (uint32_t j = 0U; j < 4U; j++) {
-            hamming[j] = READ_BIT(raw, m);
-            m++;
-        }
-
-        edac::Hamming::encode844(hamming);
-
-        for (uint32_t j = 0U; j < 8U; j++) {
-            WRITE_BIT(data, n, hamming[j]);
-            n++;
-        }
-    }
+    edac::Hamming::encode844(hamming);
+    for (uint32_t i = 0U; i < 8U; i++)
+        WRITE_BIT(data, i, hamming[i]);
 }
 
 /* Apply the Phase 2 TDMA MAC burst scrambler. */
@@ -1782,10 +1832,11 @@ void LC::applyP2Scrambler(uint8_t* data, bool inbound, bool sync)
     uint16_t fieldLengths[4U] = { 0U, 0U, 0U, 0U };
     uint16_t interFieldSkips[3U] = { 0U, 0U, 0U };
 
+    // set up the initial cursor position, field lengths, and inter-field skips based on the direction and sync status
     if (inbound) {
-        cursor = 14U;
+        cursor = sync ? 14U : 0U;
         fieldCount = 4U;
-        fieldLengths[0U] = 36U;
+        fieldLengths[0U] = sync ? 36U : 72U;
         fieldLengths[1U] = 72U;
         fieldLengths[2U] = 96U;
         fieldLengths[3U] = 72U;
@@ -1816,16 +1867,20 @@ void LC::applyP2Scrambler(uint8_t* data, bool inbound, bool sync)
         interFieldSkips[2U] = 2U;
     }
 
+    // initialize the scrambler state based on the network ID, system ID, color code, and direction
     uint64_t state = p25P2InitialScramblerState(s_siteData.netId(), s_siteData.sysId(), m_colorCode, inbound);
     state = p25P2AdvanceScrambler(state, (uint64_t)m_p2ScrambleOffset);
 
+    // apply the scrambler to each field, advancing the scrambler state as necessary
     for (uint8_t field = 0U; field < fieldCount; field++) {
+        // process each bit in the current field
         for (uint16_t bit = 0U; bit < fieldLengths[field]; bit++, cursor++) {
             bool scrambledBit = (READ_BIT(data, cursor) != 0U) ^ p25P2ScramblerOutput(state);
             WRITE_BIT(data, cursor, scrambledBit);
             state = p25P2ScramblerStep(state);
         }
 
+        // advance the scrambler state for the inter-field skip
         if (field + 1U < fieldCount) {
             cursor += interFieldSkips[field];
             state = p25P2AdvanceScrambler(state, interFieldSkips[field]);

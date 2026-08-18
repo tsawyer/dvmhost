@@ -955,8 +955,8 @@ UInt8Array BaseNetwork::readP25P2(bool& ret, uint32_t& frameLength)
 
 /* Writes P25 Phase 2 frame data to the network. */
 
-bool BaseNetwork::writeP25P2(const p25::lc::LC& control, p25::defines::P2_DUID::E duid, uint8_t slot, const uint8_t* data,
-    const uint8_t controlByte)
+bool BaseNetwork::writeP25P2(const p25::lc::LC& control, p25::defines::P2_DUID::E duid, uint8_t slot, const uint16_t scramblerOffset,
+    const uint8_t* data, const uint8_t controlByte)
 {
     if (m_status != NET_STAT_RUNNING && m_status != NET_STAT_MST_RUNNING)
         return false;
@@ -968,7 +968,7 @@ bool BaseNetwork::writeP25P2(const p25::lc::LC& control, p25::defines::P2_DUID::
     }
 
     uint32_t messageLength = 0U;
-    UInt8Array message = createP25P2_Message(messageLength, control, duid, slot, data, controlByte);
+    UInt8Array message = createP25P2_Message(messageLength, control, duid, slot, scramblerOffset, data, controlByte);
     if (message == nullptr) {
         return false;
     }
@@ -1662,7 +1662,7 @@ UInt8Array BaseNetwork::createP25_PDUMessage(uint32_t& length, const p25::data::
 /* Creates an P25 Phase 2 frame message. */
 
 UInt8Array BaseNetwork::createP25P2_Message(uint32_t& length, const p25::lc::LC& control, p25::defines::P2_DUID::E duid, 
-            const bool slot, const uint8_t* data, uint8_t controlByte)
+            const bool slot, const uint16_t scramblerOffset, const uint8_t* data, uint8_t controlByte)
 {
     using namespace p25::defines;
     uint8_t* buffer = new uint8_t[DATA_PACKET_LENGTH];
@@ -1674,10 +1674,14 @@ UInt8Array BaseNetwork::createP25P2_Message(uint32_t& length, const p25::lc::LC&
     // construct P25 message header
     createP25_MessageHdr(buffer, DUID::PDU, control, lsd, FrameType::DATA_UNIT);
 
+    buffer[4U] = control.getMACPDUOpcode();                                     // MAC PDU Opcode
+
     buffer[14U] = controlByte;
 
-    buffer[19U] = slot ? 0x00U : 0x80U;                                         // Slot Number
+    buffer[19U] = slot ? 0x80U : 0x00U;                                         // Slot Number
     buffer[19U] |= (uint8_t)duid;                                               // Phase 2 DUID
+
+    SET_UINT16(scramblerOffset, buffer, 20U);                                   // Scrambler Offset
 
     // pack raw P25 Phase 2 bytes
     uint32_t count = MSG_HDR_SIZE;

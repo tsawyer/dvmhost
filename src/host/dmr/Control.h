@@ -43,7 +43,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace dmr
 {
@@ -305,7 +307,9 @@ namespace dmr
 
     private:
         friend class Slot;
+#if defined(CATCH2_TEST_COMPILATION)
         friend class ::HostTestHooks;
+#endif
 
         bool m_authoritative;
         bool m_supervisor;

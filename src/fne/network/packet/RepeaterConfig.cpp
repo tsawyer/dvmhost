@@ -23,6 +23,12 @@ using namespace network;
 
 void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now)
 {
+    // validate the incoming packet length for a repeater configuration packet
+    if (req == nullptr || req->buffer == nullptr || !TrafficNetwork::validRepeaterConfigLength(req->length)) {
+        LogWarning(LOG_MASTER, "PEER %u RPTC, malformed packet length", peerId);
+        return;
+    }
+
     if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
         std::lock_guard<std::mutex> peerGuard(TrafficNetwork::getPeerStateLock(peerId));
 
@@ -31,9 +37,8 @@ void TrafficNetwork::PacketHandler::repeaterConfig(TrafficNetwork* network, NetP
             connection->lastPing(now);
 
             if (connection->connectionState() == NET_STAT_WAITING_CONFIG) {
-                DECLARE_UINT8_ARRAY(rawPayload, req->length - 8U);
-                ::memcpy(rawPayload, req->buffer + 8U, req->length - 8U);
-                std::string payload(rawPayload, rawPayload + (req->length - 8U));
+                const size_t payloadLength = (size_t)(req->length - REPEATER_PCKT_HDR_LEN);
+                std::string payload((const char *)(req->buffer + REPEATER_PCKT_HDR_LEN), payloadLength);
 
                 // parse JSON body
                 json::value v;

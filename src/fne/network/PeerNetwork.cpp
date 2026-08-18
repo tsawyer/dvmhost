@@ -44,17 +44,20 @@ PeerNetwork::PeerNetwork(const std::string& address, uint16_t port, uint16_t loc
     m_attachedKeyRSPHandler(false),
     m_dmrCallback(nullptr),
     m_p25Callback(nullptr),
+    m_p25P2Callback(nullptr),
     m_nxdnCallback(nullptr),
     m_analogCallback(nullptr),
     m_netTreeDiscCallback(nullptr),
     m_peerReplicaCallback(nullptr),
     m_masterPeerId(0U),
+    m_ridAliasLookup(nullptr),
     m_pidLookup(nullptr),
     m_peerReplica(false),
     m_peerReplicaSavesACL(false),
     m_tgidPkt(true, "Peer Replication, TGID List"),
     m_ridPkt(true, "Peer Replication, RID List"),
     m_pidPkt(true, "Peer Replication, PID List"),
+    m_ridAliasPkt(true, "Peer Replication, RID Alias List"),
     m_threadPool(WORKER_CNT, "peer"),
     m_prevSpanningTreeChildren(0U),
     m_nakFallOver(false),
@@ -88,6 +91,13 @@ PeerNetwork::~PeerNetwork()
     // stop thread pool
     m_threadPool.stop();
     m_threadPool.wait();
+}
+
+/* Sets the instnace of the Radio Alias lookup table. */
+
+void PeerNetwork::setRadioAliasLookups(lookups::RadioAliasLookup* ridAliasLookup)
+{
+    m_ridAliasLookup = ridAliasLookup;
 }
 
 /* Sets the instances of the Peer List lookup tables. */
@@ -456,6 +466,65 @@ void PeerNetwork::userPacketHandler(uint32_t peerId, FrameQueue::OpcodePair opco
         }
         break;
 
+        case NET_SUBFUNC::REPL_RID_ALIAS_LIST:                      // Peer List
+        {
+            uint32_t decompressedLen = 0U;
+            uint8_t* decompressed = nullptr;
+
+            if (m_ridAliasPkt.decode(data, &decompressed, &decompressedLen)) {
+                if (m_ridAliasLookup == nullptr) {
+                    LogError(LOG_PEER, "Radio Alias lookup not available yet.");
+                    m_ridAliasPkt.clear();
+                    delete[] decompressed;
+                    break;
+                }
+
+                // store to file
+                DECLARE_CHAR_ARRAY(str, decompressedLen + 1U);
+                ::memcpy(str, decompressed, decompressedLen);
+                str[decompressedLen] = 0; // null termination
+
+                // randomize filename
+                std::ostringstream s;
+                if (!m_peerReplicaSavesACL) {
+                    std::random_device rd;
+                    std::mt19937 mt(rd());
+                    std::uniform_int_distribution<uint32_t> dist(0x00U, 0xFFFFFFFFU);
+                    s << "/tmp/rid_alias.dat." << dist(mt);
+                } else {
+                    s << m_ridAliasLookup->filename();
+                }
+
+                std::string filename = s.str();
+                std::ofstream file(filename, std::ofstream::out);
+                if (file.fail()) {
+                    LogError(LOG_PEER, "Cannot open the radio alias lookup file - %s", filename.c_str());
+                    m_ridAliasPkt.clear();
+                    delete[] decompressed;
+                    break;
+                }
+
+                file << str;
+                file.close();
+
+                m_ridAliasLookup->stop(true);
+                m_ridAliasLookup->setReloadTime(0U);
+                m_ridAliasLookup->filename(filename);
+                m_ridAliasLookup->reload();
+
+                // flag this peer as replica enabled
+                m_peerReplica = true;
+                if (m_peerReplicaCallback != nullptr)
+                    m_peerReplicaCallback(this);
+
+                // cleanup temporary file
+                ::remove(filename.c_str());
+                m_ridAliasPkt.clear();
+                delete[] decompressed;
+            }
+        }
+        break;
+
         default:
             break;
         }
@@ -661,6 +730,13 @@ void PeerNetwork::taskNetworkRx(PeerPacketRequest* req)
                 {
                     if (network->m_p25Callback != nullptr)
                         network->m_p25Callback(network, req->buffer, req->length, req->streamId, req->fneHeader, req->rtpHeader);
+                }
+                break;
+            
+            case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:              // Encapsulated P25 Phase 2 data frame
+                {
+                    if (network->m_p25P2Callback != nullptr)
+                        network->m_p25P2Callback(network, req->buffer, req->length, req->streamId, req->fneHeader, req->rtpHeader);
                 }
                 break;
 

@@ -12,6 +12,7 @@
 #include "network/TrafficNetwork.h"
 #include "network/callhandler/TagDMRData.h"
 #include "network/callhandler/TagP25Data.h"
+#include "network/callhandler/TagP25P2Data.h"
 #include "network/callhandler/TagNXDNData.h"
 #include "network/callhandler/TagAnalogData.h"
 #include "fne/ActivityLog.h"
@@ -106,6 +107,46 @@ void TrafficNetwork::PacketHandler::protocol(TrafficNetwork* network, NetPacketR
             }
             else {
                 network->writePeerNAK(peerId, TAG_P25_DATA, NET_CONN_NAK_FNE_UNAUTHORIZED, req->address, req->addrLen);
+            }
+        }
+        break;
+
+    case NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2:          // Encapsulated P25 Phase 2 data frame
+        {
+            if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
+                FNEPeerConnection* connection = network->m_peers[peerId];
+                if (connection != nullptr) {
+                    std::string ip = udp::Socket::address(req->address);
+                    connection->lastPing(now);
+
+                    if (connection->connected() && connection->address() == ip) {
+                        if (network->m_p25Enabled) {
+                            if (network->m_tagP25P2 != nullptr) {
+                                if (connection->jitterBufferEnabled() && req->rtpHeader.getSequence() != RTP_END_OF_CALL_SEQ) {
+                                    std::vector<BufferedFrame*> readyFrames;
+                                    connection->processJitterFrame(streamId, req->rtpHeader.getSequence(),
+                                        req->buffer, req->length, readyFrames);
+                                    for (BufferedFrame* frame : readyFrames) {
+                                        network->m_tagP25P2->processFrame(frame->data, frame->length,
+                                            peerId, ssrc, frame->seq, streamId);
+                                        delete frame;
+                                    }
+                                }
+                                else {
+                                    network->m_tagP25P2->processFrame(req->buffer, req->length,
+                                        peerId, ssrc, req->rtpHeader.getSequence(), streamId);
+                                }
+                            }
+                        }
+                        else {
+                            network->writePeerNAK(peerId, streamId, TAG_P25_DATA, NET_CONN_NAK_MODE_NOT_ENABLED);
+                        }
+                    }
+                }
+            }
+            else {
+                network->writePeerNAK(peerId, TAG_P25_DATA, NET_CONN_NAK_FNE_UNAUTHORIZED,
+                    req->address, req->addrLen);
             }
         }
         break;

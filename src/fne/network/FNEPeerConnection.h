@@ -24,6 +24,14 @@
 #include <map>
 #include <shared_mutex>
 
+// ---------------------------------------------------------------------------
+//  Class Prototypes
+// ---------------------------------------------------------------------------
+
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
+
 namespace network
 {
     // ---------------------------------------------------------------------------
@@ -275,6 +283,9 @@ namespace network
         DECLARE_PROPERTY_PLAIN(json::object, config);
 
     private:
+#if defined(CATCH2_TEST_COMPILATION)
+        friend class ::FNETestHooks;
+#endif
         mutable std::mutex m_peerLockMtx;
 
         std::map<uint64_t, AdaptiveJitterBuffer*> m_jitterBuffers;

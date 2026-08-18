@@ -41,7 +41,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace dmr
 {
@@ -345,7 +347,9 @@ namespace dmr
 
     private:
         friend class Control;
+#if defined(CATCH2_TEST_COMPILATION)
         friend class ::HostTestHooks;
+#endif
         friend class packet::Voice;
         packet::Voice* m_voice;
         friend class packet::Data;

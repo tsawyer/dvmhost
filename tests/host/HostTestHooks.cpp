@@ -163,6 +163,120 @@ bool HostTestHooks::dmrStartRFVoiceCall(dmr::Slot& slot, uint32_t srcId, uint32_
     return slot.processFrame(frame, sizeof(frame));
 }
 
+/* Gets a P25 Phase 2 slot for tests. */
+
+p25::phase2::Slot& HostTestHooks::p25P2Slot(p25::phase2::Control& control, uint32_t slotNo)
+{
+    assert(slotNo < p25::phase2::Control::SLOT_COUNT);
+    return slotNo == 0U ? *control.m_slot1 : *control.m_slot2;
+}
+
+/* Gets P25 Phase 2 RF state. */
+
+RPT_RF_STATE HostTestHooks::p25P2RFState(const p25::phase2::Slot& slot) { return slot.m_rfState; }
+
+void HostTestHooks::p25P2SetRFState(p25::phase2::Slot& slot, RPT_RF_STATE state) { slot.m_rfState = state; }
+
+/* Gets P25 Phase 2 last source ID. */
+
+uint32_t HostTestHooks::p25P2LastSrcId(const p25::phase2::Slot& slot)
+{
+    return slot.m_rfLastSrcId != 0U ? slot.m_rfLastSrcId : slot.m_netLastSrcId;
+}
+
+/* Gets P25 Phase 2 last destination ID. */
+
+uint32_t HostTestHooks::p25P2LastDstId(const p25::phase2::Slot& slot)
+{
+    return slot.m_rfLastDstId != 0U ? slot.m_rfLastDstId : slot.m_netLastDstId;
+}
+
+/* Gets P25 Phase 2 RF scramble offset. */
+
+uint16_t HostTestHooks::p25P2RFScrambleOffset(const p25::phase2::Slot& slot) { return slot.m_rfScrambleOffset; }
+
+/* Gets P25 Phase 2 network scramble offset. */
+
+uint16_t HostTestHooks::p25P2NetScrambleOffset(const p25::phase2::Slot& slot) { return slot.m_netScrambleOffset; }
+
+/* Gets whether P25 Phase 2 ESS is complete. */
+
+bool HostTestHooks::p25P2ESSComplete(const p25::phase2::Slot& slot)
+{
+    return slot.m_voice.m_rfESSComplete || slot.m_voice.m_netESSComplete;
+}
+
+/* Gets P25 Phase 2 ESS algorithm ID. */
+
+uint8_t HostTestHooks::p25P2ESSAlgId(const p25::phase2::Slot& slot)
+{
+    const uint8_t* ess = slot.m_voice.m_netESSComplete ? slot.m_voice.m_netESS : slot.m_voice.m_rfESS;
+    return ess[0U];
+}
+
+/* Gets P25 Phase 2 ESS key ID. */
+
+uint16_t HostTestHooks::p25P2ESSKeyId(const p25::phase2::Slot& slot)
+{
+    const uint8_t* ess = slot.m_voice.m_netESSComplete ? slot.m_voice.m_netESS : slot.m_voice.m_rfESS;
+    return static_cast<uint16_t>((ess[1U] << 8U) | ess[2U]);
+}
+
+/* Copies P25 Phase 2 ESS MI. */
+
+void HostTestHooks::p25P2ESSMI(const p25::phase2::Slot& slot, uint8_t* mi)
+{
+    if (mi != nullptr)
+        ::memcpy(mi, slot.m_voice.m_netESSComplete ? slot.m_voice.m_netESS + 3U :
+            slot.m_voice.m_rfESS + 3U, 9U);
+}
+
+/* Gets P25 Phase 2 RF VCH state. */
+
+p25::phase2::Slot::VCH_STATE HostTestHooks::p25P2RFVCHState(const p25::phase2::Slot& slot) { return slot.m_rfVCHState; }
+
+/* Gets P25 Phase 2 network VCH state. */
+
+p25::phase2::Slot::VCH_STATE HostTestHooks::p25P2NetVCHState(const p25::phase2::Slot& slot) { return slot.m_netVCHState; }
+
+/* Gets P25 Phase 2 DUID. */
+
+p25::defines::P2_DUID::E HostTestHooks::p25P2DUID(const p25::phase2::Slot& slot) { return slot.m_duid; }
+
+/* Gets P25 Phase 2 RF PTT count. */
+
+uint8_t HostTestHooks::p25P2RFPTTCount(const p25::phase2::Slot& slot) { return slot.m_rfPTTCount; }
+
+/* Gets P25 Phase 2 RF frames count. */
+
+uint32_t HostTestHooks::p25P2RFFrames(const p25::phase2::Slot& slot) { return slot.m_rfFrames; }
+
+/* Gets P25 Phase 2 network frames count. */
+
+uint32_t HostTestHooks::p25P2NetFrames(const p25::phase2::Slot& slot) { return slot.m_netFrames; }
+
+/* Gets P25 Phase 2 network lost frames count. */
+uint32_t HostTestHooks::p25P2NetLost(const p25::phase2::Slot& slot) { return slot.m_netLost; }
+
+/* Gets P25 Phase 2 network missed frames count. */
+uint32_t HostTestHooks::p25P2NetMissed(const p25::phase2::Slot& slot) { return slot.m_netMissed; }
+
+/* Gets P25 Phase 2 RF bits, network bits, RF errors, and network errors. */
+
+uint32_t HostTestHooks::p25P2RFBits(const p25::phase2::Slot& slot) { return slot.m_rfBits; }
+
+/* Gets P25 Phase 2 network bits. */
+
+uint32_t HostTestHooks::p25P2NetBits(const p25::phase2::Slot& slot) { return slot.m_netBits; }
+
+/* Gets P25 Phase 2 RF errors. */
+
+uint32_t HostTestHooks::p25P2RFErrs(const p25::phase2::Slot& slot) { return slot.m_rfErrs; }
+
+/* Gets P25 Phase 2 network errors. */
+
+uint32_t HostTestHooks::p25P2NetErrs(const p25::phase2::Slot& slot) { return slot.m_netErrs; }
+
 /* Gets P25 network state. */
 
 RPT_NET_STATE HostTestHooks::p25NetState(const p25::Control& control) { return control.m_netState; }

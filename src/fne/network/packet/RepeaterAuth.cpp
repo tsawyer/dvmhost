@@ -24,6 +24,12 @@ using namespace network;
 
 void TrafficNetwork::PacketHandler::repeaterAuth(TrafficNetwork* network, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId, uint64_t now)
 {
+    // validate the incoming packet length for a repeater authentication packet
+    if (req == nullptr || req->buffer == nullptr || !TrafficNetwork::validRepeaterAuthLength(req->length)) {
+        LogWarning(LOG_MASTER, "PEER %u RPTK, malformed packet length", peerId);
+        return;
+    }
+
     if (peerId > 0 && (network->m_peers.find(peerId) != network->m_peers.end())) {
         std::lock_guard<std::mutex> peerGuard(TrafficNetwork::getPeerStateLock(peerId));
 
@@ -33,8 +39,8 @@ void TrafficNetwork::PacketHandler::repeaterAuth(TrafficNetwork* network, NetPac
 
             if (connection->connectionState() == NET_STAT_WAITING_AUTHORISATION) {
                 // get the hash from the frame message
-                DECLARE_UINT8_ARRAY(hash, req->length - 8U);
-                ::memcpy(hash, req->buffer + 8U, req->length - 8U);
+                uint8_t hash[REPEATER_AUTH_HASH_LEN];
+                ::memcpy(hash, req->buffer + REPEATER_PCKT_HDR_LEN, sizeof(hash));
 
                 // generate our own hash
                 uint8_t salt[4U];
@@ -81,14 +87,11 @@ void TrafficNetwork::PacketHandler::repeaterAuth(TrafficNetwork* network, NetPac
                     delete[] in;
 
                     // validate hash
-                    bool validHash = false;
-                    if (req->length - 8U == 32U) {
-                        validHash = true;
-                        for (uint8_t i = 0; i < 32U; i++) {
-                            if (hash[i] != out[i]) {
-                                validHash = false;
-                                break;
-                            }
+                    bool validHash = true;
+                    for (size_t i = 0U; i < sizeof(hash); i++) {
+                        if (hash[i] != out[i]) {
+                            validHash = false;
+                            break;
                         }
                     }
 

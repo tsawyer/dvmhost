@@ -156,6 +156,8 @@ master:
     allowDMRTraffic: true
     # Flag indicating whether or not P25 traffic will be passed.
     allowP25Traffic: true
+    # Flag indicating whether or not P25 Phase 2 traffic will be passed.
+    allowP25P2Traffic: false
     # Flag indicating whether or not NXDN traffic will be passed.
     allowNXDNTraffic: true
     # Flag indicating whether or not analog traffic will be passed.
@@ -407,6 +409,17 @@ system:
         # Amount of time between updates of Radio ID ACL file. (minutes)
         time: 2
         # Flag indicating whether or not the Radio ID ACL updates are logged.
+        verbose: false
+
+    #
+    # Radio Alias Configuration
+    #
+    radio_alias:
+        # Full path to the RID Alias file.
+        file: rid_alias.dat
+        # Amount of time between updates of RID Alias file. (minutes)
+        time: 2
+        # Flag indicating whether or not the RID ACL updates are logged.
         verbose: false
 
     #

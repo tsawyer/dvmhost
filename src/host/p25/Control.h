@@ -56,7 +56,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace p25
 {
@@ -284,7 +286,9 @@ namespace p25
 
     private:
         friend class packet::Voice;
+#if defined(CATCH2_TEST_COMPILATION)
         friend class ::HostTestHooks;
+#endif
         packet::Voice* m_voice;
         friend class packet::Data;
         packet::Data* m_data;

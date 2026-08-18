@@ -31,7 +31,9 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
 class HostTestHooks;
+#endif
 
 namespace p25
 {
@@ -87,7 +89,9 @@ namespace p25
         protected:
             friend class packet::ControlSignaling;
             friend class p25::Control;
+#if defined(CATCH2_TEST_COMPILATION)
             friend class ::HostTestHooks;
+#endif
             Control* m_p25;
 
             uint32_t m_rfFrames;

@@ -14,6 +14,8 @@
 #include "host/dmr/Slot.h"
 #include "host/nxdn/Control.h"
 #include "host/p25/Control.h"
+#include "host/p25/phase2/Control.h"
+#include "host/p25/phase2/Slot.h"
 #include "host/p25/packet/Voice.h"
 
 // ---------------------------------------------------------------------------
@@ -217,6 +219,147 @@ public:
      * @param duid DUID to encode into frame NID bits.
      */
     static void p25StampRFFrameNID(p25::Control& control, uint8_t* frame, p25::defines::DUID::E duid);
+
+    /** 
+     * @brief Gets a P25 Phase 2 slot for tests. 
+     * @param control P25 Phase 2 control instance.
+     * @param slotNo Slot number to retrieve.
+     * @return p25::phase2::Slot& Reference to the requested Phase 2 slot.
+     */
+    static p25::phase2::Slot& p25P2Slot(p25::phase2::Control& control, uint32_t slotNo);
+    /** 
+     * @brief Gets P25 Phase 2 RF state. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return RPT_RF_STATE Current RF state of the slot.
+     */
+    static RPT_RF_STATE p25P2RFState(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Forces P25 Phase 2 RF state for recovery-path tests. 
+     * @param slot P25 Phase 2 slot instance.
+     * @param state RF state to set for the slot.
+     */
+    static void p25P2SetRFState(p25::phase2::Slot& slot, RPT_RF_STATE state);
+    /** 
+     * @brief Gets P25 Phase 2 last source ID. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Last source ID of the slot.
+     */
+    static uint32_t p25P2LastSrcId(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets P25 Phase 2 last destination ID. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Last destination ID of the slot.
+     */
+    static uint32_t p25P2LastDstId(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets P25 Phase 2 RF scramble offset. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint16_t RF scramble offset of the slot.
+     */
+    static uint16_t p25P2RFScrambleOffset(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets P25 Phase 2 network scramble offset. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint16_t Network scramble offset of the slot.
+     */
+    static uint16_t p25P2NetScrambleOffset(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets whether P25 Phase 2 ESS is complete. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return bool True if ESS is complete, false otherwise.
+     */
+    static bool p25P2ESSComplete(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets P25 Phase 2 ESS algorithm ID. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint8_t ESS algorithm ID of the slot.
+     */
+    static uint8_t p25P2ESSAlgId(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets P25 Phase 2 ESS key ID. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint16_t ESS key ID of the slot.
+     */
+    static uint16_t p25P2ESSKeyId(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Copies P25 Phase 2 ESS MI. 
+     * @param slot P25 Phase 2 slot instance.
+     * @param mi Buffer to copy the ESS MI into.
+     */
+    static void p25P2ESSMI(const p25::phase2::Slot& slot, uint8_t* mi);
+    /** 
+     * @brief Gets the RF VCH lifecycle state. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return p25::phase2::Slot::VCH_STATE RF VCH lifecycle state of the slot.
+     */
+    static p25::phase2::Slot::VCH_STATE p25P2RFVCHState(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets the network VCH lifecycle state. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return p25::phase2::Slot::VCH_STATE Network VCH lifecycle state of the slot.
+     */
+    static p25::phase2::Slot::VCH_STATE p25P2NetVCHState(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets the decoded Phase 2 DUID. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return p25::defines::P2_DUID::E Decoded Phase 2 DUID of the slot.
+     */
+    static p25::defines::P2_DUID::E p25P2DUID(const p25::phase2::Slot& slot);
+    /** 
+     * @brief Gets the decoded inbound FACCH PTT count. 
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint8_t Decoded inbound FACCH PTT count of the slot.
+     */
+    static uint8_t p25P2RFPTTCount(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of RF frames received.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of RF frames received by the slot.
+     */
+    static uint32_t p25P2RFFrames(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of network frames received.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of network frames received by the slot.
+     */
+    static uint32_t p25P2NetFrames(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of network frames lost.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of network frames lost by the slot.
+     */
+    static uint32_t p25P2NetLost(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of network frames missed.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of network frames missed by the slot.
+     */
+    static uint32_t p25P2NetMissed(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of RF bits received.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of RF bits received by the slot.
+     */
+    static uint32_t p25P2RFBits(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of network bits received.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of network bits received by the slot.
+     */
+    static uint32_t p25P2NetBits(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of RF errors.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of RF errors of the slot.
+     */
+    static uint32_t p25P2RFErrs(const p25::phase2::Slot& slot);
+    /**
+     * @brief Gets the number of network errors.
+     * @param slot P25 Phase 2 slot instance.
+     * @return uint32_t Number of network errors of the slot.
+     */
+    static uint32_t p25P2NetErrs(const p25::phase2::Slot& slot);
+
     /**
      * @brief Injects a synthetic P25 network call start via voice packet path.
      * @param control P25 control instance.

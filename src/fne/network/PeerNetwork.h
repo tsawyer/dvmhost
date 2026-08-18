@@ -16,7 +16,8 @@
 #if !defined(__PEER_NETWORK_H__)
 #define __PEER_NETWORK_H__
 
-#include "Defines.h"
+#include "fne/Defines.h"
+#include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/network/Network.h"
 #include "common/network/PacketBuffer.h"
@@ -94,6 +95,11 @@ namespace network
          */
         void setMasterPeerId(uint32_t masterPeerId) { m_masterPeerId = masterPeerId; }
         /**
+         * @brief Sets the instnace of the Radio Alias lookup table.
+         * @param ridAliasLookup Radio Alias Lookup Table Instance
+         */
+        void setRadioAliasLookups(lookups::RadioAliasLookup* ridAliasLookup);
+        /**
          * @brief Sets the instances of the Peer List lookup tables.
          * @param pidLookup Peer List Lookup Table Instance
          */
@@ -120,6 +126,11 @@ namespace network
          * @param callback 
          */
         void setP25Callback(std::function<void(PeerNetwork*, const uint8_t*, uint32_t, uint32_t, const frame::RTPFNEHeader&, const frame::RTPHeader&)>&& callback) { m_p25Callback = callback; }
+        /**
+         * @brief Helper to set the P25 Phase 2 protocol callback.
+         * @param callback 
+         */
+        void setP25P2Callback(std::function<void(PeerNetwork*, const uint8_t*, uint32_t, uint32_t, const frame::RTPFNEHeader&, const frame::RTPHeader&)>&& callback) { m_p25P2Callback = callback; }
         /**
          * @brief Helper to set the NXDN protocol callback.
          * @param callback 
@@ -280,6 +291,11 @@ namespace network
          */
         std::function<void(PeerNetwork* peer, const uint8_t* data, uint32_t length, uint32_t streamId, const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader)> m_p25Callback;
         /**
+         * @brief P25 Phase 2 Protocol Callback.
+         *  (This is called when the master sends a P25 Phase 2 packet.)
+         */
+        std::function<void(PeerNetwork* peer, const uint8_t* data, uint32_t length, uint32_t streamId, const frame::RTPFNEHeader& fneHeader, const frame::RTPHeader& rtpHeader)> m_p25P2Callback;
+        /**
          * @brief NXDN Protocol Callback.
          *  (This is called when the master sends a NXDN packet.)
          */
@@ -329,6 +345,7 @@ namespace network
     private:
         uint32_t m_masterPeerId;
 
+        lookups::RadioAliasLookup* m_ridAliasLookup;
         lookups::PeerListLookup* m_pidLookup;
         bool m_peerReplica;
         bool m_peerReplicaSavesACL;
@@ -336,6 +353,7 @@ namespace network
         PacketBuffer m_tgidPkt;
         PacketBuffer m_ridPkt;
         PacketBuffer m_pidPkt;
+        PacketBuffer m_ridAliasPkt;
 
         ThreadPool m_threadPool;
 

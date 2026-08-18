@@ -14,6 +14,8 @@
 #include "fne/ActivityLog.h"
 #include "HostFNE.h"
 
+#include <fstream>
+
 using namespace network;
 
 // ---------------------------------------------------------------------------

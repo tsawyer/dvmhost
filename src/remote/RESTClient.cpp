@@ -163,19 +163,19 @@ int RESTClient::send(const std::string& address, uint32_t port, const std::strin
 #if defined(ENABLE_SSL)
         if (s_enableSSL) {
             sslClient = new SecureHTTPClient<RESTDispatcherType>(address, port);
+            sslClient->setHandler(m_dispatcher);
             if (!sslClient->open()) {
                 delete sslClient;
                 return ERRNO_SOCK_OPEN;
             }
-            sslClient->setHandler(m_dispatcher);
         } else {
 #endif // ENABLE_SSL
             client = new HTTPClient<RESTDispatcherType>(address, port);
+            client->setHandler(m_dispatcher);
             if (!client->open()) {
                 delete client;
                 return ERRNO_SOCK_OPEN;
             }
-            client->setHandler(m_dispatcher);
 #if defined(ENABLE_SSL)
         }
 #endif // ENABLE_SSL
@@ -276,19 +276,19 @@ int RESTClient::send(const std::string& address, uint32_t port, const std::strin
 #if defined(ENABLE_SSL)
         if (s_enableSSL) {
             sslClient = new SecureHTTPClient<RESTDispatcherType>(address, port);
+            sslClient->setHandler(m_dispatcher);
             if (!sslClient->open()) {
                 delete sslClient;
                 return ERRNO_SOCK_OPEN;
             }
-            sslClient->setHandler(m_dispatcher);
         } else {
 #endif // ENABLE_SSL
             client = new HTTPClient<RESTDispatcherType>(address, port);
+            client->setHandler(m_dispatcher);
             if (!client->open()) {
                 delete client;
                 return ERRNO_SOCK_OPEN;
             }
-            client->setHandler(m_dispatcher);
 #if defined(ENABLE_SSL)
         }
 #endif // ENABLE_SSL

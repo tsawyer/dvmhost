@@ -29,6 +29,7 @@
 #include "common/concurrent/shared_unordered_map.h"
 #include "common/json/json.h"
 #include "common/lookups/RadioIdLookup.h"
+#include "common/lookups/RadioAliasLookup.h"
 #include "common/lookups/TalkgroupRulesLookup.h"
 #include "common/lookups/PeerListLookup.h"
 #include "common/lookups/AdjSiteMapLookup.h"
@@ -57,12 +58,17 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
+
 class HOST_SW_API HostFNE;
 class HOST_SW_API RESTAPI;
 namespace network { namespace callhandler { class HOST_SW_API TagDMRData; } }
 namespace network { namespace callhandler { namespace packetdata { class HOST_SW_API DMRPacketData; } } }
 namespace network { namespace callhandler { class HOST_SW_API TagP25Data; } }
 namespace network { namespace callhandler { namespace packetdata { class HOST_SW_API P25PacketData; } } }
+namespace network { namespace callhandler { class HOST_SW_API TagP25P2Data; } }
 namespace network { class HOST_SW_API P25OTARService; }
 namespace network { namespace callhandler { class HOST_SW_API TagNXDNData; } }
 namespace network { namespace callhandler { class HOST_SW_API TagAnalogData; } }
@@ -101,6 +107,10 @@ namespace network
 
     const uint32_t MAX_HARD_CONN_CAP = 250U;
     const size_t PEER_STATE_LOCK_STRIPES = 256U;
+
+    const int32_t REPEATER_PCKT_HDR_LEN = 8;
+    const int32_t REPEATER_AUTH_HASH_LEN = 32;
+    const int32_t TRANSFER_PCKT_HDR_LEN = 11;
 
     // ---------------------------------------------------------------------------
     //  Class Prototypes
@@ -167,6 +177,7 @@ namespace network
          * @param reportPeerPing Flag indicating whether peer pinging is reported.
          * @param dmr Flag indicating whether DMR is enabled.
          * @param p25 Flag indicating whether P25 is enabled.
+         * @param p25P2 Flag indicating whether P25 Phase 2 is enabled.
          * @param nxdn Flag indicating whether NXDN is enabled.
          * @param analog Flag indicating whether analog is enabled.
          * @param parrotDelay Delay for end of call to parrot TG playback.
@@ -179,7 +190,7 @@ namespace network
          */
         TrafficNetwork(HostFNE* host, const std::string& address, uint16_t port, uint32_t peerId, const std::string& password,
             std::string identity, bool debug, bool kmfDebug, bool verbose, bool reportPeerPing,
-            bool dmr, bool p25, bool nxdn, bool analog,
+            bool dmr, bool p25, bool p25P2, bool nxdn, bool analog,
             uint32_t parrotDelay, bool parrotGrantDemand, bool allowActivityTransfer, bool allowDiagnosticTransfer, 
             uint32_t pingTime, uint32_t updateLookupTime, uint16_t workerCnt);
         /**
@@ -211,6 +222,10 @@ namespace network
          */
         callhandler::TagP25Data* p25TrafficHandler() const { return m_tagP25; }
         /**
+         * @brief Gets the instance of the P25 Phase 2 call handler.
+         */
+        callhandler::TagP25P2Data* p25P2TrafficHandler() const { return m_tagP25P2; }
+        /**
          * @brief Gets the instance of the NXDN call handler.
          * @returns callhandler::TagNXDNData* Instance of the TagNXDNData call handler.
          */
@@ -222,15 +237,16 @@ namespace network
         callhandler::TagAnalogData* analogTrafficHandler() const { return m_tagAnalog; }
 
         /**
-         * @brief Sets the instances of the Radio ID, Talkgroup ID Peer List, and Crypto lookup tables.
+         * @brief Sets the instances of the Radio ID, Radio Alias, Talkgroup ID, Peer List, and Crypto lookup tables.
          * @param ridLookup Radio ID Lookup Table Instance
+         * @param ridAliasLookup Radio Alias Lookup Table Instance
          * @param tidLookup Talkgroup Rules Lookup Table Instance
          * @param peerListLookup Peer List Lookup Table Instance
          * @param cryptoLookup Crypto Container Lookup Table Instance
          * @param adjSiteMapLookup Adjacent Site Map Lookup Table Instance
          */
-        void setLookups(lookups::RadioIdLookup* ridLookup, lookups::TalkgroupRulesLookup* tidLookup, lookups::PeerListLookup* peerListLookup,
-            CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup);
+        void setLookups(lookups::RadioIdLookup* ridLookup, lookups::RadioAliasLookup* ridAliasLookup, lookups::TalkgroupRulesLookup* tidLookup, 
+            lookups::PeerListLookup* peerListLookup, CryptoContainer* cryptoLookup, lookups::AdjSiteMapLookup* adjSiteMapLookup);
         /**
          * @brief Sets endpoint preshared encryption key.
          * @param presharedKey Encryption preshared key for networking.
@@ -300,6 +316,9 @@ namespace network
         void setPeerReplica(bool replica);
 
     private:
+#if defined(CATCH2_TEST_COMPILATION)
+        friend class ::FNETestHooks;
+#endif
         friend class MetadataNetwork;
         friend class callhandler::TagDMRData;
         friend class callhandler::packetdata::DMRPacketData;
@@ -307,6 +326,8 @@ namespace network
         friend class callhandler::TagP25Data;
         friend class callhandler::packetdata::P25PacketData;
         callhandler::TagP25Data* m_tagP25;
+        friend class callhandler::TagP25P2Data;
+        callhandler::TagP25P2Data* m_tagP25P2;
         friend class callhandler::TagNXDNData;
         callhandler::TagNXDNData* m_tagNXDN;
         friend class callhandler::TagAnalogData;
@@ -329,6 +350,7 @@ namespace network
 
         bool m_dmrEnabled;
         bool m_p25Enabled;
+        bool m_p25P2Enabled;
         bool m_nxdnEnabled;
         bool m_analogEnabled;
 
@@ -344,6 +366,7 @@ namespace network
         uint8_t* m_kmfPresharedKey;
 
         lookups::RadioIdLookup* m_ridLookup;
+        lookups::RadioAliasLookup* m_ridAliasLookup;
         lookups::TalkgroupRulesLookup* m_tidLookup;
         lookups::PeerListLookup* m_peerListLookup;
         lookups::AdjSiteMapLookup* m_adjSiteMapLookup;
@@ -608,6 +631,20 @@ namespace network
         */
 
         /**
+         * @brief Checks if the passed length is valid for a repeater authentication packet.
+         * @param length Length of the packet.
+         * @returns bool True, if the length is valid for a repeater authentication packet, otherwise false.
+         */
+        static constexpr bool validRepeaterAuthLength(int length) { return length == REPEATER_PCKT_HDR_LEN + REPEATER_AUTH_HASH_LEN; }
+
+        /**
+         * @brief Checks if the passed length is valid for a repeater configuration packet.
+         * @param length Length of the packet.
+         * @returns bool True, if the length is valid for a repeater configuration packet, otherwise false.
+         */
+        static constexpr bool validRepeaterConfigLength(int length) { return length > REPEATER_PCKT_HDR_LEN && length <= (int)(DATA_PACKET_LENGTH); }
+
+        /**
          * @brief Checks if the passed peer ID is blocked from unit-to-unit traffic.
          * @param peerId Peer ID.
          * @returns bool True, if peer is blocked from unit-to-unit traffic, otherwise false.
@@ -819,6 +856,13 @@ namespace network
          * @param streamId Stream ID for this message.
          */
         void writeDeactiveTGIDs(uint32_t peerId, uint32_t streamId);
+        /**
+         * @brief Helper to send the list of radio aliases to the specified peer.
+         * @note This doesn't have a data layout document because it is *only* sent as a packet buffered message.
+         * @param peerId Peer ID.
+         * @param streamId Stream ID for this message.
+         */
+        void writeRadioAliasList(uint32_t peerId, uint32_t streamId);
         /**
          * @brief Helper to send the list of peers to the specified peer.
          * @note This doesn't have a data layout document because it is *only* sent as a packet buffered message.

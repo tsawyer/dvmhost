@@ -24,19 +24,31 @@ using namespace p25::lc;
 #include <stdlib.h>
 #include <time.h>
 
+// ---------------------------------------------------------------------------
+//  Global Functions
+// ---------------------------------------------------------------------------
 namespace {
-    void configureP2ScrambleContext(LC& lc, uint16_t scrambleOffset, uint16_t colorCode = DEFAULT_NAC)
-    {
-        static bool siteConfigured = false;
-        if (!siteConfigured) {
-            LC::setSiteData(SiteData(0xABCDEU, 0x123U, 1U, 1U, 1U, 1U, 1U,
-                ServiceClass::VOICE | ServiceClass::DATA, 0));
-            siteConfigured = true;
-        }
 
-        lc.setColorCode(colorCode);
-        lc.setP2ScrambleOffset(scrambleOffset);
+/**
+ * @brief Configures the LC instance with a P25 Phase 2 scramble context.
+ * @param lc LC instance to configure.
+ * @param scrambleOffset Scramble offset to set.
+ * @param colorCode Color code to set (default is DEFAULT_NAC).
+ * @note This function sets the site data for the LC instance if it has not been
+ */
+void configureP2ScrambleContext(LC& lc, uint16_t scrambleOffset, uint16_t colorCode = DEFAULT_NAC)
+{
+    static bool siteConfigured = false;
+    if (!siteConfigured) {
+        LC::setSiteData(SiteData(0xABCDEU, 0x123U, 1U, 1U, 1U, 1U, 1U,
+            ServiceClass::VOICE | ServiceClass::DATA, 0));
+        siteConfigured = true;
     }
+
+    lc.setColorCode(colorCode);
+    lc.setP2ScrambleOffset(scrambleOffset);
+}
+
 }
 
 TEST_CASE("P25 Phase 2 VCH MAC PDU I-OEMI (RS 52,30,23) Test", "[p25][p2_vch_macpdu_ioemi][cap]") {

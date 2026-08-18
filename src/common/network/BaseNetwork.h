@@ -933,12 +933,13 @@ namespace network
          * @param[in] control Instance of p25::lc::LC containing link control data.
          * @param[in] duid P25 Phase 2 DUID type.
          * @param[in] slot P25 Phase 2 slot number.
+         * @param[in] scramblerOffset Scrambler offset for the P25 Phase 2 frame.
          * @param[in] data Buffer containing P25 Phase 2 data to send.
          * @param[in] controlByte DVM control byte.
          * @returns bool True, if message was sent, otherwise false.
          */
-        virtual bool writeP25P2(const p25::lc::LC& control, p25::defines::P2_DUID::E duid, uint8_t slot, const uint8_t* data,
-            const uint8_t controlByte = 0U);
+        virtual bool writeP25P2(const p25::lc::LC& control, p25::defines::P2_DUID::E duid, uint8_t slot, const uint16_t scramblerOffset, 
+            const uint8_t* data, const uint8_t controlByte = 0U);
 
         /**
          * @brief Helper to test if the P25 ring buffer has data.
@@ -1292,13 +1293,14 @@ namespace network
          * @param[in] control Instance of p25::lc::LC containing link control data.
          * @param duid P25 Phase 2 DUID.
          * @param[in] slot P25 Phase 2 slot (clear Slot 1, set Slot 2).
+         * @param[in] scramblerOffset Scrambler offset for the P25 Phase 2 frame.
          * @param[in] data Buffer containing P25 LDU2 data to send.
          * @param[in] controlByte DVM Network Control Byte.
          * @param data Instance of the dmr::data::Data class containing the DMR message.
          * @returns UInt8Array Buffer containing the built network message.
          */
         UInt8Array createP25P2_Message(uint32_t& length, const p25::lc::LC& control, p25::defines::P2_DUID::E duid, 
-            const bool slot, const uint8_t* data, uint8_t controlByte = 0U);
+            const bool slot, const uint16_t scramblerOffset, const uint8_t* data, uint8_t controlByte = 0U);
 
         /**
          * @brief Creates an NXDN frame message.

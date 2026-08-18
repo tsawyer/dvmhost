@@ -30,6 +30,10 @@
 //  Class Prototypes
 // ---------------------------------------------------------------------------
 
+#if defined(CATCH2_TEST_COMPILATION)
+class FNETestHooks;
+#endif
+
 class HOST_SW_API HostFNE;
 
 namespace network
@@ -99,6 +103,9 @@ namespace network
         void close() override;
 
     private:
+#if defined(CATCH2_TEST_COMPILATION)
+        friend class ::FNETestHooks;
+#endif
         friend class TrafficNetwork;
         TrafficNetwork* m_trafficNetwork;
         HostFNE* m_host;
@@ -199,6 +206,17 @@ namespace network
              * @param streamId Stream ID of the packet.
              */
             static void announce(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
+
+            /**
+             * @brief Handles NET_FUNC::RADIO_ALIAS_SYNC packets.
+             * @param network Instance of the TrafficNetwork class.
+             * @param mdNetwork Instance of the MetadataNetwork class.
+             * @param req Instance of the NetPacketRequest structure.
+             * @param peerId Peer ID of the packet.
+             * @param ssrc SSRC of the packet.
+             * @param streamId Stream ID of the packet.
+             */
+            static void radioAliasSync(TrafficNetwork* network, MetadataNetwork* mdNetwork, NetPacketRequest* req, uint32_t peerId, uint32_t ssrc, uint32_t streamId);
 
             /**
              * @brief Handles NET_FUNC::KEYS_INVENTORY packets.

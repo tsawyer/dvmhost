@@ -70,6 +70,9 @@ namespace network
 
             KEY_LLA_REQ = 0x80U,                    //!< Encryption Key LLA Request
             KEY_LLA_RSP = 0x81U,                    //!< Encryption Key LLA Response
+
+            RADIO_ALIAS_SYNC = 0x85U,               //!< Radio Alias List Sync
+
             KEYS_INVENTORY = 0x8EU,                 //!< Encryption Key Container Inventory
             KEYS_UPDATE = 0x8FU,                    //!< Encryption Key Container Update
 
@@ -119,6 +122,7 @@ namespace network
             REPL_TALKGROUP_LIST = 0x00U,            //!< FNE Replication Talkgroup Transfer
             REPL_RID_LIST = 0x01U,                  //!< FNE Replication Radio ID Transfer
             REPL_PEER_LIST = 0x02U,                 //!< FNE Replication Peer List Transfer
+            REPL_RID_ALIAS_LIST = 0x03U,            //!< FNE Replication Radio Alias Transfer
 
             REPL_ACT_PEER_LIST = 0xA2U,             //!< FNE Replication Active Peer List Transfer
             REPL_HA_PARAMS = 0xA3U,                 //!< FNE Replication HA Parameters

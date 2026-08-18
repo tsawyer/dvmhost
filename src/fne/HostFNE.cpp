@@ -7,13 +7,14 @@
  *  Copyright (C) 2023-2026 Bryan Biedenkapp, N2PLL
  *
  */
-#include "Defines.h"
+#include "fne/Defines.h"
 #include "common/network/udp/Socket.h"
 #include "common/Log.h"
 #include "common/StopWatch.h"
 #include "common/Thread.h"
 #include "network/callhandler/TagDMRData.h"
 #include "network/callhandler/TagP25Data.h"
+#include "network/callhandler/TagP25P2Data.h"
 #include "network/callhandler/TagNXDNData.h"
 #include "network/callhandler/TagAnalogData.h"
 #include "ActivityLog.h"
@@ -69,9 +70,11 @@ HostFNE::HostFNE(const std::string& confFile) :
 #endif // !defined(_WIN32)
     m_dmrEnabled(false),
     m_p25Enabled(false),
+    m_p25P2Enabled(false),
     m_nxdnEnabled(false),
     m_analogEnabled(false),
     m_ridLookup(nullptr),
+    m_ridAliasLookup(nullptr),
     m_tidLookup(nullptr),
     m_peerListLookup(nullptr),
     m_cryptoLookup(nullptr),
@@ -187,6 +190,20 @@ int HostFNE::run()
     
     m_ridLookup = new RadioIdLookup(ridLookupFile, ridReloadTime, true, verboseRIDRules);
     m_ridLookup->read();
+
+    // try to load radio aliases table
+    std::string ridAliasLookupFile = systemConf["radio_alias"]["file"].as<std::string>();
+    uint32_t ridAliasReloadTime = systemConf["radio_alias"]["time"].as<uint32_t>(0U);
+    bool verboseRIDAliasRules = systemConf["radio_alias"]["verbose"].as<bool>(false);
+
+    LogInfo("Radio Alias Lookups");
+    LogInfo("    File: %s", ridAliasLookupFile.length() > 0U ? ridAliasLookupFile.c_str() : "None");
+    if (ridReloadTime > 0U)
+        LogInfo("    Reload: %u mins", ridAliasReloadTime);
+    LogInfo("    Verbose: %s", verboseRIDAliasRules ? "true" : "false");
+    
+    m_ridAliasLookup = new RadioAliasLookup(ridAliasLookupFile, ridAliasReloadTime, verboseRIDAliasRules);
+    m_ridAliasLookup->read();
 
     // initialize master networking
     ret = createMasterNetwork();
@@ -612,6 +629,7 @@ bool HostFNE::createMasterNetwork()
 
     m_dmrEnabled = masterConf["allowDMRTraffic"].as<bool>(true);
     m_p25Enabled = masterConf["allowP25Traffic"].as<bool>(true);
+    m_p25P2Enabled = masterConf["allowP25P2Traffic"].as<bool>(false);
     m_nxdnEnabled = masterConf["allowNXDNTraffic"].as<bool>(true);
     m_analogEnabled = masterConf["allowAnalogTraffic"].as<bool>(false);
 
@@ -630,6 +648,7 @@ bool HostFNE::createMasterNetwork()
     LogInfo("    Metadata Port: %u", port + 1U);
     LogInfo("    Allow DMR Traffic: %s", m_dmrEnabled ? "yes" : "no");
     LogInfo("    Allow P25 Traffic: %s", m_p25Enabled ? "yes" : "no");
+    LogInfo("    Allow P25 Phase 2 Traffic: %s", m_p25P2Enabled ? "yes" : "no");
     LogInfo("    Allow NXDN Traffic: %s", m_nxdnEnabled ? "yes" : "no");
     LogInfo("    Allow Analog Traffic: %s", m_analogEnabled ? "yes" : "no");
     LogInfo("    Parrot Repeat Delay: %u ms", parrotDelay);
@@ -659,13 +678,13 @@ bool HostFNE::createMasterNetwork()
 
     // initialize traffic networking
     m_network = new TrafficNetwork(this, address, port, id, password, identity, debug, kmfDebug, verbose, reportPeerPing,
-        m_dmrEnabled, m_p25Enabled, m_nxdnEnabled, m_analogEnabled,
+        m_dmrEnabled, m_p25Enabled, m_p25P2Enabled, m_nxdnEnabled, m_analogEnabled,
         parrotDelay, parrotGrantDemand, m_allowActivityTransfer, m_allowDiagnosticTransfer,
         m_pingTime, m_updateLookupTime, workerCnt);
     m_network->setOptions(masterConf, true);
     m_network->setPacketDump(packetDump);
 
-    m_network->setLookups(m_ridLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
+    m_network->setLookups(m_ridLookup, m_ridAliasLookup, m_tidLookup, m_peerListLookup, m_cryptoLookup, m_adjSiteMapLookup);
 
     bool ret = m_network->open();
     if (!ret) {
@@ -887,6 +906,7 @@ bool HostFNE::createPeerNetworks()
             network->setMetadata(identity, 0U, 0U, 0.0F, 0.0F, 0, 0, 0, latitude, longitude, 0, location);
             network->setLookups(m_ridLookup, m_tidLookup);
             network->setMasterPeerId(masterPeerId);
+            network->setRadioAliasLookups(m_ridAliasLookup);
             network->setPeerLookups(m_peerListLookup);
             network->setPeerReplicationSaveACL(m_peerReplicaSavesACL);
             network->setNakFallOver(nakFallOver, nakFallOverCount);
@@ -900,6 +920,9 @@ bool HostFNE::createPeerNetworks()
             network->setP25Callback(std::bind(&HostFNE::processPeerP25, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5, std::placeholders::_6));
             network->setP25ICCCallback([=](network::NET_ICC::ENUM command, uint32_t dstId,
                 uint32_t peerId, uint32_t ssrc, uint32_t streamId) { processPeerP25InCallCtrl(command, dstId, peerId, ssrc, streamId); });
+            network->setP25P2Callback(std::bind(&HostFNE::processPeerP25P2, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5, std::placeholders::_6));
+            network->setP25P2ICCCallback([=](network::NET_ICC::ENUM command, uint32_t dstId, uint8_t slot,
+                uint32_t peerId, uint32_t ssrc, uint32_t streamId) { processPeerP25P2InCallCtrl(command, dstId, slot, peerId, ssrc, streamId); });
             network->setNXDNCallback(std::bind(&HostFNE::processPeerNXDN, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5, std::placeholders::_6));
             network->setNXDNICCCallback([=](network::NET_ICC::ENUM command, uint32_t dstId,
                 uint32_t peerId, uint32_t ssrc, uint32_t streamId) { processPeerNXDNInCallCtrl(command, dstId, peerId, ssrc, streamId); });
@@ -1068,6 +1091,9 @@ void HostFNE::processPeerDMR(network::PeerNetwork* peerNetwork, const uint8_t* d
     if (peerNetwork->getStatus() != NET_STAT_RUNNING)
         return;
 
+    if (!m_dmrEnabled)
+        return;
+
     // process DMR data
     if (length > 0U) {
         uint32_t peerId = peerNetwork->getPeerId();
@@ -1080,6 +1106,9 @@ void HostFNE::processPeerDMR(network::PeerNetwork* peerNetwork, const uint8_t* d
 void HostFNE::processPeerDMRInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId, uint8_t slot, 
     uint32_t peerId, uint32_t ssrc, uint32_t streamId)
 {
+    if (!m_dmrEnabled)
+        return;
+
     switch (command) {
     case network::NET_ICC::REJECT_TRAFFIC:
     case network::NET_ICC::DMR_RC_CEASE_TRANSMIT:
@@ -1111,6 +1140,9 @@ void HostFNE::processPeerP25(network::PeerNetwork* peerNetwork, const uint8_t* d
     if (peerNetwork->getStatus() != NET_STAT_RUNNING)
         return;
 
+    if (!m_p25Enabled)
+        return;
+
     // process P25 data
     if (length > 0U) {
         uint32_t peerId = peerNetwork->getPeerId();
@@ -1123,9 +1155,55 @@ void HostFNE::processPeerP25(network::PeerNetwork* peerNetwork, const uint8_t* d
 void HostFNE::processPeerP25InCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId,
     uint32_t peerId, uint32_t ssrc, uint32_t streamId)
 {
+    if (!m_p25Enabled)
+        return;
+
     switch (command) {
     case network::NET_ICC::REJECT_TRAFFIC:
         m_network->processDownstreamInCallCtrl(command, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25, dstId, 0U, peerId, ssrc, streamId);
+        break;
+
+    default:
+        break;
+    }
+}
+
+/* Processes P25 Phase 2 peer network traffic. */
+
+void HostFNE::processPeerP25P2(network::PeerNetwork* peerNetwork, const uint8_t* data, uint32_t length, uint32_t streamId, 
+    const network::frame::RTPFNEHeader& fneHeader, const network::frame::RTPHeader& rtpHeader)
+{
+    if (peerNetwork == nullptr)
+        return; // this shouldn't happen...
+
+    // skip peer if it isn't enabled
+    if (!peerNetwork->isEnabled())
+        return;
+
+    if (peerNetwork->getStatus() != NET_STAT_RUNNING)
+        return;
+
+    if (!m_p25P2Enabled)
+        return;
+
+    // process P25 data
+    if (length > 0U) {
+        uint32_t peerId = peerNetwork->getPeerId();
+        m_network->p25P2TrafficHandler()->processFrame(data, length, peerId, rtpHeader.getSSRC(), rtpHeader.getSequence(), streamId, true);
+    }
+}
+
+/* Helper to process an P25 Phase 2 In-Call Control message. */
+
+void HostFNE::processPeerP25P2InCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId, uint8_t slot,
+    uint32_t peerId, uint32_t ssrc, uint32_t streamId)
+{
+    if (!m_p25P2Enabled)
+        return;
+
+    switch (command) {
+    case network::NET_ICC::REJECT_TRAFFIC:
+        m_network->processDownstreamInCallCtrl(command, NET_SUBFUNC::PROTOCOL_SUBFUNC_P25_P2, dstId, slot, peerId, ssrc, streamId);
         break;
 
     default:
@@ -1148,6 +1226,9 @@ void HostFNE::processPeerNXDN(network::PeerNetwork* peerNetwork, const uint8_t* 
     if (peerNetwork->getStatus() != NET_STAT_RUNNING)
         return;
 
+    if (!m_nxdnEnabled)
+        return;
+
     // process NXDN data
     if (length > 0U) {
         uint32_t peerId = peerNetwork->getPeerId();
@@ -1160,6 +1241,9 @@ void HostFNE::processPeerNXDN(network::PeerNetwork* peerNetwork, const uint8_t* 
 void HostFNE::processPeerNXDNInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId, 
     uint32_t peerId, uint32_t ssrc, uint32_t streamId)
 {
+    if (!m_nxdnEnabled)
+        return;
+
     switch (command) {
     case network::NET_ICC::REJECT_TRAFFIC:
         m_network->processDownstreamInCallCtrl(command, NET_SUBFUNC::PROTOCOL_SUBFUNC_NXDN, dstId, 0U, peerId, ssrc, streamId);
@@ -1185,6 +1269,9 @@ void HostFNE::processPeerAnalog(network::PeerNetwork* peerNetwork, const uint8_t
     if (peerNetwork->getStatus() != NET_STAT_RUNNING)
         return;
 
+    if (!m_analogEnabled)
+        return;
+
     // process analog data
     if (length > 0U) {
         uint32_t peerId = peerNetwork->getPeerId();
@@ -1197,6 +1284,9 @@ void HostFNE::processPeerAnalog(network::PeerNetwork* peerNetwork, const uint8_t
 void HostFNE::processPeerAnalogInCallCtrl(network::NET_ICC::ENUM command, uint32_t dstId, 
     uint32_t peerId, uint32_t ssrc, uint32_t streamId)
 {
+    if (!m_analogEnabled)
+        return;
+
     switch (command) {
     case network::NET_ICC::REJECT_TRAFFIC:
         m_network->processDownstreamInCallCtrl(command, NET_SUBFUNC::PROTOCOL_SUBFUNC_ANALOG, dstId, 0U, peerId, ssrc, streamId);
