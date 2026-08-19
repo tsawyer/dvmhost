@@ -25,6 +25,7 @@ using namespace p25::lc;
 
 #include <cstdio>
 #include <cassert>
+#include <algorithm>
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -1056,20 +1057,19 @@ bool LC::decodeLC(const uint8_t* rs, bool rawOnly)
         if (m_mfId == MFG_HARRIS) {
             // Harris P25 opcodes
             switch (m_lco) {
-            case LCO::HARRIS_USER_ALIAS_PA_ODD:
-            case LCO::HARRIS_USER_ALIAS_PA_EVEN:
+            case LCO::HARRIS_USER_ALIAS_A_ODD:
+            case LCO::HARRIS_USER_ALIAS_A_EVEN:
                 m_gotUserAliasPartA = true;
                 m_gotUserAlias = false;
 
                 if (m_userAlias != nullptr) {
                     ::memset(m_userAlias, 0x00U, HARRIS_USER_ALIAS_LENGTH_BYTES);
                     ::memcpy(m_userAlias, rs + 2U, 7U);
-                    m_gotUserAlias = true;
                 }
                 break;
 
-            case LCO::HARRIS_USER_ALIAS_PB_ODD:
-            case LCO::HARRIS_USER_ALIAS_PB_EVEN:
+            case LCO::HARRIS_USER_ALIAS_B_ODD:
+            case LCO::HARRIS_USER_ALIAS_B_EVEN:
                 if (m_gotUserAliasPartA && (m_userAlias != nullptr)) {
                     ::memcpy(m_userAlias + 7U, rs + 2U, 7U);
                     m_gotUserAlias = true;
@@ -1166,8 +1166,8 @@ void LC::encodeLC(uint8_t* rs)
         if (m_mfId == MFG_HARRIS) {
             // Harris P25 opcodes
             switch (m_lco) {
-            case LCO::HARRIS_USER_ALIAS_PA_ODD:
-            case LCO::HARRIS_USER_ALIAS_PA_EVEN:
+            case LCO::HARRIS_USER_ALIAS_A_ODD:
+            case LCO::HARRIS_USER_ALIAS_A_EVEN:
                 if (m_userAlias != nullptr) {
                     // split ulong64_t (8 byte) value into bytes
                     rs[1U] = m_mfId;                                                // Manufacturer ID
@@ -1181,8 +1181,8 @@ void LC::encodeLC(uint8_t* rs)
                 }
                 return;
 
-            case LCO::HARRIS_USER_ALIAS_PB_ODD:
-            case LCO::HARRIS_USER_ALIAS_PB_EVEN:
+            case LCO::HARRIS_USER_ALIAS_B_ODD:
+            case LCO::HARRIS_USER_ALIAS_B_EVEN:
                 if (m_userAlias != nullptr) {
                     // split ulong64_t (8 byte) value into bytes
                     rs[1U] = m_mfId;                                                // Manufacturer ID
@@ -1555,11 +1555,12 @@ void LC::getMI(uint8_t* mi) const
 
 std::string LC::getUserAlias() const
 {
-    std::string alias;
-    if (m_gotUserAlias) {
-        for (uint32_t i = 0; i < HARRIS_USER_ALIAS_LENGTH_BYTES; i++)
-            alias[i] = m_userAlias[i];
-    }
+    if (!m_gotUserAlias || m_userAlias == nullptr)
+        return std::string();
+
+    std::string alias(reinterpret_cast<const char*>(m_userAlias), HARRIS_USER_ALIAS_LENGTH_BYTES);
+    while (!alias.empty() && (alias.back() == '\0' || alias.back() == ' '))
+        alias.pop_back();
 
     return alias;
 }
@@ -1572,8 +1573,10 @@ void LC::setUserAlias(std::string alias)
         m_userAlias = new uint8_t[HARRIS_USER_ALIAS_LENGTH_BYTES];
 
     ::memset(m_userAlias, 0x00U, HARRIS_USER_ALIAS_LENGTH_BYTES);
-    for (uint32_t i = 0; i < HARRIS_USER_ALIAS_LENGTH_BYTES; i++)
-        m_userAlias[i] = alias[i];
+    const std::size_t length = std::min<std::size_t>(alias.length(), HARRIS_USER_ALIAS_LENGTH_BYTES);
+    ::memcpy(m_userAlias, alias.data(), length);
+    m_gotUserAliasPartA = false;
+    m_gotUserAlias = length > 0U;
 }
 
 // ---------------------------------------------------------------------------
@@ -1654,12 +1657,14 @@ void LC::copy(const LC& data)
 
         m_userAlias = new uint8_t[HARRIS_USER_ALIAS_LENGTH_BYTES];
         ::memcpy(m_userAlias, data.m_userAlias, HARRIS_USER_ALIAS_LENGTH_BYTES);
+        m_gotUserAliasPartA = data.m_gotUserAliasPartA;
         m_gotUserAlias = data.m_gotUserAlias;
     } else {
         delete[] m_userAlias;
 
         m_userAlias = new uint8_t[HARRIS_USER_ALIAS_LENGTH_BYTES];
         ::memset(m_userAlias, 0x00U, HARRIS_USER_ALIAS_LENGTH_BYTES);
+        m_gotUserAliasPartA = false;
         m_gotUserAlias = false;
     }
 

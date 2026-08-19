@@ -137,6 +137,9 @@ namespace p25
             uint8_t m_grpUpdtCount;
             uint8_t m_roamLDU1Count;
 
+            uint8_t m_rfUserAliasPhase;
+            uint8_t m_netUserAliasPhase;
+
             bool m_inbound;
 
             bool m_verbose;
@@ -221,6 +224,14 @@ namespace p25
              * @param encrypted Flag indicating whether or not the data is encrypted.
              */
             void resetWithNullAudio(uint8_t* data, bool encrypted);
+
+            /**
+             * @brief Replaces an eligible outbound voice LC with the next User Alias conveyance LC.
+             * @param control Link control to update.
+             * @param phase Per-call User Alias conveyance phase.
+             * @returns bool True if a User Alias LC was selected.
+             */
+            bool applyUserAlias(lc::LC& control, uint8_t& phase);
 
             /**
              * @brief Helper to determine the next active talkgroup in a active multi-group scenario,

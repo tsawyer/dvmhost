@@ -37,6 +37,7 @@ using namespace p25::packet;
 
 const uint32_t PKT_LDU1_COUNT = 3U;
 const uint32_t ROAM_LDU1_COUNT = 1U;
+const uint8_t USER_ALIAS_PHASE_COUNT = 6U;
 
 // ---------------------------------------------------------------------------
 //  Public Class Members
@@ -63,6 +64,7 @@ void Voice::resetRF()
     m_pktLDU1Count = 0U;
     m_grpUpdtCount = 0U;
     m_roamLDU1Count = 0U;
+    m_rfUserAliasPhase = 0U;
 
     m_inbound = false;
 }
@@ -85,6 +87,7 @@ void Voice::resetNet()
     m_pktLDU1Count = 0U;
     m_grpUpdtCount = 0U;
     m_roamLDU1Count = 0U;
+    m_netUserAliasPhase = 0U;
 
     m_netLastDUID = DUID::TDU;
 }
@@ -1442,6 +1445,8 @@ Voice::Voice(Control* p25, bool debug, bool verbose) :
     m_pktLDU1Count(0U),
     m_grpUpdtCount(0U),
     m_roamLDU1Count(0U),
+    m_rfUserAliasPhase(0U),
+    m_netUserAliasPhase(0U),
     m_inbound(false),
     m_verbose(verbose),
     m_debug(debug)
@@ -2368,6 +2373,57 @@ void Voice::resetWithNullAudio(uint8_t* data, bool encrypted)
         ::memcpy(data + 180U, P25DEF::ENCRYPTED_NULL_IMBE, 11U);
         ::memcpy(data + 204U, P25DEF::ENCRYPTED_NULL_IMBE, 11U);
     }
+}
+
+/* Replaces an eligible outbound voice LC with the next User Alias conveyance LC. */
+
+bool Voice::applyUserAlias(lc::LC& control, uint8_t& phase)
+{
+    // User Alias is an outbound voice-channel LC. Do not displace scheduled
+    // status, update, explicit-source-ID, or vendor-specific LCs.
+    if (!control.isStandardMFId() ||
+        (control.getLCO() != LCO::GROUP && control.getLCO() != LCO::PRIVATE &&
+         control.getLCO() != LCO::PRIVATE_EXT)) {
+        return false;
+    }
+
+    const uint8_t currentPhase = phase;
+    phase = (phase + 1U) % USER_ALIAS_PHASE_COUNT;
+
+    // leave one normal voice-user LC between complete alias conveyances
+    if (currentPhase == 2U || currentPhase == 5U)
+        return false;
+
+    // bryanb: this needs to be changed to use the actual Radio Alias from the new radio alias lookups
+    //  and not the radio ID ACL alias data
+    // TODO FIXME TODO
+    ::lookups::RadioId rid = m_p25->m_ridLookup->find(control.getSrcId());
+    if (rid.radioDefault())
+        return false;
+
+    std::string radioAlias = rid.radioAlias();
+
+    control.setUserAlias(radioAlias);
+    control.setMFId(MFG_HARRIS);
+
+    switch (currentPhase) {
+    case 0U:
+        control.setLCO(LCO::HARRIS_USER_ALIAS_A_ODD);
+        break;
+    case 1U:
+        control.setLCO(LCO::HARRIS_USER_ALIAS_B_ODD);
+        break;
+    case 3U:
+        control.setLCO(LCO::HARRIS_USER_ALIAS_A_EVEN);
+        break;
+    case 4U:
+        control.setLCO(LCO::HARRIS_USER_ALIAS_B_EVEN);
+        break;
+    default:
+        return false;
+    }
+
+    return true;
 }
 
 /* Helper to determine the next active talkgroup in a active multi-group scenario. */
