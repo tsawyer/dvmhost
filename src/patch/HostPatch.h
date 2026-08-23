@@ -125,6 +125,7 @@ private:
     bool m_debug;
 
     static std::mutex s_networkMutex;
+    static std::mutex s_mmdvmNetworkMutex;
 
     /**
      * @brief Reads basic configuration parameters from the INI.

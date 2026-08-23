@@ -58,6 +58,7 @@ using namespace network::udp;
 // ---------------------------------------------------------------------------
 
 std::mutex HostPatch::s_networkMutex;
+std::mutex HostPatch::s_mmdvmNetworkMutex;
 bool HostPatch::s_running = false;
 
 // ---------------------------------------------------------------------------
@@ -261,7 +262,7 @@ int HostPatch::run()
         }
 
         if (m_mmdvmP25Reflector) {
-            std::lock_guard<std::mutex> lock(HostPatch::s_networkMutex);
+            std::lock_guard<std::mutex> lock(HostPatch::s_mmdvmNetworkMutex);
             m_mmdvmP25Net->clock(ms);
         }
 
@@ -2237,11 +2238,16 @@ void* HostPatch::threadMMDVMProcess(void* arg)
             }
 
             if (patch->m_digiMode == TX_MODE_P25) {
-                std::lock_guard<std::mutex> lock(HostPatch::s_networkMutex);
+                std::lock_guard<std::mutex> lock(HostPatch::s_mmdvmNetworkMutex);
 
+                // drain every frame currently queued -- the MMDVM gateway
+                // sends the 9 records making up an LDU1/LDU2 back-to-back
+                // with essentially no spacing, so servicing only a single
+                // record per loop tick lets the ring buffer fall behind
+                // and build up latency (or overflow and get wiped)
                 DECLARE_UINT8_ARRAY(buffer, 100U);
-                uint32_t len = patch->m_mmdvmP25Net->read(buffer, 100U);
-                if (len != 0U) {
+                uint32_t len;
+                while ((len = patch->m_mmdvmP25Net->read(buffer, 100U)) != 0U) {
                     switch (buffer[0U]) {
                     // LDU1
                     case DFSIFrameType::LDU1_VOICE1:
@@ -2338,8 +2344,7 @@ void* HostPatch::threadMMDVMProcess(void* arg)
                 }
             }
 
-            if (ms < 5U)
-                Thread::sleep(5U);
+            Thread::sleep(1U);
         }
 
         LogInfoEx(LOG_HOST, "[STOP] %s", threadName.c_str());
