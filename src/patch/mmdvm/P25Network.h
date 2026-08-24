@@ -29,6 +29,9 @@
 
 #include <cstdint>
 #include <string>
+#include <deque>
+#include <mutex>
+#include <vector>
 
 namespace mmdvm
 {
@@ -109,6 +112,14 @@ namespace mmdvm
         void close();
 
     private:
+        /**
+         * @brief Represents a single outbound DFSI record awaiting its scheduled send time.
+         */
+        struct QueuedFrame {
+            std::vector<uint8_t> data;
+            uint64_t targetTime;
+        };
+
         network::udp::Socket m_socket;
 
         sockaddr_storage m_addr;
@@ -117,6 +128,27 @@ namespace mmdvm
         bool m_debug;
 
         RingBuffer<uint8_t> m_buffer;
+
+        std::mutex m_txQueueLock;
+        std::deque<QueuedFrame> m_txQueue;
+        uint64_t m_lastTxTime;
+
+        /**
+         * @brief Helper to get the current time in milliseconds.
+         */
+        static uint64_t now();
+
+        /**
+         * @brief Helper to schedule a DFSI record for real-time-paced transmission.
+         *  Records making up a single LDU1/LDU2 superframe are normally handed to
+         *  this in one tight burst; queueing them here and draining the queue on
+         *  a ~20ms-per-record cadence (matching the real over-the-air P25 voice
+         *  frame rate) avoids delivering them to the MMDVM gateway as an
+         *  instantaneous burst followed by an idle gap.
+         * @param data Buffer containing the record to send.
+         * @param length Length of the record in bytes.
+         */
+        void queueFrame(const uint8_t* data, uint32_t length);
     };
 } // namespace mmdvm
 
