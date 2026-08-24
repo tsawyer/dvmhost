@@ -1377,11 +1377,10 @@ void HostPatch::processP25Network(uint8_t* buffer, uint32_t length)
                     LogDebug(LOG_NET, P25_LDU1_STR ", algoId = $%02X, kId = $%04X, reverseCall = %u", control.getAlgId(), control.getKId(), reverseCall);
 
                 if (m_mmdvmP25Reflector) {
-                    ::memcpy(m_netLDU1, netLDU, 9U * 25U);
-                    m_gotNetLDU1 = true;
-                    m_netLC = control;
+                    if (m_debug)
+                        Utils::dump(1U, "P25, HostPatch::processP25Network(), DVM -> MMDVM LDU1", netLDU, 9U * 25U);
 
-                    writeNet_LDU1(false);
+                    m_mmdvmP25Net->writeLDU1(netLDU, control, lsd, false);
                 } else {
                     m_network->writeP25LDU1(control, lsd, netLDU, frameType);
                 }
@@ -1586,21 +1585,25 @@ void HostPatch::processP25Network(uint8_t* buffer, uint32_t length)
                     LogDebug(LOG_NET, P25_LDU2_STR ", algoId = $%02X, kId = $%04X, reverseCall = %u", control.getAlgId(), control.getKId(), reverseCall);
 
                 if (m_mmdvmP25Reflector) {
-                    ::memcpy(m_netLDU2, netLDU, 9U * 25U);
-                    m_gotNetLDU2 = true;
-                    m_netLC = control;
+                    if (m_debug)
+                        Utils::dump(1U, "P25, HostPatch::processP25Network(), DVM -> MMDVM LDU2", netLDU, 9U * 25U);
 
-                    writeNet_LDU2(false);
+                    m_mmdvmP25Net->writeLDU2(netLDU, control, lsd, false);
                 } else {
                     m_network->writeP25LDU2(control, lsd, netLDU);
                 }
             }
             break;
 
-        case DUID::HDU:
-        case DUID::PDU:
         case DUID::TDU:
         case DUID::TDULC:
+            // a clean end-of-transmission was received -- tear the call down now instead
+            // of waiting on the drop-time fallback to notice the audio went silent
+            resetP25Call(srcId);
+            break;
+
+        case DUID::HDU:
+        case DUID::PDU:
         case DUID::TSDU:
         case DUID::VSELP1:
         case DUID::VSELP2:
@@ -1940,7 +1943,7 @@ void HostPatch::checkNet_LDU1()
         m_netLDU1[80U] != 0x00U || m_netLDU1[105U] != 0x00U || m_netLDU1[130U] != 0x00U ||
         m_netLDU1[155U] != 0x00U || m_netLDU1[180U] != 0x00U || m_netLDU1[204U] != 0x00U) &&
         m_gotNetLDU1)
-        writeNet_LDU1(false);
+        writeNet_LDU1(true);
 }
 
 /* Helper to write a network P25 LDU1 packet. */
@@ -2034,7 +2037,7 @@ void HostPatch::checkNet_LDU2()
         m_netLDU2[80U] != 0x00U || m_netLDU2[105U] != 0x00U || m_netLDU2[130U] != 0x00U ||
         m_netLDU2[155U] != 0x00U || m_netLDU2[180U] != 0x00U || m_netLDU2[204U] != 0x00U) &&
         m_gotNetLDU2) {
-        writeNet_LDU2(false);
+        writeNet_LDU2(true);
     }
 }
 
